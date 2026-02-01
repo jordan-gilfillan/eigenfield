@@ -1,5 +1,3 @@
-
-
 # Journal Distiller — Canonical Spec (Fresh Start) v0.3.0-draft
 
 > This document is the single source of truth. If code, README, or UI disagree with this spec, the spec wins.
@@ -102,7 +100,13 @@ Before hashing, text is normalized as:
 - preserve leading whitespace (don’t destroy code blocks)
 
 ### 5.2 Atom stable ID
-Each MessageAtom has an **atomStableId** (string) computed as:
+
+**Timestamp canonicalization (required):**
+- `timestampUtcISO` MUST be RFC 3339 / ISO 8601 in UTC with **exactly millisecond precision** and a `Z` suffix:
+  - format: `YYYY-MM-DDTHH:mm:ss.SSSZ`
+  - example: `2024-01-15T10:30:00.000Z`
+- If a source has no millisecond precision, set milliseconds to `.000`.
+- If a source provides an offset, convert to UTC and render with `Z`.
 
 ```
 sha256(
@@ -115,13 +119,25 @@ Notes:
 - This makes the ID stable across re-imports of the same file and robust against identical text appearing at different times/conversations.
 
 ### 5.3 Bundle hash
-For a given (importBatchId, dayDate, sources[], filterProfileSnapshot, labelSpec), the **bundleHash** is:
+Two hashes are used for clarity:
 
-```
-sha256("bundle_v1|" + stableBundleText)
-```
+- **bundleHash**: hashes the exact bytes of the deterministic bundle text (audit of “what the model saw”).
+  
+  ```
+  sha256("bundle_v1|" + stableBundleText)
+  ```
 
-where `stableBundleText` is the deterministic bundle string defined in 9.1.
+- **bundleContextHash**: hashes the *inputs that produced* the bundle (audit of “why this bundle exists”).
+
+  ```
+  sha256(
+    "bundle_ctx_v1|" + importBatchId + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson
+  )
+  ```
+
+Notes:
+- It is acceptable for different configs to produce identical `stableBundleText`; in that case `bundleHash` matches but `bundleContextHash` differs.
+- Outputs MUST store both hashes.
 
 ### 5.4 Output stable key
 Outputs are referenced by:
@@ -141,6 +157,10 @@ Minimum fields:
 - fileSizeBytes
 - timezone (IANA, e.g. `America/Los_Angeles`)
 - statsJson: `{ message_count, day_count, coverage_start, coverage_end, per_source_counts }`
+
+**ImportBatch.source semantics (v0.3):**
+- v0.3 import accepts **one file per ImportBatch** and that file MUST parse as exactly one source (chatgpt OR claude OR grok). In this common case, `ImportBatch.source` equals the detected parser.
+- `mixed` is reserved for a future “multi-file” import mode (zip or multiple uploads in one request). If `mixed` is ever used, each MessageAtom still carries its real `source`.
 
 ### 6.2 MessageAtom
 Minimum fields:
@@ -187,17 +207,22 @@ Optional (off by default; only add if it proves useful):
 - EMBARRASSING
 
 ### 6.5 RawEntry
-Represents per-source, per-day cached text.
+Represents per-source, per-day **raw text cache** derived from MessageAtoms.
 
-Fields:
-- id
-- importBatchId (FK)
-- source (chatgpt|claude|grok)
-- dayDate (date)
-- contentText
-- contentHash (sha256 of contentText)
-- metadataJson (optional)
-- createdAt
+Purpose:
+- Fast UI display of “what was imported on this day” without re-joining MessageAtoms.
+- Optional search indexing later (not required in v0.3).
+
+Construction (required):
+- A RawEntry is created for each `(importBatchId, source, dayDate)`.
+- `contentText` is a deterministic rendering of *all* MessageAtoms for that day/source **without filtering**:
+  - sort by `timestampUtc ASC`, then `role ASC (user before assistant)`, then `atomStableId ASC`
+  - render lines as: `[<timestampUtcISO>] <role>: <text>`
+- `contentHash = sha256(contentText)`.
+
+Staleness:
+- RawEntry is **independent of labeling/filtering** because it contains raw messages; re-labeling does not require recomputing RawEntry.
+- If MessageAtom normalization rules change, RawEntry MUST be recomputed via a migration step.
 
 **Uniqueness (required):**
 - (importBatchId, source, dayDate) unique
@@ -211,11 +236,23 @@ Fields:
 - createdAt
 
 Seeded profiles (required):
-- `professional-only`: include WORK, LEARNING (optionally CREATIVE)
+- `professional-only`: include WORK, LEARNING
+- `professional-plus-creative`: include WORK, LEARNING, CREATIVE
 - `safety-exclude`: exclude MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL (and optionally EMBARRASSING)
+
+Determinism:
+- The default profile used by the UI MUST be `professional-only`.
 
 ### 6.7 Prompt / PromptVersion
 Prompts exist per stage (classify/summarize/redact). One version may be active per stage.
+
+Minimum fields (required):
+- Prompt: `id`, `stage (classify|summarize|redact)`, `name`, `createdAt`
+- PromptVersion: `id`, `promptId`, `versionLabel` (e.g. `v3`), `templateText`, `createdAt`, `isActive`
+
+Rules:
+- Exactly one active PromptVersion per stage at a time (for run creation defaults).
+- Runs MUST record the exact PromptVersion IDs used.
 
 ### 6.8 Run
 Fields:
@@ -300,6 +337,12 @@ POST `/api/distill/classify`
 
 Stub mode must be deterministic for tests.
 
+**Deterministic stub algorithm (stub_v1):**
+- For each MessageAtom, compute `h = sha256(atomStableId)`.
+- Map to a category via `index = uint32(h[0..3]) % N`, where `N` is the number of **core** categories: `[WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER]`.
+- Set `confidence = 0.5`.
+- Record `model = "stub_v1"` and `promptVersionId` pointing at a seeded `classify_stub_v1` PromptVersion.
+
 ### 7.3 Run creation
 UI: `/distill` dashboard
 
@@ -316,7 +359,7 @@ POST `/api/distill/runs`
      - has a MessageLabel matching **labelSpec**
      - passes filter profile
   5) Create one Job per eligible day
-  6) If 0 eligible days → return friendly error
+  6) If 0 eligible days → return HTTP 400 with a structured error (see 7.7 Error conventions).
 
 ### 7.4 Process (tick loop)
 POST `/api/distill/runs/:runId/tick`
@@ -324,6 +367,11 @@ POST `/api/distill/runs/:runId/tick`
 - Must be safe under repeated calls and concurrency:
   - a job cannot be started twice
   - a run cannot have overlapping active ticks
+
+**Concurrency guard (required):**
+- The tick handler MUST acquire a per-run DB-level guard before starting work.
+- Recommended: Postgres advisory lock using a stable lock key derived from `runId`.
+- If the guard cannot be acquired, return HTTP 409 `{ error: { code: "TICK_IN_PROGRESS", message: "Tick already in progress" } }`.
 
 UI polling:
 - sequential: wait for each tick response before next tick
@@ -341,6 +389,33 @@ Must show:
 ### 7.6 Resume / Cancel
 - Cancel: marks run cancelled and cancels queued jobs
 - Resume: resets FAILED jobs back to QUEUED and sets run back to running/pending
+
+### 7.7 Reset / Reprocess (rollback strategy)
+To handle “succeeded but wrong” days, the API MUST support resetting specific days.
+
+POST `/api/distill/runs/:runId/jobs/:dayDate/reset`
+- Deletes Outputs for that job (all stages)
+- Sets Job.status back to QUEUED
+- Increments `attempt`
+
+This enables targeted reprocessing without rerunning the whole date range.
+
+### 7.8 Error conventions
+All API errors use:
+
+```json
+{ "error": { "code": "STRING", "message": "Human readable", "details": { "...": "..." } } }
+```
+
+Conventions:
+- 400 for validation / no eligible data (`NO_ELIGIBLE_DAYS`, `INVALID_INPUT`)
+- 404 for missing resources (`NOT_FOUND`)
+- 409 for concurrency conflicts (`TICK_IN_PROGRESS`)
+- 500 for unexpected errors (`INTERNAL`)
+
+Job.error:
+- MUST store a structured object serialized as JSON string, containing at minimum: `{ code, message, at, retriable }`.
+- MUST NOT store full stack traces by default in UI (keep them in server logs).
 
 ---
 
@@ -378,10 +453,20 @@ For a job/day:
 ```
 
 ### 9.2 Bundle size constraints
-If the day bundle exceeds context budget, the worker may segment it using `segmenter_v1`:
+If the day bundle exceeds the context budget, the worker MUST segment it using `segmenter_v1`.
+
+Context budget (required):
+- Run config includes `maxInputTokens`.
+- Default `maxInputTokens` is determined by server config (safe default: 12_000) and MUST be recorded in Run.configJson.
+
 - segments are created by token count, preserving order
 - segment IDs are stable: `sha256("segment_v1|" + bundleHash + "|" + segmentIndex)`
 - The job records the segmentation decision in Job metadata (or Output metadata)
+
+Segment outputs (v0.3 behavior):
+- The worker calls the summarizer once per segment.
+- The final per-day Output is produced by **deterministically concatenating** segment summaries in order, with headings `## Segment <k>`.
+- v0.3 does NOT perform an additional “merge summaries” model call.
 
 ---
 
@@ -392,7 +477,6 @@ Rationale: deterministic, cheap, inspectable.
 
 Search covers:
 - MessageAtoms (raw)
-- RawEntries (cache)
 - Outputs (summaries)
 
 Implementation:
@@ -428,6 +512,11 @@ Run inspector (per day):
 - right: **Output** rendered markdown
 - collapsible “Raw JSON” pane for debugging
 
+### 10.3 Pagination
+List/search endpoints MUST support pagination:
+- request: `limit` (default 50, max 200) and `cursor` (opaque)
+- response: `{ items: [...], nextCursor?: string }`
+
 ---
 
 ## 11) Acceptance criteria (testable)
@@ -443,7 +532,7 @@ Run inspector (per day):
 
 ### 11.3 Reliability
 - Tick default is 1 job.
-- UI polling is sequential and cannot overlap ticks.
+- Backend rejects overlapping ticks (409 TICK_IN_PROGRESS), and UI uses sequential polling (frontend e2e test).
 - Resume continues from failed jobs without reprocessing succeeded days.
 
 ### 11.4 Search + UI
