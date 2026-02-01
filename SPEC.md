@@ -142,7 +142,7 @@ Notes:
 ### 5.4 Output stable key
 Outputs are referenced by:
 - `(runId, dayDate, stage)` (unique)
-- and they store `bundleHash` + `promptVersionId` + `model` for auditing.
+- and they store `bundleHash` + `bundleContextHash` + `promptVersionId` + `model` for auditing.
 
 ---
 
@@ -203,8 +203,12 @@ Core:
 Risk buckets (for exclusion profiles):
 - MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL
 
-Optional (off by default; only add if it proves useful):
+Additional bucket:
 - EMBARRASSING
+
+Notes:
+- `EMBARRASSING` is part of the v0.3 schema and classifier taxonomy.
+- No default include profile relies on it.
 
 ### 6.5 RawEntry
 Represents per-source, per-day **raw text cache** derived from MessageAtoms.
@@ -238,7 +242,7 @@ Fields:
 Seeded profiles (required):
 - `professional-only`: include WORK, LEARNING
 - `professional-plus-creative`: include WORK, LEARNING, CREATIVE
-- `safety-exclude`: exclude MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL (and optionally EMBARRASSING)
+- `safety-exclude`: exclude MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
 
 Determinism:
 - The default profile used by the UI MUST be `professional-only`.
@@ -268,10 +272,12 @@ Fields:
 - createdAt, updatedAt
 
 `configJson` **must include**:
-- `promptVersionIds`: `{ summarize: <id>, redact?: <id>, classify?: <id> }`
+- `promptVersionIds`: { summarize: <id> } plus:
+  - `redact: <id>` only if the run includes a redact stage (not used in v0.3 processing)
+  - `classify: <id>` only if the run triggers classification as part of run creation (optional; usually absent in v0.3)
 - `labelSpec`: `{ model: <string>, promptVersionId: <id> }` (used for filtering)
 - `filterProfileSnapshot`: `{ name, mode, categories[] }`
-- `timezone`
+- `timezone` (MUST equal ImportBatch.timezone; runs may not override)
 
 ### 6.9 Job
 Fields:
@@ -298,6 +304,7 @@ Fields:
 - model
 - promptVersionId
 - bundleHash
+- bundleContextHash
 - createdAt
 
 **Uniqueness (required):**
@@ -312,11 +319,14 @@ UI: `/distill/import`
 
 POST `/api/distill/import`
 - Input: multipart upload (`file`) + optional `sourceOverride` + optional `timezone`
+- Defaults:
+  - If `timezone` is omitted, it defaults to `America/Los_Angeles`.
+  - v0.3 default behavior is **import only** (no auto-classification).
 - Behavior:
   1) Detect source (or honor override)
   2) Parse messages **including both roles** (user + assistant)
   3) Create MessageAtoms with atomStableId
-  4) (Optional) create MessageLabels immediately, OR leave unclassified until user clicks “Classify Now” (both allowed)
+  4) v0.3 default: do NOT create MessageLabels during import; the user triggers classification via `/api/distill/classify`.
   5) Materialize RawEntries per (source, dayDate)
   6) Return import summary stats
 
@@ -370,7 +380,7 @@ POST `/api/distill/runs/:runId/tick`
 
 **Concurrency guard (required):**
 - The tick handler MUST acquire a per-run DB-level guard before starting work.
-- Recommended: Postgres advisory lock using a stable lock key derived from `runId`.
+- MUST use a Postgres advisory lock using a stable lock key derived from `runId`.
 - If the guard cannot be acquired, return HTTP 409 `{ error: { code: "TICK_IN_PROGRESS", message: "Tick already in progress" } }`.
 
 UI polling:
@@ -388,7 +398,7 @@ Must show:
 
 ### 7.6 Resume / Cancel
 - Cancel: marks run cancelled and cancels queued jobs
-- Resume: resets FAILED jobs back to QUEUED and sets run back to running/pending
+- Resume: resets FAILED jobs back to QUEUED and sets run status back to QUEUED
 
 ### 7.7 Reset / Reprocess (rollback strategy)
 To handle “succeeded but wrong” days, the API MUST support resetting specific days.
@@ -457,11 +467,12 @@ If the day bundle exceeds the context budget, the worker MUST segment it using `
 
 Context budget (required):
 - Run config includes `maxInputTokens`.
-- Default `maxInputTokens` is determined by server config (safe default: 12_000) and MUST be recorded in Run.configJson.
+- Default `maxInputTokens` MUST be recorded in Run.configJson.
+- If server config does not set it, `maxInputTokens` defaults to `12000`.
 
 - segments are created by token count, preserving order
 - segment IDs are stable: `sha256("segment_v1|" + bundleHash + "|" + segmentIndex)`
-- The job records the segmentation decision in Job metadata (or Output metadata)
+- The segmentation decision MUST be recorded in `Output.outputJson.meta` (v0.3).
 
 Segment outputs (v0.3 behavior):
 - The worker calls the summarizer once per segment.
@@ -480,7 +491,8 @@ Search covers:
 - Outputs (summaries)
 
 Implementation:
-- Postgres Full-Text Search (tsvector) + optional trigram for substring.
+- v0.3 uses Postgres Full-Text Search (tsvector) only.
+- Trigram substring indexing is explicitly out of scope for v0.3.
 - Index at minimum:
   - MessageAtom.text
   - Output.outputText
