@@ -43,7 +43,56 @@ Explicitly out of scope:
 - Automatic prompt rewriting/compilation from user-defined categories
 - Auto-retry with backoff (manual resume only)
 
-**Important:** We *do* add **lexical search** in v0.3 (Postgres FTS). Embeddings are still out of scope.
+
+## 2.1 Implementation stack and local dev (normative for this repo)
+
+To reduce drift, v0.3 pins the implementation stack used by this repository:
+- **Web**: Next.js (App Router) + TypeScript
+- **DB**: Postgres 16
+- **ORM/migrations**: Prisma
+- **Runtime**: Node.js LTS
+
+### 2.1.1 Docker Compose requirement
+The repo MUST include a `docker-compose.yml` that brings up a local Postgres 16 database with a named volume.
+
+Minimum service contract:
+- service name: `db`
+- image: `postgres:16`
+- exposes `5432:5432`
+- persists data in a named volume
+
+Example (informative):
+```yaml
+services:
+  db:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: journal_distill
+    volumes:
+      - journal_distill_pg:/var/lib/postgresql/data
+volumes:
+  journal_distill_pg:
+```
+
+### 2.1.2 Environment variables
+The app MUST read its DB connection from:
+- `DATABASE_URL` (required)
+
+Recommended Prisma workflow:
+- `prisma migrate dev`
+- `prisma db seed`
+
+### 2.1.3 Prisma schema is authoritative
+The canonical DB schema for the implementation is `prisma/schema.prisma`.
+- It MUST implement all entities and constraints from Section 6.
+- If Section 6 and Prisma differ, Section 6 wins and Prisma MUST be updated.
+
+Notes:
+- Prisma is used to make migrations repeatable and to keep the app code and DB schema in lockstep.
 
 ---
 
@@ -426,6 +475,166 @@ Conventions:
 Job.error:
 - MUST store a structured object serialized as JSON string, containing at minimum: `{ code, message, at, retriable }`.
 - MUST NOT store full stack traces by default in UI (keep them in server logs).
+
+---
+
+### 7.9 Success response schemas (normative)
+
+All success responses are JSON.
+
+#### POST /api/distill/import
+Returns:
+
+```json
+{
+  "importBatch": {
+    "id": "string",
+    "createdAt": "RFC3339",
+    "source": "chatgpt|claude|grok",
+    "originalFilename": "string",
+    "fileSizeBytes": 0,
+    "timezone": "IANA",
+    "stats": {
+      "message_count": 0,
+      "day_count": 0,
+      "coverage_start": "YYYY-MM-DD",
+      "coverage_end": "YYYY-MM-DD",
+      "per_source_counts": {"chatgpt": 0, "claude": 0, "grok": 0}
+    }
+  },
+  "created": {
+    "messageAtoms": 0,
+    "rawEntries": 0
+  },
+  "warnings": ["string"]
+}
+```
+
+Notes:
+- `warnings` MAY be empty.
+
+#### POST /api/distill/classify
+Returns:
+
+```json
+{
+  "importBatchId": "string",
+  "labelSpec": {"model": "string", "promptVersionId": "string"},
+  "mode": "real|stub",
+  "totals": {
+    "messageAtoms": 0,
+    "labeled": 0,
+    "newlyLabeled": 0,
+    "skippedAlreadyLabeled": 0
+  }
+}
+```
+
+#### POST /api/distill/runs
+Returns:
+
+```json
+{
+  "run": {
+    "id": "string",
+    "status": "queued|running|completed|cancelled|failed",
+    "importBatchId": "string",
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD",
+    "sources": ["chatgpt"],
+    "filterProfileId": "string",
+    "model": "string",
+    "outputTarget": "db",
+    "config": {
+      "promptVersionIds": {"summarize": "string"},
+      "labelSpec": {"model": "string", "promptVersionId": "string"},
+      "filterProfileSnapshot": {"name": "string", "mode": "include|exclude", "categories": ["WORK"]},
+      "timezone": "IANA",
+      "maxInputTokens": 12000
+    },
+    "createdAt": "RFC3339",
+    "updatedAt": "RFC3339"
+  },
+  "jobsCreated": 0,
+  "eligibleDays": ["YYYY-MM-DD"]
+}
+```
+
+Notes:
+- `eligibleDays` MAY be truncated/paginated by implementation for very large ranges; if so, it MUST also return `eligibleDayCount`.
+
+#### POST /api/distill/runs/:runId/tick
+Returns:
+
+```json
+{
+  "runId": "string",
+  "processed": 0,
+  "jobs": [
+    {
+      "dayDate": "YYYY-MM-DD",
+      "status": "queued|running|succeeded|failed|cancelled",
+      "attempt": 0,
+      "tokensIn": 0,
+      "tokensOut": 0,
+      "costUsd": 0,
+      "error": null
+    }
+  ],
+  "progress": {
+    "queued": 0,
+    "running": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "cancelled": 0
+  },
+  "runStatus": "queued|running|completed|cancelled|failed"
+}
+```
+
+Notes:
+- `jobs` MUST include the jobs processed in this tick (may be empty if none).
+
+#### GET /api/distill/search
+Returns:
+
+```json
+{
+  "items": [
+    {
+      "resultType": "atom",
+      "rank": 0,
+      "snippet": "string",
+      "atom": {
+        "atomStableId": "string",
+        "source": "chatgpt|claude|grok",
+        "dayDate": "YYYY-MM-DD",
+        "timestampUtc": "RFC3339",
+        "role": "user|assistant",
+        "category": "WORK",
+        "confidence": 0.0
+      }
+    },
+    {
+      "resultType": "output",
+      "rank": 0,
+      "snippet": "string",
+      "output": {
+        "runId": "string",
+        "dayDate": "YYYY-MM-DD",
+        "stage": "summarize|redact"
+      }
+    }
+  ],
+  "nextCursor": "string"
+}
+```
+
+Rules:
+- `nextCursor` MAY be omitted if there are no more results.
+- `category`/`confidence` for atom results MUST be derived from labels matching the active `labelSpec` context:
+  - If `runId` is provided, use that Run's `config.labelSpec`.
+  - If `runId` is not provided and the caller requests category filtering, the request MUST include `labelModel` and `labelPromptVersionId`.
 
 ---
 
