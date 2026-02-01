@@ -78,12 +78,14 @@ Implement all entities from Section 6:
 - All uniqueness constraints
 - All foreign key relationships
 
-**Step 5: Seed Data**
+**Step 5: Seed Data (idempotent)**
 Create `prisma/seed.ts`:
 - Filter profiles: `professional-only`, `professional-plus-creative`, `safety-exclude`
 - Prompts for stages: `classify`, `summarize`, `redact`
 - Stub prompt version: `classify_stub_v1`
 - Placeholder active versions for summarize
+- Seed MUST be idempotent: use `upsert` or check-before-insert pattern
+- Running `prisma db seed` multiple times MUST NOT create duplicates or fail
 
 **Step 6: Core Utilities**
 Create `lib/` modules:
@@ -110,6 +112,12 @@ Create `lib/` modules:
 - [ ] Core utility functions
 - [ ] Unit tests passing
 
+**Phase Gate:**
+- [ ] `docker compose up -d` starts Postgres
+- [ ] `prisma migrate dev` succeeds
+- [ ] `prisma db seed` succeeds (and is idempotent on re-run)
+- [ ] All unit tests pass
+
 ---
 
 ### Phase 2: Import Pipeline
@@ -135,7 +143,11 @@ Start with one format to prove the pipeline:
 - Never use `skipDuplicates` on other fields
 - Test: importing same file twice doesn't lose data
 
-**Step 4: Import UI**
+**Step 4a: Read Endpoints**
+- `GET /api/distill/import-batches` — list all ImportBatches (paginated)
+- `GET /api/distill/import-batches/:id` — get single ImportBatch with stats
+
+**Step 5: Import UI**
 `/distill/import` page:
 - File upload component
 - Source override dropdown
@@ -148,6 +160,11 @@ Start with one format to prove the pipeline:
 - [ ] Import API endpoint
 - [ ] Import UI page
 - [ ] Tests: both roles imported, no silent loss, RawEntry per source/day
+
+**Phase Gate:**
+- [ ] Can upload a ChatGPT export and see stats in response
+- [ ] Re-importing same file doesn't duplicate atoms (atomStableId dedup)
+- [ ] RawEntries created per (source, dayDate)
 
 ---
 
@@ -180,6 +197,11 @@ const confidence = 0.5
 - [ ] Classify API endpoint
 - [ ] Tests: stub determinism, label version isolation
 
+**Phase Gate:**
+- [ ] Stub classification produces deterministic labels (same input → same category)
+- [ ] Labels are scoped to (messageAtomId, promptVersionId, model)
+- [ ] Re-classifying with same labelSpec skips already-labeled atoms
+
 ---
 
 ### Phase 4: Run Execution
@@ -195,10 +217,12 @@ const confidence = 0.5
 - Return 400 if 0 eligible days
 
 **Step 2: Advisory Lock Setup**
-Per spec 7.4, advisory locks are session-scoped:
-- Option A: Use raw `pg` Pool for lock operations
-- Option B: Use Prisma `$queryRaw` with `SET SESSION` (less reliable with pooling)
-- Recommended: Dedicated `pg` client for locks
+Per spec 7.4, advisory locks are session-scoped. **Pinned approach:**
+- Use a dedicated `pg` Pool (not Prisma) for advisory lock acquire/release
+- Lock key: `hashtextextended(runId, 0)` to get a stable int64 for `pg_try_advisory_lock` / `pg_advisory_unlock`
+- Acquire lock at start of tick, release at end (same connection)
+- If lock acquisition fails (already held), return 409 immediately
+- This avoids Prisma connection pooling releasing locks on the wrong session
 
 **Step 3: Tick Endpoint**
 `POST /api/distill/runs/:runId/tick`:
@@ -233,6 +257,13 @@ Per spec 9.2:
 - Resume: reset FAILED jobs to QUEUED, set run to QUEUED
 - Reset: delete outputs for specific day, increment attempt
 
+**Step 7: Read Endpoints**
+- `GET /api/distill/runs` — list runs (paginated, filterable by importBatchId)
+- `GET /api/distill/runs/:runId` — get single run with config and progress
+- `GET /api/distill/runs/:runId/jobs` — list jobs for run (paginated)
+- `GET /api/distill/runs/:runId/jobs/:dayDate` — get single job with outputs
+- `GET /api/distill/outputs/:id` — get single output by ID
+
 **Deliverables:**
 - [ ] Run creation endpoint
 - [ ] Advisory lock mechanism
@@ -241,6 +272,13 @@ Per spec 9.2:
 - [ ] Segmentation (if over budget)
 - [ ] Resume/Cancel/Reset endpoints
 - [ ] Tests: frozen config, tick safety, bundle ordering, terminal status rule
+
+**Phase Gate:**
+- [ ] Run creation freezes config correctly
+- [ ] Tick processes exactly 1 job and returns 409 on concurrent calls
+- [ ] Cancelled runs cannot be resurrected by tick
+- [ ] Bundle hash is deterministic (same atoms → same hash)
+- [ ] Reset endpoint allows reprocessing a specific day
 
 ---
 
@@ -272,6 +310,11 @@ Per spec 9.2:
 - [ ] Run detail page
 - [ ] Sequential polling
 - [ ] Output viewer
+
+**Phase Gate:**
+- [ ] Dashboard shows import batches and allows run creation
+- [ ] Run detail page polls sequentially (no overlapping requests)
+- [ ] Output renders as markdown
 
 ---
 
@@ -314,6 +357,11 @@ Run inspector:
 - [ ] Import inspector
 - [ ] Run inspector
 
+**Phase Gate:**
+- [ ] FTS query returns relevant atoms/outputs
+- [ ] Pagination works with cursor
+- [ ] Inspector shows before/after for a given day
+
 ---
 
 ### Phase 7: Additional Parsers
@@ -334,6 +382,10 @@ Run inspector:
 - [ ] Claude parser
 - [ ] Grok parser
 - [ ] Parser auto-detection
+
+**Phase Gate:**
+- [ ] All three parsers produce valid MessageAtoms
+- [ ] Auto-detection correctly identifies source format
 
 ---
 
