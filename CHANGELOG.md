@@ -14,16 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prisma ORM with full schema per SPEC.md Section 6
   - Vitest for unit testing
   - Core utilities: normalize, timestamp, hash, stableId, bundleHash, rawEntry, enums
-  - 78 unit tests passing
   - Idempotent seed script with filter profiles and prompt versions
 
-### Planned (Phase 2: Import Pipeline)
-- ChatGPT export parser
-- `POST /api/distill/import` endpoint
-- `GET /api/distill/import-batches` endpoint
-- `GET /api/distill/import-batches/:id` endpoint
-- Import UI page (`/distill/import`)
-- Deduplication safety via atomStableId
+- Phase 2: Import Pipeline complete
+  - ChatGPT export parser with full conversation.json support
+  - `POST /api/distill/import` endpoint (multipart file upload)
+  - `GET /api/distill/import-batches` endpoint (paginated list)
+  - `GET /api/distill/import-batches/:id` endpoint
+  - Import UI page (`/distill/import`) with file upload, source override, timezone selector
+  - Deduplication safety via atomStableId (check-before-insert pattern)
+  - RawEntry materialization per (source, dayDate)
+  - Dashboard placeholder page (`/distill`)
+  - 105 tests passing (unit + integration)
 
 ### Planned (Phase 3: Classification)
 - Stub classifier (`stub_v1` algorithm)
