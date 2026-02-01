@@ -430,6 +430,9 @@ POST `/api/distill/runs/:runId/tick`
 **Concurrency guard (required):**
 - The tick handler MUST acquire a per-run DB-level guard before starting work.
 - MUST use a Postgres advisory lock using a stable lock key derived from `runId`.
+- Advisory locks are **session-scoped** in Postgres.
+  - The implementation MUST ensure the lock is acquired and released on the **same DB session/connection**.
+  - If using a pooled ORM client (e.g., Prisma), the implementation MAY use a dedicated Postgres client connection for lock acquire/release to avoid releasing on a different pooled session.
 - If the guard cannot be acquired, return HTTP 409 `{ error: { code: "TICK_IN_PROGRESS", message: "Tick already in progress" } }`.
 
 UI polling:
@@ -449,6 +452,9 @@ Must show:
 - Cancel: marks run cancelled and cancels queued jobs
 - Resume: resets FAILED jobs back to QUEUED and sets run status back to QUEUED
 
+Terminal status rule:
+- If a Run is `cancelled`, tick processing MUST NOT transition it back to any non-terminal status (e.g., `running`, `queued`, `failed`, `completed`). Cancellation is authoritative.
+
 ### 7.7 Reset / Reprocess (rollback strategy)
 To handle “succeeded but wrong” days, the API MUST support resetting specific days.
 
@@ -458,6 +464,10 @@ POST `/api/distill/runs/:runId/jobs/:dayDate/reset`
 - Increments `attempt`
 
 This enables targeted reprocessing without rerunning the whole date range.
+
+Note (crash/manual recovery):
+- v0.3 does not include automatic recovery for jobs stuck in `running` due to process crashes.
+- The intended recovery mechanism is manual reset via this endpoint (and, if needed, marking the job back to `queued`).
 
 ### 7.8 Error conventions
 All API errors use:
