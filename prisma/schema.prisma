@@ -1,0 +1,281 @@
+// Journal Distiller - Prisma Schema
+// Canonical source: SPEC.md Section 6
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS (Section 6.4 and related)
+// =============================================================================
+
+enum Source {
+  CHATGPT
+  CLAUDE
+  GROK
+  MIXED
+}
+
+enum Role {
+  USER
+  ASSISTANT
+}
+
+enum Category {
+  // Core categories
+  WORK
+  LEARNING
+  CREATIVE
+  MUNDANE
+  PERSONAL
+  OTHER
+  // Risk buckets
+  MEDICAL
+  MENTAL_HEALTH
+  ADDICTION_RECOVERY
+  INTIMACY
+  FINANCIAL
+  LEGAL
+  // Additional
+  EMBARRASSING
+}
+
+enum FilterMode {
+  INCLUDE
+  EXCLUDE
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum Stage {
+  CLASSIFY
+  SUMMARIZE
+  REDACT
+}
+
+// =============================================================================
+// MODELS (Section 6)
+// =============================================================================
+
+// Section 6.1: ImportBatch
+model ImportBatch {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  source           Source
+  originalFilename String
+  fileSizeBytes    Int
+  timezone         String   // IANA timezone, e.g. "America/Los_Angeles"
+  statsJson        Json     // { message_count, day_count, coverage_start, coverage_end, per_source_counts }
+
+  // Relations
+  messageAtoms MessageAtom[]
+  rawEntries   RawEntry[]
+  runs         Run[]
+
+  @@map("import_batches")
+}
+
+// Section 6.2: MessageAtom
+model MessageAtom {
+  id                   String   @id @default(cuid())
+  atomStableId         String   @unique // sha256 hash per spec 5.2
+  importBatchId        String
+  source               Source
+  sourceConversationId String?  // nullable per spec
+  sourceMessageId      String?  // nullable per spec
+  timestampUtc         DateTime
+  dayDate              DateTime @db.Date // derived using ImportBatch.timezone
+  role                 Role
+  text                 String
+  textHash             String   // sha256 of normalized text
+  createdAt            DateTime @default(now())
+
+  // Relations
+  importBatch   ImportBatch    @relation(fields: [importBatchId], references: [id])
+  messageLabels MessageLabel[]
+
+  @@index([importBatchId])
+  @@index([dayDate])
+  @@index([source])
+  @@map("message_atoms")
+}
+
+// Section 6.3: MessageLabel
+model MessageLabel {
+  id              String   @id @default(cuid())
+  messageAtomId   String
+  category        Category
+  confidence      Float    // 0.0–1.0
+  model           String   // e.g. "gpt-4", "stub_v1"
+  promptVersionId String
+  createdAt       DateTime @default(now())
+
+  // Relations
+  messageAtom   MessageAtom   @relation(fields: [messageAtomId], references: [id])
+  promptVersion PromptVersion @relation(fields: [promptVersionId], references: [id])
+
+  // Uniqueness per spec 6.3
+  @@unique([messageAtomId, promptVersionId, model])
+  @@index([messageAtomId])
+  @@index([promptVersionId])
+  @@map("message_labels")
+}
+
+// Section 6.5: RawEntry
+model RawEntry {
+  id            String   @id @default(cuid())
+  importBatchId String
+  source        Source
+  dayDate       DateTime @db.Date
+  contentText   String
+  contentHash   String   // sha256 of contentText
+  metadataJson  Json?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  importBatch ImportBatch @relation(fields: [importBatchId], references: [id])
+
+  // Uniqueness per spec 6.5
+  @@unique([importBatchId, source, dayDate])
+  @@index([importBatchId])
+  @@map("raw_entries")
+}
+
+// Section 6.6: FilterProfile
+model FilterProfile {
+  id         String     @id @default(cuid())
+  name       String     @unique
+  mode       FilterMode
+  categories Json       // Category[] - stored as JSON per v0.3 simplification
+  createdAt  DateTime   @default(now())
+
+  // Relations
+  runs Run[]
+
+  @@map("filter_profiles")
+}
+
+// Section 6.7: Prompt
+model Prompt {
+  id        String   @id @default(cuid())
+  stage     Stage
+  name      String
+  createdAt DateTime @default(now())
+
+  // Relations
+  versions PromptVersion[]
+
+  @@unique([stage, name])
+  @@map("prompts")
+}
+
+// Section 6.7: PromptVersion
+model PromptVersion {
+  id           String   @id @default(cuid())
+  promptId     String
+  versionLabel String   // e.g. "v1", "v2"
+  templateText String
+  createdAt    DateTime @default(now())
+  isActive     Boolean  @default(false)
+
+  // Relations
+  prompt        Prompt         @relation(fields: [promptId], references: [id])
+  messageLabels MessageLabel[]
+  outputs       Output[]
+
+  @@unique([promptId, versionLabel])
+  @@index([promptId])
+  @@map("prompt_versions")
+}
+
+// Section 6.8: Run
+model Run {
+  id              String    @id @default(cuid())
+  status          RunStatus @default(QUEUED)
+  importBatchId   String
+  startDate       DateTime  @db.Date
+  endDate         DateTime  @db.Date
+  sources         Json      // Source[] - stored as JSON
+  filterProfileId String
+  model           String    // e.g. "gpt-4o"
+  outputTarget    String    @default("db") // "db" only in v0.3
+  configJson      Json      // frozen snapshot per spec 6.8
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  importBatch   ImportBatch   @relation(fields: [importBatchId], references: [id])
+  filterProfile FilterProfile @relation(fields: [filterProfileId], references: [id])
+  jobs          Job[]
+
+  @@index([importBatchId])
+  @@index([status])
+  @@map("runs")
+}
+
+// Section 6.9: Job
+model Job {
+  id         String    @id @default(cuid())
+  runId      String
+  dayDate    DateTime  @db.Date
+  status     JobStatus @default(QUEUED)
+  attempt    Int       @default(1)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  tokensIn   Int?
+  tokensOut  Int?
+  costUsd    Float?
+  error      String?   // JSON string: { code, message, at, retriable }
+
+  // Relations
+  run     Run      @relation(fields: [runId], references: [id])
+  outputs Output[]
+
+  // Uniqueness per spec 6.9
+  @@unique([runId, dayDate])
+  @@index([runId])
+  @@index([status])
+  @@map("jobs")
+}
+
+// Section 6.10: Output
+model Output {
+  id                String   @id @default(cuid())
+  jobId             String
+  stage             Stage
+  outputText        String   // markdown
+  outputJson        Json     // structured fields, includes meta for segmentation
+  model             String
+  promptVersionId   String
+  bundleHash        String   // sha256 of bundle text
+  bundleContextHash String   // sha256 of bundle context
+  createdAt         DateTime @default(now())
+
+  // Relations
+  job           Job           @relation(fields: [jobId], references: [id])
+  promptVersion PromptVersion @relation(fields: [promptVersionId], references: [id])
+
+  // Uniqueness per spec 6.10
+  @@unique([jobId, stage])
+  @@index([jobId])
+  @@map("outputs")
+}
