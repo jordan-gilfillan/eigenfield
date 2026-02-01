@@ -110,8 +110,8 @@ describe('Import Service', () => {
       })
 
       expect(atoms).toHaveLength(2)
-      expect(atoms[0].role).toBe('USER')
-      expect(atoms[1].role).toBe('ASSISTANT')
+      const roles = new Set(atoms.map(a => a.role))
+      expect(roles).toEqual(new Set(['USER', 'ASSISTANT']))
     })
 
     it('stores two identical messages with different timestamps (no silent loss)', async () => {

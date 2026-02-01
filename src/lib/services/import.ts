@@ -181,6 +181,7 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
       })
 
       // Create MessageAtoms (only new ones)
+      // Use skipDuplicates for concurrency safety - safe because uniqueness is on atomStableId (spec 6.2)
       if (newAtomsData.length > 0) {
         await tx.messageAtom.createMany({
           data: newAtomsData.map((atomData) => ({
@@ -188,6 +189,7 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
             dayDate: new Date(atomData.dayDate),
             importBatchId: importBatch.id,
           })),
+          skipDuplicates: true,
         })
       }
 
