@@ -166,79 +166,85 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
   }
 
   // Use a transaction to ensure atomicity
-  const result = await prisma.$transaction(async (tx) => {
-    // Create ImportBatch
-    const importBatch = await tx.importBatch.create({
-      data: {
-        source: sourceToDb(parseResult.source) as Source,
-        originalFilename: filename,
-        fileSizeBytes,
-        timezone,
-        statsJson: stats,
-      },
-    })
-
-    // Create MessageAtoms (only new ones)
-    if (newAtomsData.length > 0) {
-      await tx.messageAtom.createMany({
-        data: newAtomsData.map((atomData) => ({
-          ...atomData,
-          dayDate: new Date(atomData.dayDate),
-          importBatchId: importBatch.id,
-        })),
-      })
-    }
-
-    // Create RawEntries per (source, dayDate)
-    // Only for atoms that were actually created in this import
-    const atomsForRawEntry = newAtomsData.map((a) => ({
-      ...a,
-      role: a.role,
-    }))
-
-    const groups = groupBySourceAndDay(
-      atomsForRawEntry as Array<{
-        source: Source
-        dayDate: string
-        atomStableId: string
-        timestampUtc: Date
-        role: Role
-        text: string
-      }>
-    )
-
-    let createdRawEntries = 0
-
-    for (const [key, atoms] of groups) {
-      const [source, dayDate] = key.split('|')
-      const contentText = buildRawEntryContent(
-        atoms.map((a) => ({
-          atomStableId: a.atomStableId,
-          timestampUtc: a.timestampUtc,
-          role: a.role.toLowerCase(),
-          text: a.text,
-        }))
-      )
-      const contentHash = computeRawEntryHash(contentText)
-
-      await tx.rawEntry.create({
+  // Increase timeout for large imports (default is 5s)
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // Create ImportBatch
+      const importBatch = await tx.importBatch.create({
         data: {
-          importBatchId: importBatch.id,
-          source: source as Source,
-          dayDate: new Date(dayDate),
-          contentText,
-          contentHash,
+          source: sourceToDb(parseResult.source) as Source,
+          originalFilename: filename,
+          fileSizeBytes,
+          timezone,
+          statsJson: stats,
         },
       })
-      createdRawEntries++
-    }
 
-    return {
-      importBatch,
-      createdAtoms: newAtomsData.length,
-      createdRawEntries,
+      // Create MessageAtoms (only new ones)
+      if (newAtomsData.length > 0) {
+        await tx.messageAtom.createMany({
+          data: newAtomsData.map((atomData) => ({
+            ...atomData,
+            dayDate: new Date(atomData.dayDate),
+            importBatchId: importBatch.id,
+          })),
+        })
+      }
+
+      // Create RawEntries per (source, dayDate)
+      // Only for atoms that were actually created in this import
+      const atomsForRawEntry = newAtomsData.map((a) => ({
+        ...a,
+        role: a.role,
+      }))
+
+      const groups = groupBySourceAndDay(
+        atomsForRawEntry as Array<{
+          source: Source
+          dayDate: string
+          atomStableId: string
+          timestampUtc: Date
+          role: Role
+          text: string
+        }>
+      )
+
+      let createdRawEntries = 0
+
+      for (const [key, atoms] of groups) {
+        const [source, dayDate] = key.split('|')
+        const contentText = buildRawEntryContent(
+          atoms.map((a) => ({
+            atomStableId: a.atomStableId,
+            timestampUtc: a.timestampUtc,
+            role: a.role.toLowerCase(),
+            text: a.text,
+          }))
+        )
+        const contentHash = computeRawEntryHash(contentText)
+
+        await tx.rawEntry.create({
+          data: {
+            importBatchId: importBatch.id,
+            source: source as Source,
+            dayDate: new Date(dayDate),
+            contentText,
+            contentHash,
+          },
+        })
+        createdRawEntries++
+      }
+
+      return {
+        importBatch,
+        createdAtoms: newAtomsData.length,
+        createdRawEntries,
+      }
+    },
+    {
+      timeout: 120000, // 2 minutes for large imports
     }
-  })
+  )
 
   return {
     importBatch: {
