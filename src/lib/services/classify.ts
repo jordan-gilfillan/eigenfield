@@ -23,6 +23,9 @@ const STUB_CATEGORIES: Category[] = [
   'OTHER',
 ]
 
+/** Batch size for processing to avoid Postgres bind variable limits */
+const BATCH_SIZE = 10000
+
 export interface ClassifyOptions {
   /** The import batch to classify */
   importBatchId: string
@@ -98,16 +101,10 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     throw new Error('NOT_IMPLEMENTED: Real classification mode is not yet available')
   }
 
-  // Get all atoms for this import batch
-  const atoms = await prisma.messageAtom.findMany({
+  // Count total atoms for this batch
+  const totalAtoms = await prisma.messageAtom.count({
     where: { importBatchId },
-    select: {
-      id: true,
-      atomStableId: true,
-    },
   })
-
-  const totalAtoms = atoms.length
 
   if (totalAtoms === 0) {
     return {
@@ -123,24 +120,66 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }
   }
 
-  // Check for existing labels with this labelSpec
-  const existingLabels = await prisma.messageLabel.findMany({
+  // Count existing labels for this batch + labelSpec using a JOIN (no bind variable limit)
+  const existingLabelCount = await prisma.messageLabel.count({
     where: {
-      messageAtomId: { in: atoms.map((a) => a.id) },
+      messageAtom: { importBatchId },
       promptVersionId,
       model,
     },
-    select: { messageAtomId: true },
   })
-  const existingSet = new Set(existingLabels.map((l) => l.messageAtomId))
 
-  // Filter to atoms that need labeling
-  const atomsToLabel = atoms.filter((a) => !existingSet.has(a.id))
-  const skippedCount = atoms.length - atomsToLabel.length
+  // If all atoms already labeled, skip processing
+  if (existingLabelCount >= totalAtoms) {
+    return {
+      importBatchId,
+      labelSpec: { model, promptVersionId },
+      mode,
+      totals: {
+        messageAtoms: totalAtoms,
+        labeled: existingLabelCount,
+        newlyLabeled: 0,
+        skippedAlreadyLabeled: totalAtoms,
+      },
+    }
+  }
 
-  // Create labels for new atoms
-  if (atomsToLabel.length > 0) {
-    const labelsData = atomsToLabel.map((atom) => ({
+  // Process atoms in batches to avoid memory issues
+  // Use cursor-based pagination for efficient iteration
+  let newlyLabeled = 0
+  let cursor: string | undefined
+
+  while (true) {
+    // Fetch a batch of atoms that DON'T have labels for this labelSpec
+    // Using a subquery approach to avoid large IN clauses
+    const atomsBatch = await prisma.messageAtom.findMany({
+      where: {
+        importBatchId,
+        messageLabels: {
+          none: {
+            promptVersionId,
+            model,
+          },
+        },
+      },
+      select: {
+        id: true,
+        atomStableId: true,
+      },
+      take: BATCH_SIZE,
+      ...(cursor && {
+        skip: 1,
+        cursor: { id: cursor },
+      }),
+      orderBy: { id: 'asc' },
+    })
+
+    if (atomsBatch.length === 0) {
+      break
+    }
+
+    // Create labels for this batch
+    const labelsData = atomsBatch.map((atom) => ({
       messageAtomId: atom.id,
       category: computeStubCategory(atom.atomStableId),
       confidence: 0.5,
@@ -149,17 +188,24 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }))
 
     // Use createMany with skipDuplicates for concurrency safety
-    // This is safe because uniqueness is on (messageAtomId, promptVersionId, model)
-    await prisma.messageLabel.createMany({
+    const result = await prisma.messageLabel.createMany({
       data: labelsData,
       skipDuplicates: true,
     })
+
+    newlyLabeled += result.count
+    cursor = atomsBatch[atomsBatch.length - 1].id
+
+    // If we got fewer than BATCH_SIZE, we're done
+    if (atomsBatch.length < BATCH_SIZE) {
+      break
+    }
   }
 
-  // Count total labels now (in case of concurrent classification)
+  // Count total labels now
   const totalLabeled = await prisma.messageLabel.count({
     where: {
-      messageAtomId: { in: atoms.map((a) => a.id) },
+      messageAtom: { importBatchId },
       promptVersionId,
       model,
     },
@@ -172,8 +218,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     totals: {
       messageAtoms: totalAtoms,
       labeled: totalLabeled,
-      newlyLabeled: atomsToLabel.length,
-      skippedAlreadyLabeled: skippedCount,
+      newlyLabeled,
+      skippedAlreadyLabeled: totalAtoms - newlyLabeled,
     },
   }
 }
