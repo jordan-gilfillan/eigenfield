@@ -7,7 +7,7 @@
  * Seeds:
  * - FilterProfiles: professional-only, professional-plus-creative, safety-exclude
  * - Prompts: classify, summarize, redact
- * - PromptVersions: classify_stub_v1 (active), summarize_v1 (active), redact_v1 (inactive)
+ * - PromptVersions: classify_stub_v1 (active for classify), summarize_v1 (active), redact_v1 (inactive)
  */
 
 import { PrismaClient } from '@prisma/client'
@@ -82,18 +82,18 @@ async function main() {
     where: {
       promptId_versionLabel: {
         promptId: classifyPrompt.id,
-        versionLabel: 'stub_v1',
+        versionLabel: 'classify_stub_v1',
       },
     },
     update: { isActive: true },
     create: {
       promptId: classifyPrompt.id,
-      versionLabel: 'stub_v1',
+      versionLabel: 'classify_stub_v1',
       templateText: 'STUB: Deterministic classification based on atomStableId hash. See spec 7.2.',
       isActive: true,
     },
   })
-  console.log(`    PromptVersion: stub_v1 (active)`)
+  console.log(`    PromptVersion: classify_stub_v1 (active)`)
 
   // Summarize prompt with placeholder version
   const summarizePrompt = await prisma.prompt.upsert({

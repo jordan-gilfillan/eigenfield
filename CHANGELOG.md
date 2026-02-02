@@ -22,15 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/distill/import-batches` endpoint (paginated list)
   - `GET /api/distill/import-batches/:id` endpoint
   - Import UI page (`/distill/import`) with file upload, source override, timezone selector
-  - Deduplication safety via atomStableId (check-before-insert pattern)
+  - Deduplication safety via atomStableId (check-before-insert + skipDuplicates)
   - RawEntry materialization per (source, dayDate)
   - Dashboard placeholder page (`/distill`)
-  - 105 tests passing (unit + integration)
 
-### Planned (Phase 3: Classification)
-- Stub classifier (`stub_v1` algorithm)
-- `POST /api/distill/classify` endpoint
-- Real classification with LLM integration
+- Phase 3: Classification (stub mode) complete
+  - `POST /api/distill/classify` endpoint with stub/real mode
+  - Deterministic stub classifier (`stub_v1` algorithm per spec 7.2)
+  - Label versioning: uniqueness on (messageAtomId, promptVersionId, model)
+  - Idempotent classification (same labelSpec = skip already-labeled atoms)
+  - Version isolation (different promptVersionId creates separate labels)
+  - Seed updated: `classify_stub_v1` PromptVersion for classify stage
+  - 123 tests passing (unit + integration)
+
+### Planned (Phase 3.5: Real Classification)
+- Real classification with LLM integration (mode="real")
 
 ### Planned (Phase 4: Run Execution)
 - Run creation with config freezing

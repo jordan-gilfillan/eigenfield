@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeAtomStableId, computeTextHash } from '../lib/stableId'
+import { sha256, hashToUint32 } from '../lib/hash'
 
 describe('computeAtomStableId', () => {
   const baseParams = {
@@ -125,5 +126,41 @@ describe('computeTextHash', () => {
     const hash1 = computeTextHash('line1\nline2')
     const hash2 = computeTextHash('line1\r\nline2')
     expect(hash1).toBe(hash2)
+  })
+})
+
+describe('hashToUint32', () => {
+  it('extracts first 4 bytes as unsigned integer', () => {
+    // Known hash: sha256('test') = 9f86d081...
+    const hash = sha256('test')
+    const uint32 = hashToUint32(hash)
+    // First 8 hex chars of sha256('test') are '9f86d081'
+    // Parsed as big-endian: 0x9f86d081 = 2676212865
+    expect(uint32).toBe(0x9f86d081 >>> 0)
+  })
+
+  it('returns a non-negative integer', () => {
+    // Test multiple inputs to ensure always unsigned
+    const inputs = ['a', 'b', 'c', 'test', 'hello', 'world']
+    for (const input of inputs) {
+      const hash = sha256(input)
+      const uint32 = hashToUint32(hash)
+      expect(uint32).toBeGreaterThanOrEqual(0)
+      expect(uint32).toBeLessThanOrEqual(0xffffffff)
+    }
+  })
+
+  it('is deterministic', () => {
+    const hash = sha256('determinism-test')
+    const uint1 = hashToUint32(hash)
+    const uint2 = hashToUint32(hash)
+    expect(uint1).toBe(uint2)
+  })
+
+  it('produces different values for different hashes', () => {
+    const hash1 = sha256('input1')
+    const hash2 = sha256('input2')
+    // Different inputs should (very likely) produce different uint32 values
+    expect(hashToUint32(hash1)).not.toBe(hashToUint32(hash2))
   })
 })

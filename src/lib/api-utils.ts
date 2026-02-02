@@ -48,6 +48,9 @@ export const errors = {
   notFound: (resource: string) =>
     errorResponse(404, 'NOT_FOUND', `${resource} not found`),
 
+  notImplemented: (message: string) =>
+    errorResponse(501, 'NOT_IMPLEMENTED', message),
+
   internal: (message = 'An unexpected error occurred') =>
     errorResponse(500, 'INTERNAL', message),
 }
