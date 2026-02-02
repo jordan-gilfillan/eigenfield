@@ -37,14 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/distill/prompt-versions` endpoint for UI to fetch active prompts
   - 127 tests passing (unit + integration)
 
-### Planned (Phase 3b: Real Classification)
-- Real classification with LLM integration (mode="real")
-- Deferred per EXECUTION_PLAN.md - not blocking Phase 4
-
-### Planned (Phase 4: Run Execution)
+### Planned (Phase 4: Run Execution - minimal slice)
 - Run creation with config freezing
 - Tick endpoint with Postgres advisory lock
 - Bundle construction (deterministic ordering)
+- LLM plumbing: call wrapper, token/cost accounting
+- **Gate**: one day through the machine end-to-end
+
+### Planned (Phase 3b: Real Classification)
+- Real classification with LLM integration (mode="real")
+- Reuses LLM plumbing from Phase 4
+- Rate limiting to prevent wallet-fire
+- **Gate**: classify with mode="real" works, labels written with correct labelSpec
+
+### Planned (Phase 4 continued)
 - Segmentation for large bundles
 - Resume/Cancel/Reset endpoints
 
