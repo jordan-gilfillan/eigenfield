@@ -83,7 +83,7 @@ The overall pipeline: import → classify → run → outputs. Converts raw conv
 Assembling the filtered, sorted messages for a single day into text for the model. Follows deterministic ordering:
 1. source ASC
 2. timestampUtc ASC
-3. role ASC
+3. role ASC (user before assistant)
 4. atomStableId ASC
 
 ### Tick

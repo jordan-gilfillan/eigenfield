@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/distill/runs/:runId` endpoint (run details with progress)
   - `POST /api/distill/runs/:runId/tick` endpoint (processes queued jobs)
   - Bundle construction utility (`src/lib/services/bundle.ts`)
-    - Deterministic ordering: source ASC, timestampUtc ASC, role ASC, atomStableId ASC
+    - Deterministic ordering: source ASC, timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
     - bundleHash and bundleContextHash per spec 5.3
     - Category filtering (INCLUDE/EXCLUDE modes)
   - Advisory lock mechanism (`src/lib/services/advisory-lock.ts`)

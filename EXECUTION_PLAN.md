@@ -242,7 +242,7 @@ Per spec 7.4, advisory locks are session-scoped. **Pinned approach:**
 **Step 4: Bundle Construction**
 Per spec 9.1:
 - Load eligible atoms
-- Sort: source ASC, timestampUtc ASC, role ASC, atomStableId ASC
+- Sort: source ASC, timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
 - Render format with `# SOURCE:` headers
 
 **Step 5: Segmentation**

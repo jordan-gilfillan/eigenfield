@@ -66,7 +66,7 @@ describe('bundle service', () => {
     })
 
     // Create atoms with different timestamps, sources, and roles
-    // to verify sorting order: source ASC, timestampUtc ASC, role ASC, atomStableId ASC
+    // to verify sorting order: source ASC, timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
     const baseTime = new Date('2024-01-15T10:00:00.000Z').getTime()
 
     const atoms = [
