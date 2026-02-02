@@ -59,6 +59,8 @@ npm test -- --watch
 | Run Service | `services/__tests__/run.test.ts` | Run creation with frozen config |
 | Tick Service | `services/__tests__/tick.test.ts` | Job processing and status transitions |
 | Advisory Lock | `services/__tests__/advisory-lock.test.ts` | Concurrent tick prevention |
+| Segmentation | `services/__tests__/segmentation.test.ts` | Deterministic segment splitting |
+| Run Controls | `services/__tests__/run-controls.test.ts` | Cancel/resume/reset operations |
 
 ---
 
@@ -278,7 +280,76 @@ it('reset is safe on already-QUEUED job', async () => {
 
 ---
 
-### AC-11: Canonical Timestamp Format
+### AC-11: Deterministic Segmentation
+
+**Requirement:** Bundles exceeding `maxInputTokens` are split into deterministic segments with stable IDs.
+
+**Tests:**
+```typescript
+// In services/__tests__/segmentation.test.ts
+it('produces identical segments for same atoms + config', () => {
+  const result1 = segmentBundle(atoms, bundleHash, maxTokens)
+  const result2 = segmentBundle(atoms, bundleHash, maxTokens)
+  expect(result1.segments[0].segmentId).toBe(result2.segments[0].segmentId)
+})
+
+it('generates segment ID per spec: sha256("segment_v1|" + bundleHash + "|" + index)', () => {
+  // Verifies stable segment ID formula
+})
+
+it('never splits an atom across segments', () => {
+  // All atom IDs appear exactly once across all segments
+})
+```
+
+**Segment metadata in Output.outputJson.meta:**
+- `segmented: true/false`
+- `segmentCount: number`
+- `segmentIds: string[]`
+
+---
+
+### AC-12: Resume Continues from Failed Jobs Only
+
+**Requirement:** Resume requeues only FAILED jobs; succeeded jobs are not reprocessed.
+
+**Test:**
+```typescript
+// In services/__tests__/run-controls.test.ts
+it('only requeues failed jobs, not succeeded (spec 11.3)', async () => {
+  // Process first job (succeeds)
+  // Fail second job manually
+  // Resume
+  // Verify: first job still SUCCEEDED, second job now QUEUED
+})
+```
+
+---
+
+### AC-13: Cancel is Terminal
+
+**Requirement:** Cancelled runs cannot be resumed; tick processing no-ops on cancelled runs.
+
+**Tests:**
+```typescript
+// In services/__tests__/run-controls.test.ts
+it('stops tick processing after cancel (spec 7.6)', async () => {
+  // Cancel run
+  // Tick returns processed=0, runStatus='cancelled'
+})
+
+it('throws error on cancelled run (terminal status rule)', async () => {
+  // Resume on cancelled run → CANNOT_RESUME_CANCELLED
+})
+
+it('tick does not transition cancelled run to any other status', async () => {
+  // Multiple ticks on cancelled run → status remains 'cancelled'
+})
+```
+
+---
+
+### AC-14: Canonical Timestamp Format
 
 **Requirement:** All timestamps are rendered as `YYYY-MM-DDTHH:mm:ss.SSSZ`.
 
@@ -406,17 +477,30 @@ These are guidelines, not hard requirements for v0.3:
 
 Before release, verify these work manually:
 
+**Import & Classify:**
 - [ ] Import a ChatGPT export file
 - [ ] Import a Claude export file
 - [ ] View import stats in response
 - [ ] Classify import with stub mode
+
+**Run Execution:**
 - [ ] Create a run with professional-only filter
 - [ ] Tick until all jobs complete
 - [ ] Verify outputs exist in database
+
+**Segmentation:**
+- [ ] Create a run with `maxInputTokens: 100` (forces segmentation on most days)
+- [ ] Tick to process a job
+- [ ] Verify Output.outputJson.meta contains `segmented: true`, `segmentCount`, `segmentIds`
+- [ ] Verify outputText contains `## Segment 1`, `## Segment 2`, etc.
+
+**Run Controls:**
 - [ ] Reset a specific job
-- [ ] Reprocess the reset job
-- [ ] Cancel a running run
-- [ ] Verify cancelled run cannot be resumed via tick
+- [ ] Reprocess the reset job (attempt counter increments)
+- [ ] Cancel a queued run
+- [ ] Verify cancelled run cannot be resumed via tick (returns processed=0)
+- [ ] Verify resume on cancelled run returns 400 CANNOT_RESUME_CANCELLED
+- [ ] Create a new run, fail a job manually, resume, verify only failed job requeued
 
 ---
 

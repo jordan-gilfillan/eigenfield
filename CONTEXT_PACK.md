@@ -11,8 +11,11 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - v0.3 scope: no embeddings/vector search, no multi-user auth, no cloud storage.
 
 ## 2) Current status
-- Role-order drift bug fixed: tie-breaking ordering uses semantic role order (user before assistant) and is guarded by tests.
-- Tests are green.
+- Phase 4 continued complete: segmentation (segmenter_v1) + run controls (cancel/resume/reset).
+- Deterministic segmentation: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
+- Run controls: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days.
+- API contract audit done: idempotency verified, error codes per SPEC 7.8.
+- 190 tests passing.
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
@@ -26,6 +29,3 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Small diffs; one prompt/task at a time.
 - Prefer updating docs/comments + minimal code changes + tests.
 - Provide summary + list of files changed + test results.
-
-## 5) Next task (paste the prompt below verbatim)
-[PASTE ONE PROMPT: A or B or C]
