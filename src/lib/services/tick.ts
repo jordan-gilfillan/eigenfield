@@ -8,7 +8,7 @@
 
 import { prisma } from '../db'
 import { withLock } from './advisory-lock'
-import { buildBundle, estimateTokens } from './bundle'
+import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
 import type { JobStatus, RunStatus } from '@prisma/client'
 
@@ -215,35 +215,72 @@ async function processJob(
     const estimatedTokens = estimateTokens(bundle.bundleText)
     const needsSegmentation = estimatedTokens > config.maxInputTokens
 
-    // For Phase 4 minimal, we skip segmentation and just warn
-    // Full segmentation comes in "Phase 4 continued"
+    let outputText: string
+    let outputMeta: {
+      segmented: boolean
+      segmentCount?: number
+      segmentIds?: string[]
+      atomCount: number
+      estimatedInputTokens: number
+    }
+    let totalTokensIn = 0
+    let totalTokensOut = 0
+    let totalCostUsd = 0
+
     if (needsSegmentation) {
-      console.warn(
-        `Bundle for ${dayDate} exceeds maxInputTokens (${estimatedTokens} > ${config.maxInputTokens}). ` +
-          `Segmentation not yet implemented - processing anyway.`
-      )
+      // Segment the bundle and process each segment
+      const segmentation = segmentBundle(bundle.atoms, bundle.bundleHash, config.maxInputTokens)
+
+      const segmentSummaries: string[] = []
+
+      for (const segment of segmentation.segments) {
+        const segmentResult = await summarize({
+          bundleText: segment.text,
+          model,
+          promptVersionId: config.promptVersionIds.summarize,
+        })
+
+        segmentSummaries.push(`## Segment ${segment.index + 1}\n\n${segmentResult.text}`)
+        totalTokensIn += segmentResult.tokensIn ?? 0
+        totalTokensOut += segmentResult.tokensOut ?? 0
+        totalCostUsd += segmentResult.costUsd ?? 0
+      }
+
+      // Concatenate segment summaries per spec 9.2
+      outputText = segmentSummaries.join('\n\n')
+      outputMeta = {
+        segmented: true,
+        segmentCount: segmentation.segmentCount,
+        segmentIds: segmentation.segments.map((s) => s.segmentId),
+        atomCount: bundle.atomCount,
+        estimatedInputTokens: estimatedTokens,
+      }
+    } else {
+      // No segmentation needed - process as single bundle
+      const summaryResult = await summarize({
+        bundleText: bundle.bundleText,
+        model,
+        promptVersionId: config.promptVersionIds.summarize,
+      })
+
+      outputText = summaryResult.text
+      totalTokensIn = summaryResult.tokensIn ?? 0
+      totalTokensOut = summaryResult.tokensOut ?? 0
+      totalCostUsd = summaryResult.costUsd ?? 0
+      outputMeta = {
+        segmented: false,
+        atomCount: bundle.atomCount,
+        estimatedInputTokens: estimatedTokens,
+      }
     }
 
-    // 3. Call summarizer
-    const summaryResult = await summarize({
-      bundleText: bundle.bundleText,
-      model,
-      promptVersionId: config.promptVersionIds.summarize,
-    })
-
-    // 4. Store output
+    // 3. Store output
     await prisma.output.create({
       data: {
         jobId,
         stage: 'SUMMARIZE',
-        outputText: summaryResult.text,
-        outputJson: {
-          meta: {
-            segmented: false,
-            atomCount: bundle.atomCount,
-            estimatedInputTokens: estimatedTokens,
-          },
-        },
+        outputText,
+        outputJson: { meta: outputMeta },
         model,
         promptVersionId: config.promptVersionIds.summarize,
         bundleHash: bundle.bundleHash,
@@ -251,15 +288,15 @@ async function processJob(
       },
     })
 
-    // 5. Update job as succeeded
+    // 4. Update job as succeeded
     const updatedJob = await prisma.job.update({
       where: { id: jobId },
       data: {
         status: 'SUCCEEDED',
         finishedAt: new Date(),
-        tokensIn: summaryResult.tokensIn,
-        tokensOut: summaryResult.tokensOut,
-        costUsd: summaryResult.costUsd,
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        costUsd: totalCostUsd,
       },
     })
 
@@ -267,9 +304,9 @@ async function processJob(
       dayDate,
       status: 'succeeded',
       attempt: updatedJob.attempt,
-      tokensIn: summaryResult.tokensIn,
-      tokensOut: summaryResult.tokensOut,
-      costUsd: summaryResult.costUsd,
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
+      costUsd: totalCostUsd,
       error: null,
     }
   } catch (error) {

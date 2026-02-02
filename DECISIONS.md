@@ -393,3 +393,74 @@ v0.3 uses manual resume only:
 - **Automatic retry with limit**: State complexity
 - **Background retry queue**: Infrastructure dependency
 - **Retry on next tick**: Unclear when to give up
+
+---
+
+## ADR-013: Deterministic Segmentation (segmenter_v1)
+
+### Context
+Day bundles can exceed the LLM context window (`maxInputTokens`). We need to split large bundles into segments while maintaining determinism and auditability.
+
+### Decision
+Implement `segmenter_v1` with greedy packing:
+1. Estimate tokens for each atom (chars / 4 heuristic)
+2. Pack atoms into segments until `maxInputTokens` exceeded
+3. Never split an atom across segments
+4. Generate stable segment IDs: `sha256("segment_v1|" + bundleHash + "|" + segmentIndex)`
+5. Concatenate segment summaries with `## Segment <k>` headers
+
+### Consequences
+**Good:**
+- Deterministic: same atoms + config always produces same segments
+- Auditable: segment IDs can be verified by recomputing hash
+- Preserves atom boundaries (no mid-message splits)
+- Works with any maxInputTokens value
+
+**Tradeoff:**
+- Greedy packing may not be optimal (last segment could be small)
+- Header overhead (~20 tokens per source) is estimated, not exact
+- No "merge summaries" step in v0.3 (simple concatenation)
+- Segment boundaries may split conversation context
+
+### Alternatives Considered
+- **Sliding window with overlap**: Complex, duplicates content
+- **Semantic chunking**: Requires understanding of content, non-deterministic
+- **Fixed-size segments**: Ignores atom boundaries, may split mid-message
+- **Two-pass with merge**: More LLM calls, higher cost
+
+---
+
+## ADR-014: Run Control State Machine (Cancel/Resume/Reset)
+
+### Context
+Users need to:
+- Stop a run that's taking too long or using wrong config
+- Retry failed jobs without reprocessing succeeded ones
+- Reprocess specific days that "succeeded but wrong"
+
+### Decision
+Simple three-operation state machine:
+- **Cancel**: Marks run and queued jobs as CANCELLED. Terminal—cannot be undone.
+- **Resume**: Requeues FAILED jobs to QUEUED, sets run to QUEUED. Preserves succeeded jobs.
+- **Reset**: Deletes outputs for specific job, increments attempt, requeues. For "succeeded but wrong."
+
+Terminal status rule: cancelled runs cannot transition to any other status.
+
+### Consequences
+**Good:**
+- Simple mental model (three clear operations)
+- Preserves work: resume doesn't reprocess succeeded jobs
+- Auditable: attempt counter tracks reprocessing history
+- Terminal cancel prevents zombie runs
+
+**Tradeoff:**
+- Cannot undo cancel (must create new run)
+- Reset deletes outputs (no history preserved)
+- No partial cancel (all queued jobs cancelled together)
+- Manual operation required (no automatic recovery)
+
+### Alternatives Considered
+- **Soft cancel with restore**: Complex state machine
+- **Output versioning**: Storage overhead, which version to use?
+- **Per-job cancel**: Complicates run status calculation
+- **Automatic retry on resume**: Conflicts with ADR-012 (manual only)

@@ -60,6 +60,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 156 tests passing (unit + integration)
   - **Gate passed**: one day through the machine end-to-end (stub mode)
 
+- Phase 4 continued: Segmentation + Run Controls complete
+  - Deterministic segmentation (`segmenter_v1`) per spec 9.2
+    - Greedy packing: fills segments until maxInputTokens exceeded
+    - Never splits atoms across segments
+    - Stable segment IDs: `sha256("segment_v1|" + bundleHash + "|" + index)`
+    - Segment metadata stored in `Output.outputJson.meta` (segmentCount, segmentIds)
+    - Concatenates segment summaries with `## Segment <k>` headers
+  - Run controls (cancel/resume/reset) per spec 7.6-7.7
+    - `POST /api/distill/runs/:runId/cancel` — marks run + queued jobs as CANCELLED
+    - `POST /api/distill/runs/:runId/resume` — requeues FAILED jobs, sets run to QUEUED
+    - `POST /api/distill/runs/:runId/jobs/:dayDate/reset` — deletes outputs, increments attempt, requeues job
+  - Terminal status rule enforced: cancelled runs cannot transition to other states
+  - 187 tests passing (31 new tests for segmentation + run controls)
+  - **Gate passed**: segmentation determinism verified, run controls work as intended
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -72,9 +87,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting to prevent wallet-fire
 - **Gate**: classify with mode="real" works, labels written with correct labelSpec
 
-### Planned (Phase 4 continued)
-- Segmentation for large bundles
-- Resume/Cancel/Reset endpoints
+### Planned (Phase 4b: Real LLM Integration)
+- Real summarization with OpenAI/Anthropic APIs
+- Rate limiting and cost tracking
+- Error handling for API failures
 
 ### Planned (Phase 5: UI Shell)
 - Dashboard with run creation

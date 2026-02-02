@@ -250,7 +250,35 @@ it('transitions run from queued to running to completed', async () => {
 
 ---
 
-### AC-10: Canonical Timestamp Format
+### AC-10: Run Control Idempotency
+
+**Requirement:** Run control operations are safe to call multiple times.
+
+**Tests:**
+```typescript
+// In services/__tests__/run-controls.test.ts
+it('cancel is idempotent on already-cancelled run', async () => {
+  // Second cancel returns status='cancelled', jobsCancelled=0
+})
+
+it('resume is safe when no jobs are FAILED (no-op)', async () => {
+  // Returns jobsRequeued=0, run status unchanged
+})
+
+it('reset is safe on already-QUEUED job', async () => {
+  // Succeeds but increments attempt counter
+})
+```
+
+**Error codes:**
+- Cancel on completed run: 400 `ALREADY_COMPLETED`
+- Resume on cancelled run: 400 `CANNOT_RESUME_CANCELLED`
+- Reset on cancelled run: 400 `CANNOT_RESET_CANCELLED`
+- Not found: 404 `NOT_FOUND`
+
+---
+
+### AC-11: Canonical Timestamp Format
 
 **Requirement:** All timestamps are rendered as `YYYY-MM-DDTHH:mm:ss.SSSZ`.
 

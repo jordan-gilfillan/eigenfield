@@ -313,3 +313,200 @@ function formatDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+// ----- Run Controls (cancel/resume/reset) -----
+
+export interface CancelRunResult {
+  runId: string
+  status: string
+  jobsCancelled: number
+}
+
+/**
+ * Cancels a run and all its queued jobs.
+ *
+ * Per spec 7.6: marks run cancelled; future ticks no-op.
+ * Terminal status rule: cancelled is authoritative.
+ *
+ * @throws Error if run not found
+ * @throws Error if run is already in terminal state
+ */
+export async function cancelRun(runId: string): Promise<CancelRunResult> {
+  const run = await prisma.run.findUnique({
+    where: { id: runId },
+  })
+
+  if (!run) {
+    throw new Error(`Run not found: ${runId}`)
+  }
+
+  // Check if already in terminal state
+  if (run.status === 'CANCELLED') {
+    return {
+      runId,
+      status: 'cancelled',
+      jobsCancelled: 0,
+    }
+  }
+
+  if (run.status === 'COMPLETED') {
+    throw new Error('ALREADY_COMPLETED: Cannot cancel a completed run')
+  }
+
+  // Cancel all queued jobs
+  const cancelledJobs = await prisma.job.updateMany({
+    where: {
+      runId,
+      status: 'QUEUED',
+    },
+    data: {
+      status: 'CANCELLED',
+    },
+  })
+
+  // Update run status
+  await prisma.run.update({
+    where: { id: runId },
+    data: { status: 'CANCELLED' },
+  })
+
+  return {
+    runId,
+    status: 'cancelled',
+    jobsCancelled: cancelledJobs.count,
+  }
+}
+
+export interface ResumeRunResult {
+  runId: string
+  status: string
+  jobsRequeued: number
+}
+
+/**
+ * Resumes a failed run by requeuing failed jobs.
+ *
+ * Per spec 7.6: resets FAILED jobs to QUEUED, sets run status to QUEUED.
+ *
+ * @throws Error if run not found
+ * @throws Error if run is cancelled (terminal)
+ */
+export async function resumeRun(runId: string): Promise<ResumeRunResult> {
+  const run = await prisma.run.findUnique({
+    where: { id: runId },
+  })
+
+  if (!run) {
+    throw new Error(`Run not found: ${runId}`)
+  }
+
+  // Cannot resume a cancelled run per spec 7.6 terminal status rule
+  if (run.status === 'CANCELLED') {
+    throw new Error('CANNOT_RESUME_CANCELLED: Cancelled runs cannot be resumed')
+  }
+
+  // Requeue failed jobs
+  const requeuedJobs = await prisma.job.updateMany({
+    where: {
+      runId,
+      status: 'FAILED',
+    },
+    data: {
+      status: 'QUEUED',
+    },
+  })
+
+  // Only set run back to QUEUED if jobs were actually requeued
+  if (requeuedJobs.count > 0) {
+    await prisma.run.update({
+      where: { id: runId },
+      data: { status: 'QUEUED' },
+    })
+  }
+
+  return {
+    runId,
+    status: requeuedJobs.count > 0 ? 'queued' : run.status.toLowerCase(),
+    jobsRequeued: requeuedJobs.count,
+  }
+}
+
+export interface ResetJobResult {
+  runId: string
+  dayDate: string
+  status: string
+  attempt: number
+  outputsDeleted: number
+}
+
+/**
+ * Resets a specific job for reprocessing.
+ *
+ * Per spec 7.7: deletes outputs, sets job status to QUEUED, increments attempt.
+ *
+ * @throws Error if run not found
+ * @throws Error if run is cancelled
+ * @throws Error if job not found
+ */
+export async function resetJob(runId: string, dayDate: string): Promise<ResetJobResult> {
+  const run = await prisma.run.findUnique({
+    where: { id: runId },
+  })
+
+  if (!run) {
+    throw new Error(`Run not found: ${runId}`)
+  }
+
+  // Cannot reset jobs in a cancelled run
+  if (run.status === 'CANCELLED') {
+    throw new Error('CANNOT_RESET_CANCELLED: Cannot reset jobs in a cancelled run')
+  }
+
+  // Find the job
+  const job = await prisma.job.findFirst({
+    where: {
+      runId,
+      dayDate: new Date(dayDate),
+    },
+  })
+
+  if (!job) {
+    throw new Error(`Job not found for run ${runId} and dayDate ${dayDate}`)
+  }
+
+  // Delete outputs for this job
+  const deletedOutputs = await prisma.output.deleteMany({
+    where: { jobId: job.id },
+  })
+
+  // Reset job to QUEUED and increment attempt
+  const updatedJob = await prisma.job.update({
+    where: { id: job.id },
+    data: {
+      status: 'QUEUED',
+      attempt: job.attempt + 1,
+      startedAt: null,
+      finishedAt: null,
+      tokensIn: null,
+      tokensOut: null,
+      costUsd: null,
+      error: null,
+    },
+  })
+
+  // Set run back to QUEUED if it was COMPLETED or FAILED
+  if (run.status === 'COMPLETED' || run.status === 'FAILED') {
+    await prisma.run.update({
+      where: { id: runId },
+      data: { status: 'QUEUED' },
+    })
+  }
+
+  return {
+    runId,
+    dayDate,
+    status: 'queued',
+    attempt: updatedJob.attempt,
+    outputsDeleted: deletedOutputs.count,
+  }
+}
