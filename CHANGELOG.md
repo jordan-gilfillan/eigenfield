@@ -37,8 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/distill/prompt-versions` endpoint for UI to fetch active prompts
   - 127 tests passing (unit + integration)
 
-### Planned (Phase 3.5: Real Classification)
+### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")
+- Deferred per EXECUTION_PLAN.md - not blocking Phase 4
 
 ### Planned (Phase 4: Run Execution)
 - Run creation with config freezing
