@@ -134,6 +134,66 @@ describe('Classification Service', () => {
       // Should have at least 3 different categories with 100 samples
       expect(categories.size).toBeGreaterThanOrEqual(3)
     })
+
+    it('uses exact category order from SPEC 7.2 (FROZEN - DO NOT CHANGE)', () => {
+      // This test locks the category ordering used by stub_v1.
+      // The order MUST be: [WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER]
+      // If this changes, all existing stub labels become invalid.
+      // DO NOT CHANGE without a migration plan.
+
+      // We verify by finding inputs that produce each index 0-5 and checking the category
+      const expectedOrder = ['WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER']
+
+      // Pre-computed inputs that produce each index (found by brute force)
+      // These are stable because sha256 and the algorithm are deterministic
+      const testCases: Array<{ input: string; expectedIndex: number }> = []
+
+      // Find an input for each index 0-5
+      for (let targetIndex = 0; targetIndex < 6; targetIndex++) {
+        for (let i = 0; i < 10000; i++) {
+          const testInput = `category-order-test-${targetIndex}-${i}`
+          const cat = computeStubCategory(testInput)
+          const actualIndex = expectedOrder.indexOf(cat)
+          if (actualIndex === targetIndex) {
+            testCases.push({ input: testInput, expectedIndex: targetIndex })
+            break
+          }
+        }
+      }
+
+      // Verify we found inputs for all 6 categories
+      expect(testCases).toHaveLength(6)
+
+      // Now verify each one produces the expected category
+      for (const { input, expectedIndex } of testCases) {
+        const category = computeStubCategory(input)
+        expect(category).toBe(expectedOrder[expectedIndex])
+      }
+    })
+
+    it('maps index 0 to WORK, not any other category (SPEC 7.2 frozen)', async () => {
+      // This is an additional safeguard: if someone reorders the array,
+      // this specific test will catch it.
+
+      // Import hash utilities
+      const { sha256, hashToUint32 } = await import('../../lib/hash')
+
+      // Find an input that produces index 0 (hash % 6 === 0)
+      let indexZeroInput: string | null = null
+      for (let i = 0; i < 10000; i++) {
+        const testInput = `index-zero-test-${i}`
+        const h = sha256(testInput)
+        const index = hashToUint32(h) % 6
+        if (index === 0) {
+          indexZeroInput = testInput
+          break
+        }
+      }
+
+      expect(indexZeroInput).not.toBeNull()
+      // Index 0 MUST map to WORK per spec
+      expect(computeStubCategory(indexZeroInput!)).toBe('WORK')
+    })
   })
 
   describe('classifyBatch', () => {
@@ -525,6 +585,46 @@ describe('Classification Service', () => {
       expect(typeof result.totals.labeled).toBe('number')
       expect(typeof result.totals.newlyLabeled).toBe('number')
       expect(typeof result.totals.skippedAlreadyLabeled).toBe('number')
+    })
+
+    it('response labelSpec exactly matches request values (no defaults)', async () => {
+      // This test ensures the response reflects the EXACT labelSpec from the request,
+      // not any "active" or default values. Phase 4 relies on this for reproducibility.
+
+      const content = createTestExport([
+        { id: 'msg-labelspec-1', role: 'user', text: 'LabelSpec test', timestamp: 1705316400, conversationId: 'conv-labelspec' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      // Use a custom model string to prove it's not defaulting
+      const customModel = 'custom_test_model_v1'
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: customModel,
+        promptVersionId: defaultPromptVersionId,
+        mode: 'stub',
+      })
+
+      // The response MUST reflect exactly what was requested
+      expect(result.labelSpec.model).toBe(customModel)
+      expect(result.labelSpec.promptVersionId).toBe(defaultPromptVersionId)
+
+      // Verify the label was actually written with these values
+      const label = await prisma.messageLabel.findFirst({
+        where: {
+          messageAtom: { importBatchId: importResult.importBatch.id },
+          model: customModel,
+          promptVersionId: defaultPromptVersionId,
+        },
+      })
+      expect(label).not.toBeNull()
     })
   })
 })

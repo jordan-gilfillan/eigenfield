@@ -139,6 +139,34 @@ describe('hashToUint32', () => {
     expect(uint32).toBe(0x9f86d081 >>> 0)
   })
 
+  it('uses big-endian byte order (SPEC 7.2 frozen behavior)', () => {
+    // This test locks the endianness to big-endian.
+    // If this test fails, stub classification will produce different categories.
+    // DO NOT CHANGE without a migration plan.
+
+    // sha256('endian-test') first 8 hex chars
+    const hash = sha256('endian-test')
+    const firstEightHex = hash.slice(0, 8)
+
+    // Big-endian interpretation: read hex chars left-to-right as most-significant first
+    const bigEndianValue = parseInt(firstEightHex, 16) >>> 0
+
+    // Verify our implementation matches big-endian
+    expect(hashToUint32(hash)).toBe(bigEndianValue)
+
+    // Also verify it does NOT match little-endian
+    // Little-endian would reverse the byte pairs: 'aabbccdd' -> 'ddccbbaa'
+    const bytes = firstEightHex.match(/.{2}/g)!
+    const littleEndianHex = bytes.reverse().join('')
+    const littleEndianValue = parseInt(littleEndianHex, 16) >>> 0
+
+    // This assertion ensures we're using big-endian, not little-endian
+    // (unless the hash happens to be palindromic, which is astronomically unlikely)
+    if (bigEndianValue !== littleEndianValue) {
+      expect(hashToUint32(hash)).not.toBe(littleEndianValue)
+    }
+  })
+
   it('returns a non-negative integer', () => {
     // Test multiple inputs to ensure always unsigned
     const inputs = ['a', 'b', 'c', 'test', 'hello', 'world']
