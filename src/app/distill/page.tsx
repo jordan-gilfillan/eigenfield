@@ -58,11 +58,11 @@ function DashboardContent() {
         const res = await fetch('/api/distill/import-batches?limit=50')
         if (res.ok) {
           const data = await res.json()
-          setImportBatches(data.importBatches || [])
+          setImportBatches(data.items || [])
 
           // Auto-select latest batch if none specified in URL
-          if (!importBatchIdFromUrl && data.importBatches?.length > 0) {
-            setSelectedBatchId(data.importBatches[0].id)
+          if (!importBatchIdFromUrl && data.items?.length > 0) {
+            setSelectedBatchId(data.items[0].id)
           }
         }
       } catch {
