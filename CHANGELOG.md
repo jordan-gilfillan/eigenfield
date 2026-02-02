@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Idempotent classification (same labelSpec = skip already-labeled atoms)
   - Version isolation (different promptVersionId creates separate labels)
   - Seed updated: `classify_stub_v1` PromptVersion for classify stage
-  - 123 tests passing (unit + integration)
+  - Dashboard UI: batch selector dropdown, auto-selects latest, classify button
+  - `GET /api/distill/prompt-versions` endpoint for UI to fetch active prompts
+  - 127 tests passing (unit + integration)
 
 ### Planned (Phase 3.5: Real Classification)
 - Real classification with LLM integration (mode="real")

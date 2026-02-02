@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense, useState, useEffect } from 'react'
 
 interface ClassifyResult {
@@ -22,14 +22,57 @@ interface PromptVersion {
   prompt: { stage: string }
 }
 
+interface ImportBatch {
+  id: string
+  createdAt: string
+  source: string
+  originalFilename: string
+  fileSizeBytes: number
+  timezone: string
+  stats: {
+    message_count: number
+    day_count: number
+    coverage_start: string
+    coverage_end: string
+  }
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams()
-  const importBatchId = searchParams.get('importBatchId')
+  const router = useRouter()
+  const importBatchIdFromUrl = searchParams.get('importBatchId')
+
+  const [importBatches, setImportBatches] = useState<ImportBatch[]>([])
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(importBatchIdFromUrl)
+  const [loadingBatches, setLoadingBatches] = useState(true)
 
   const [classifyPromptVersion, setClassifyPromptVersion] = useState<PromptVersion | null>(null)
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
+
+  // Fetch import batches on mount
+  useEffect(() => {
+    async function fetchBatches() {
+      try {
+        const res = await fetch('/api/distill/import-batches?limit=50')
+        if (res.ok) {
+          const data = await res.json()
+          setImportBatches(data.importBatches || [])
+
+          // Auto-select latest batch if none specified in URL
+          if (!importBatchIdFromUrl && data.importBatches?.length > 0) {
+            setSelectedBatchId(data.importBatches[0].id)
+          }
+        }
+      } catch {
+        // Silently fail
+      } finally {
+        setLoadingBatches(false)
+      }
+    }
+    fetchBatches()
+  }, [importBatchIdFromUrl])
 
   // Fetch active classify prompt version on mount
   useEffect(() => {
@@ -43,14 +86,22 @@ function DashboardContent() {
           }
         }
       } catch {
-        // Silently fail - we'll show an error when classify is clicked
+        // Silently fail
       }
     }
     fetchPromptVersion()
   }, [])
 
+  // Update URL when batch selection changes (for shareability)
+  function handleBatchSelect(batchId: string) {
+    setSelectedBatchId(batchId)
+    setClassifyResult(null)
+    setClassifyError(null)
+    router.push(`/distill?importBatchId=${batchId}`)
+  }
+
   async function handleClassify() {
-    if (!importBatchId || !classifyPromptVersion) return
+    if (!selectedBatchId || !classifyPromptVersion) return
 
     setClassifying(true)
     setClassifyError(null)
@@ -61,7 +112,7 @@ function DashboardContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          importBatchId,
+          importBatchId: selectedBatchId,
           model: 'stub_v1',
           promptVersionId: classifyPromptVersion.id,
           mode: 'stub',
@@ -83,6 +134,8 @@ function DashboardContent() {
     }
   }
 
+  const selectedBatch = importBatches.find((b) => b.id === selectedBatchId)
+
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
       <div className="mb-8">
@@ -93,14 +146,70 @@ function DashboardContent() {
 
       <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
 
-      {importBatchId && (
+      {/* Import Batch Selector */}
+      <div className="mb-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+        <h2 className="text-lg font-semibold mb-3">Select Import Batch</h2>
+
+        {loadingBatches ? (
+          <p className="text-gray-500">Loading import batches...</p>
+        ) : importBatches.length === 0 ? (
+          <div className="text-gray-600">
+            <p className="mb-2">No import batches found.</p>
+            <Link
+              href="/distill/import"
+              className="text-blue-600 hover:underline"
+            >
+              Import your first conversation export &rarr;
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <select
+              value={selectedBatchId || ''}
+              onChange={(e) => handleBatchSelect(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md bg-white"
+            >
+              {importBatches.map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {batch.originalFilename} — {batch.stats.message_count} messages,{' '}
+                  {batch.stats.day_count} days ({batch.source.toLowerCase()})
+                </option>
+              ))}
+            </select>
+
+            {selectedBatch && (
+              <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="font-medium">Source:</span>{' '}
+                    {selectedBatch.source.toLowerCase()}
+                  </div>
+                  <div>
+                    <span className="font-medium">Timezone:</span>{' '}
+                    {selectedBatch.timezone}
+                  </div>
+                  <div>
+                    <span className="font-medium">Coverage:</span>{' '}
+                    {selectedBatch.stats.coverage_start} to {selectedBatch.stats.coverage_end}
+                  </div>
+                  <div>
+                    <span className="font-medium">Imported:</span>{' '}
+                    {new Date(selectedBatch.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Classification Section */}
+      {selectedBatchId && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-          <p className="text-blue-700">
-            Import batch selected: <code className="font-mono">{importBatchId}</code>
-          </p>
+          <h2 className="text-lg font-semibold mb-3 text-blue-800">Classification</h2>
 
           {classifyResult && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded">
+            <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded">
               <p className="text-green-700 font-medium">Classification complete!</p>
               <ul className="text-green-600 text-sm mt-1 space-y-1">
                 <li>Total atoms: {classifyResult.totals.messageAtoms}</li>
@@ -108,19 +217,19 @@ function DashboardContent() {
                 <li>Already labeled: {classifyResult.totals.skippedAlreadyLabeled}</li>
                 <li>
                   Label spec: {classifyResult.labelSpec.model} /{' '}
-                  <code className="text-xs">{classifyResult.labelSpec.promptVersionId}</code>
+                  <code className="text-xs">{classifyResult.labelSpec.promptVersionId.slice(0, 8)}...</code>
                 </li>
               </ul>
             </div>
           )}
 
           {classifyError && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+            <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded">
               <p className="text-red-700">{classifyError}</p>
             </div>
           )}
 
-          <div className="mt-3 flex gap-2">
+          <div className="flex gap-2 items-center">
             <button
               onClick={handleClassify}
               disabled={classifying || !classifyPromptVersion}
@@ -133,14 +242,16 @@ function DashboardContent() {
               {classifying ? 'Classifying...' : 'Classify (stub)'}
             </button>
             {!classifyPromptVersion && (
-              <span className="text-sm text-gray-500 self-center">
-                Loading prompt version...
-              </span>
+              <span className="text-sm text-gray-500">Loading prompt version...</span>
             )}
+            <span className="text-sm text-blue-600">
+              Assigns categories to all messages using deterministic stub algorithm
+            </span>
           </div>
         </div>
       )}
 
+      {/* Feature Cards */}
       <div className="grid gap-6 md:grid-cols-2">
         <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">
           <h2 className="text-xl font-semibold mb-4">Import</h2>
@@ -160,13 +271,13 @@ function DashboardContent() {
           <p className="text-gray-600 mb-4">
             Label messages with categories for filtering.
           </p>
-          {importBatchId ? (
+          {selectedBatchId ? (
             <span className="inline-block px-4 py-2 bg-green-100 text-green-700 rounded">
-              Use button above to classify
+              Ready — use section above
             </span>
           ) : (
             <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
-              Import a batch first
+              Select a batch first
             </span>
           )}
         </div>
