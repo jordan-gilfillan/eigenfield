@@ -52,16 +52,10 @@ describe('buildRawEntryContent', () => {
       },
     ]
     const result = buildRawEntryContent(atoms)
-    // 'assistant' < 'user' alphabetically, so assistant comes first
-    // Wait, the spec says "user before assistant" - let me check
     // Spec 6.5: "role ASC (user before assistant)"
-    // But alphabetically, 'assistant' < 'user'
-    // This seems like a spec/implementation mismatch - the spec says user before assistant
-    // but ASC would put assistant first. Let's follow the spec's intent.
-    // Actually looking at the code, we're using localeCompare which is alphabetical
-    // So this test documents current behavior, which is alphabetical
+    // User comes before assistant at the same timestamp
     expect(result).toBe(
-      '[2024-01-15T10:30:00.000Z] assistant: Response\n[2024-01-15T10:30:00.000Z] user: Question'
+      '[2024-01-15T10:30:00.000Z] user: Question\n[2024-01-15T10:30:00.000Z] assistant: Response'
     )
   })
 

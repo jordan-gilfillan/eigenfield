@@ -35,14 +35,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Seed updated: `classify_stub_v1` PromptVersion for classify stage
   - Dashboard UI: batch selector dropdown, auto-selects latest, classify button
   - `GET /api/distill/prompt-versions` endpoint for UI to fetch active prompts
-  - 127 tests passing (unit + integration)
 
-### Planned (Phase 4: Run Execution - minimal slice)
-- Run creation with config freezing
-- Tick endpoint with Postgres advisory lock
-- Bundle construction (deterministic ordering)
-- LLM plumbing: call wrapper, token/cost accounting
-- **Gate**: one day through the machine end-to-end
+- Phase 4: Run Execution (minimal slice) complete
+  - Run service with config freezing (promptVersionIds, labelSpec, filterProfileSnapshot, timezone, maxInputTokens)
+  - `POST /api/distill/runs` endpoint (creates run with frozen config, jobs for eligible days)
+  - `GET /api/distill/runs` endpoint (paginated list)
+  - `GET /api/distill/runs/:runId` endpoint (run details with progress)
+  - `POST /api/distill/runs/:runId/tick` endpoint (processes queued jobs)
+  - Bundle construction utility (`src/lib/services/bundle.ts`)
+    - Deterministic ordering: source ASC, timestampUtc ASC, role ASC, atomStableId ASC
+    - bundleHash and bundleContextHash per spec 5.3
+    - Category filtering (INCLUDE/EXCLUDE modes)
+  - Advisory lock mechanism (`src/lib/services/advisory-lock.ts`)
+    - Postgres pg_try_advisory_lock for tick concurrency control
+    - Automatic lock release with withLock() helper
+  - Tick service (`src/lib/services/tick.ts`)
+    - Processes N=1 job per tick (configurable)
+    - Builds bundle, calls summarizer, stores Output
+    - Updates job status and run progress
+  - Stub summarizer (`src/lib/services/summarizer.ts`)
+    - Deterministic stub mode for testing (models starting with "stub")
+    - Token estimation (chars/4 heuristic)
+    - Ready for real LLM integration
+  - 156 tests passing (unit + integration)
+  - **Gate passed**: one day through the machine end-to-end (stub mode)
+
+- Documentation suite
+  - `GLOSSARY.md`: Terms and definitions used throughout the codebase
+  - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
+  - `ACCEPTANCE.md`: Testable acceptance criteria and verification steps
+  - Updated `SPEC.md` to align response schemas with implementation
 
 ### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")

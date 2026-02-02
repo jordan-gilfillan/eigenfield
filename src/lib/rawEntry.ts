@@ -34,8 +34,10 @@ function sortAtoms(atoms: RawEntryAtom[]): RawEntryAtom[] {
     const timeDiff = a.timestampUtc.getTime() - b.timestampUtc.getTime()
     if (timeDiff !== 0) return timeDiff
 
-    // Secondary: role ASC (user < assistant alphabetically)
-    const roleDiff = a.role.localeCompare(b.role)
+    // Secondary: role ASC (user before assistant per SPEC 6.5)
+    // Note: 'user' > 'assistant' alphabetically, so we reverse the comparison
+    const roleOrder = { user: 0, assistant: 1 } as const
+    const roleDiff = (roleOrder[a.role as keyof typeof roleOrder] ?? 2) - (roleOrder[b.role as keyof typeof roleOrder] ?? 2)
     if (roleDiff !== 0) return roleDiff
 
     // Tertiary: atomStableId ASC

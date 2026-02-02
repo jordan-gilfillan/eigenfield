@@ -545,28 +545,26 @@ Returns:
 
 ```json
 {
-  "run": {
-    "id": "string",
-    "status": "queued|running|completed|cancelled|failed",
-    "importBatchId": "string",
-    "startDate": "YYYY-MM-DD",
-    "endDate": "YYYY-MM-DD",
-    "sources": ["chatgpt"],
-    "filterProfileId": "string",
-    "model": "string",
-    "outputTarget": "db",
-    "config": {
-      "promptVersionIds": {"summarize": "string"},
-      "labelSpec": {"model": "string", "promptVersionId": "string"},
-      "filterProfileSnapshot": {"name": "string", "mode": "include|exclude", "categories": ["WORK"]},
-      "timezone": "IANA",
-      "maxInputTokens": 12000
-    },
-    "createdAt": "RFC3339",
-    "updatedAt": "RFC3339"
+  "id": "string",
+  "status": "queued|running|completed|cancelled|failed",
+  "importBatchId": "string",
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "sources": ["chatgpt"],
+  "filterProfileId": "string",
+  "model": "string",
+  "outputTarget": "db",
+  "config": {
+    "promptVersionIds": {"summarize": "string"},
+    "labelSpec": {"model": "string", "promptVersionId": "string"},
+    "filterProfile": {"name": "string", "mode": "include|exclude", "categories": ["WORK"]},
+    "timezone": "IANA",
+    "maxInputTokens": 12000
   },
-  "jobsCreated": 0,
-  "eligibleDays": ["YYYY-MM-DD"]
+  "jobCount": 0,
+  "eligibleDays": ["YYYY-MM-DD"],
+  "createdAt": "RFC3339",
+  "updatedAt": "RFC3339"
 }
 ```
 
