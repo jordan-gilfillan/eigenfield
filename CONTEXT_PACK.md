@@ -20,7 +20,8 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Current test count: 190 passing.
 - Phase 5 UI Shell in progress:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
-  - Next: PR-5.2 (jobs + reset), PR-5.3 (manual tick), PR-5.4 (output viewer + inspector metadata), PR-5.5 (dashboard run creation).
+  - PR-5.2 complete: job table + per-day reset control on run detail page
+  - Next: PR-5.3 (manual tick), PR-5.4 (output viewer + inspector metadata), PR-5.5 (dashboard run creation).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
@@ -34,4 +35,5 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Small diffs; one prompt/task at a time.
 - Prefer updating docs/comments + minimal code changes + tests.
 - Provide summary + list of files changed + test results.
-- Checkin often with informative comments
+- Checkin often with informative comments.
+- Update CHANGELOG.md and CONTEXT_PACK.md current status.

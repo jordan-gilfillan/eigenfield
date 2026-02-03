@@ -89,6 +89,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed `GET /api/distill/runs/:runId` to include `promptVersionIds` in response
   - UI invariant: no background polling, frozen config displayed exactly as stored
 
+- Phase 5 UI Shell - PR-5.2: Job table + per-day reset control
+  - Job table on `/distill/runs/:runId` with columns:
+    - `dayDate`, `status`, `attempt`, `tokensIn`, `tokensOut`, `costUsd`, `error`
+  - Per-row Reset button calling `POST /api/distill/runs/:runId/jobs/:dayDate/reset`
+  - After reset: re-fetch run data, UI shows incremented attempt + job returns to queued
+  - Reset disabled for cancelled runs (terminal status rule enforced in UI)
+  - Extended `GET /api/distill/runs/:runId` to include `jobs` array
+  - Error handling for reset failures with user-visible error message
+  - UI invariant: no background polling, no setInterval
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -107,7 +117,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error handling for API failures
 
 ### Planned (Phase 5: UI Shell - remaining PRs)
-- PR-5.2: Job table + per-day reset control
 - PR-5.3: Manual tick control (single-request) + last tick result
 - PR-5.4: Output viewer (markdown) + minimal inspector metadata
 - PR-5.5: Dashboard with run creation wiring
