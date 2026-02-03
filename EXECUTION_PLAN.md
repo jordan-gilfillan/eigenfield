@@ -282,39 +282,92 @@ Per spec 9.2:
 
 ---
 
-### Phase 5: UI Shell
+### Phase 5: UI Shell (minimum operability slice)
 
-**Step 1: Dashboard**
-`/distill` page:
-- ImportBatch selector
-- Date range picker
-- Source filter
-- Filter profile selector
-- Model selector
-- "Create Run" button
+Goal: make the system operable and debuggable end-to-end without adding new backend dependencies.
 
-**Step 2: Run Detail**
-`/distill/runs/:runId` page:
-- Config snapshot display
-- Progress summary (queued/running/succeeded/failed)
-- Job table with status, tokens, cost, errors
-- Sequential polling implementation (no `setInterval`)
+UI invariants (non-negotiable):
+- No background polling loops. Tick is user-driven.
+- No overlapping tick requests. The UI MUST await each tick response before sending the next.
+- The UI MUST NOT use setInterval for tick; it must be a sequential loop (manual or controlled play button).
+- No “magic” side effects: buttons map 1:1 to API calls (import, classify, create run, tick, cancel, resume, reset).
+- The UI must surface the frozen run config snapshot exactly as stored (no recomputation).
 
-**Step 3: Output Viewer**
-- Per-day output display
-- Rendered markdown
-- Collapsible raw JSON
+Implementation strategy: ship Phase 5 as small PRs. Each PR should be mergeable and keep tests green.
 
-**Deliverables:**
-- [ ] Dashboard with run creation
-- [ ] Run detail page
-- [ ] Sequential polling
-- [ ] Output viewer
+#### PR-5.1: Run detail page scaffold + frozen config
+Pages:
+- `/distill/runs/:runId`
 
-**Phase Gate:**
-- [ ] Dashboard shows import batches and allows run creation
-- [ ] Run detail page polls sequentially (no overlapping requests)
-- [ ] Output renders as markdown
+Work:
+- Create the route and basic layout.
+- Fetch run detail from `GET /api/distill/runs/:runId`.
+- Render a Frozen Config block showing values from `Run.configJson`:
+  - `promptVersionIds`
+  - `labelSpec`
+  - `filterProfileSnapshot`
+  - `timezone`
+  - `maxInputTokens`
+
+Acceptance (manual):
+- Run detail page renders for an existing run.
+- Frozen config values match the API response exactly.
+
+#### PR-5.2: Job table + per-day reset control
+Work:
+- Add a Job table (dayDate, status, attempt, tokensIn/out, costUsd, error).
+- Add a per-day Reset button calling `POST /api/distill/runs/:runId/jobs/:dayDate/reset`.
+- After reset, re-fetch and verify `attempt` increments and job returns to `queued`.
+
+Acceptance (manual):
+- Reset works for a single day without affecting other days.
+- Attempt increments are visible in the UI.
+
+#### PR-5.3: Manual tick control (single-request) + last tick result
+Work:
+- Add a Tick button calling `POST /api/distill/runs/:runId/tick`.
+- Disable the Tick button while a request is in-flight.
+- Show the last tick response summary (processed count, run status, any error code).
+
+Acceptance (manual):
+- UI never sends overlapping tick requests.
+- If a second tick is attempted while one is in-flight, UI prevents it.
+
+#### PR-5.4: Output viewer (markdown) + minimal inspector metadata
+Work:
+- For days with outputs, add an Output viewer that renders `Output.outputText` as markdown.
+- Add a collapsible raw JSON view for `Output.outputJson`.
+- Surface `bundleHash` and `bundleContextHash`.
+- If segmented, surface `segmented`, `segmentCount`, `segmentIds` from `Output.outputJson.meta`.
+
+Acceptance (manual):
+- Output markdown renders.
+- Hashes and segmentation metadata are visible.
+
+#### PR-5.5: Minimal dashboard run creation wiring
+Pages:
+- `/distill` (dashboard)
+
+Work:
+- ImportBatch selector (must allow selecting an existing batch; default can be latest).
+- Date range picker.
+- Sources selector.
+- FilterProfile selector (default `professional-only`).
+- Model selector.
+- Create Run button calling `POST /api/distill/runs`.
+- After creation, navigate to `/distill/runs/:runId`.
+
+Acceptance (manual):
+- Can create a run from an existing batch and land on the run detail page.
+
+Phase Gate (Phase 5):
+- Dashboard supports run creation and navigates to run detail.
+- Run detail page shows frozen config snapshot values exactly as stored in Run.configJson.
+- UI allows manual tick with no overlapping requests (sequential await).
+- UI exposes per-day reset and shows attempt increments after reset.
+- For a processed day, UI can display output markdown and the input bundle hashes (bundleHash + bundleContextHash).
+
+---
 
 ---
 
@@ -417,8 +470,8 @@ Run inspector:
 - [ ] 11.3: Tick default is 1 job
 - [ ] 11.3: Backend rejects overlapping ticks (409)
 - [ ] 11.3: Resume continues from failed jobs without reprocessing succeeded
-- [ ] 11.4: Search returns results for known strings
-- [ ] 11.4: Inspector renders markdown and shows pre/post views
+- [ ] 11.4: UI shell shows frozen config exactly as stored; manual tick is sequential; reset increments attempt; per-day view shows output markdown + bundle hashes.
+- [ ] 11.5: Search returns results for known strings in MessageAtoms and Outputs; inspector renders markdown and shows pre/post views.
 
 ---
 

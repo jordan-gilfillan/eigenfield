@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `POST /api/distill/runs/:runId/resume` — requeues FAILED jobs, sets run to QUEUED
     - `POST /api/distill/runs/:runId/jobs/:dayDate/reset` — deletes outputs, increments attempt, requeues job
   - Terminal status rule enforced: cancelled runs cannot transition to other states
-  - 187 tests passing (31 new tests for segmentation + run controls)
+  - 190 tests passing (34 new tests for segmentation + run controls + idempotency)
   - **Gate passed**: segmentation determinism verified, run controls work as intended
 
 - Documentation suite

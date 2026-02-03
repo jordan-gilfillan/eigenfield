@@ -42,6 +42,9 @@ Explicitly out of scope:
 - Custom category taxonomy editor
 - Automatic prompt rewriting/compilation from user-defined categories
 - Auto-retry with backoff (manual resume only)
+- Automatic / background tick loops (user-driven tick only in Phase 5)
+- Parallel job processing in UI (sequential polling only)
+- UI polish / design system work beyond basic layouts (Phase 5 is operability-first)
 
 
 ## 2.1 Implementation stack and local dev (normative for this repo)
@@ -438,6 +441,7 @@ POST `/api/distill/runs/:runId/tick`
 UI polling:
 - sequential: wait for each tick response before next tick
 - no `setInterval` fire-and-forget
+- The UI MUST NOT use setInterval for tick; it must be a sequential loop (manual or controlled play button).
 
 ### 7.5 Inspect
 UI: `/distill/runs/:runId`
@@ -447,6 +451,44 @@ Must show:
 - job table (status, tokens, cost, errors)
 - per-day output viewer (rendered markdown)
 - input inspector (see 10)
+
+### 7.5.1 Phase 5 UI Shell (minimum operability slice)
+
+Goal: make the system operable and debuggable end-to-end without adding new backend dependencies.
+
+UI invariants (non-negotiable):
+- No background polling loops. Tick is user-driven.
+- No overlapping tick requests. The UI MUST await each tick response before sending the next.
+- No “magic” side effects: buttons map 1:1 to API calls (import, classify, create run, tick, cancel, resume, reset).
+- The UI must surface the frozen run config snapshot exactly as stored (no recomputation).
+
+Minimum pages:
+1) /distill (dashboard)
+   - ImportBatch selector (must allow selecting an existing batch; default can be latest)
+   - Date range picker
+   - Sources selector
+   - FilterProfile selector (default professional-only)
+   - Model selector
+   - Create Run CTA
+   - Optional: link to latest runs list
+
+2) /distill/runs/:runId (run detail)
+   - Frozen config block (promptVersionIds, labelSpec, filterProfileSnapshot, timezone, maxInputTokens)
+   - Progress summary (queued/running/succeeded/failed/cancelled)
+   - Job table with per-day controls (reset day)
+   - Manual Tick control (single request; show last tick result)
+   - Output viewer (render markdown)
+   - Input inspector (bundle text + bundleHash + bundleContextHash + segment metadata when present)
+
+Minimum per-job inspector affordances:
+- Show bundleHash and bundleContextHash.
+- If segmented, show: segmented, segmentCount, segmentIds from Output.outputJson.meta.
+
+Not required in Phase 5:
+- Search UI
+- Highlighting matches
+- Import inspector day browser (can be Phase 6)
+- Any charts/visualizations
 
 ### 7.6 Resume / Cancel
 - Cancel: marks run cancelled and cancels queued jobs
@@ -764,7 +806,13 @@ List/search endpoints MUST support pagination:
 - Backend rejects overlapping ticks (409 TICK_IN_PROGRESS), and UI uses sequential polling (frontend e2e test).
 - Resume continues from failed jobs without reprocessing succeeded days.
 
-### 11.4 Search + UI
+### 11.4 UI Shell (Phase 5)
+- Run detail page shows frozen config snapshot values exactly as stored in Run.configJson.
+- Run detail page allows manual tick; UI sends no overlapping tick requests (sequential await).
+- UI exposes per-day reset and shows attempt increments after reset.
+- For a processed day, UI can display output markdown and the input bundle hashes (bundleHash + bundleContextHash).
+
+### 11.5 Search + Inspector
 - Search returns results for known strings in MessageAtoms and Outputs.
 - Inspector renders output as markdown and shows pre/post views.
 

@@ -9,13 +9,17 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Auditability: preserve evidence and allow inspection; no silent loss.
 - Minimal infra: no background queues, no redis, no “magic”; local-first.
 - v0.3 scope: no embeddings/vector search, no multi-user auth, no cloud storage.
+- UI tick is user-driven and sequential: no background polling loops, no setInterval, no overlapping tick requests.
+- UI must surface frozen run config exactly as stored (Run.configJson); no recomputation or hidden side effects.
 
 ## 2) Current status
-- Phase 4 continued complete: segmentation (segmenter_v1) + run controls (cancel/resume/reset).
-- Deterministic segmentation: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
-- Run controls: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days.
-- API contract audit done: idempotency verified, error codes per SPEC 7.8.
-- 190 tests passing.
+- Phases 1–4 complete, including Phase 4 continued: segmentation (segmenter_v1) + run controls (cancel/resume/reset).
+- Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
+- Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
+- API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
+- Current test count: 190 passing.
+- Docs updated to scope Phase 5 UI Shell (minimum operability slice): SPEC now includes UI invariants + Phase 5 acceptance criteria; EXECUTION_PLAN breaks Phase 5 into PR-5.1…PR-5.5.
+- Next planned work: Phase 5 PR-5.1 (run detail page scaffold + frozen config), then PR-5.2 (jobs + reset), PR-5.3 (manual tick), PR-5.4 (output viewer + inspector metadata), PR-5.5 (dashboard run creation).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
@@ -29,3 +33,4 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Small diffs; one prompt/task at a time.
 - Prefer updating docs/comments + minimal code changes + tests.
 - Provide summary + list of files changed + test results.
+- Checkin often with informative comments

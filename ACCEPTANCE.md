@@ -364,6 +364,29 @@ it('formats timestamps with milliseconds and Z suffix', () => {
 
 ---
 
+### AC-15: UI Shell (Phase 5) — Operability + Inspection
+
+**Requirement:** The UI makes runs operable and debuggable without introducing background processing.
+
+**Manual verification:**
+1. Navigate to `/distill` and select an existing ImportBatch (do not re-import).
+2. Create a run and confirm navigation to `/distill/runs/:runId`.
+3. On the run detail page:
+   - Frozen config values are displayed exactly as stored in `Run.configJson` (promptVersionIds, labelSpec, filterProfileSnapshot, timezone, maxInputTokens).
+   - Job table renders (dayDate, status, attempt, tokens, cost, error).
+   - Reset a single day; confirm only that job becomes `queued` and `attempt` increments.
+   - Click Tick repeatedly to process jobs.
+4. Verify tick is sequential and user-driven:
+   - UI disables Tick while a tick request is in-flight.
+   - No background polling loops (no `setInterval` fire-and-forget).
+   - If you try to trigger another tick while one is in-flight, UI prevents it.
+5. For a processed day, verify the page can show:
+   - Output markdown
+   - `bundleHash` and `bundleContextHash`
+   - Segmentation metadata when present (`segmented`, `segmentCount`, `segmentIds` from `Output.outputJson.meta`).
+
+---
+
 ## API Response Verification
 
 ### Import Response
@@ -501,6 +524,16 @@ Before release, verify these work manually:
 - [ ] Verify cancelled run cannot be resumed via tick (returns processed=0)
 - [ ] Verify resume on cancelled run returns 400 CANNOT_RESUME_CANCELLED
 - [ ] Create a new run, fail a job manually, resume, verify only failed job requeued
+
+**UI Shell (Phase 5):**
+- [ ] Open `/distill` and select an existing ImportBatch
+- [ ] Create a run from the dashboard and land on `/distill/runs/:runId`
+- [ ] Confirm frozen config block matches `Run.configJson` values
+- [ ] Tick manually until at least one job succeeds
+- [ ] Reset one day and confirm attempt increments + job returns to queued
+- [ ] Confirm Tick is sequential (button disabled during request; no overlapping requests)
+- [ ] Confirm output viewer shows markdown + `bundleHash` + `bundleContextHash`
+- [ ] If segmented, confirm UI shows `segmented`, `segmentCount`, `segmentIds`
 
 ---
 
