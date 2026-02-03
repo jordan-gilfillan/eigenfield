@@ -99,6 +99,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Error handling for reset failures with user-visible error message
   - UI invariant: no background polling, no setInterval
 
+- Phase 5 UI Shell - PR-5.3: Manual tick control + last tick result
+  - Tick button on `/distill/runs/:runId` calling `POST /api/distill/runs/:runId/tick`
+  - Button disabled during in-flight request (prevents overlapping tick requests)
+  - Tick disabled for terminal run states (cancelled, completed)
+  - Last tick result panel showing:
+    - Processed count (number of jobs processed in this tick)
+    - Run status after tick
+    - Error code and message if tick failed
+    - List of processed jobs with their status
+  - Re-fetches run details after successful tick to update job table and progress
+  - UI invariant enforced: no overlapping tick requests (sequential await), no setInterval, no background polling
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -117,7 +129,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error handling for API failures
 
 ### Planned (Phase 5: UI Shell - remaining PRs)
-- PR-5.3: Manual tick control (single-request) + last tick result
 - PR-5.4: Output viewer (markdown) + minimal inspector metadata
 - PR-5.5: Dashboard with run creation wiring
 

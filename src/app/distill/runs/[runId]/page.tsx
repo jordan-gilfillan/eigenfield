@@ -59,6 +59,33 @@ interface ApiError {
   }
 }
 
+interface TickResult {
+  runId: string
+  processed: number
+  jobs: Array<{
+    dayDate: string
+    status: string
+    attempt: number
+    tokensIn: number | null
+    tokensOut: number | null
+    costUsd: number | null
+    error: string | null
+  }>
+  progress: {
+    queued: number
+    running: number
+    succeeded: number
+    failed: number
+    cancelled: number
+  }
+  runStatus: string
+}
+
+interface TickError {
+  code: string
+  message: string
+}
+
 type LoadingState = 'loading' | 'success' | 'error'
 
 export default function RunDetailPage() {
@@ -70,6 +97,11 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [resettingDay, setResettingDay] = useState<string | null>(null)
   const [resetError, setResetError] = useState<string | null>(null)
+
+  // Tick state
+  const [tickInFlight, setTickInFlight] = useState(false)
+  const [lastTickResult, setLastTickResult] = useState<TickResult | null>(null)
+  const [lastTickError, setLastTickError] = useState<TickError | null>(null)
 
   const fetchRun = useCallback(async () => {
     try {
@@ -118,6 +150,54 @@ export default function RunDetailPage() {
       setResetError(err instanceof Error ? err.message : 'Failed to reset job')
     } finally {
       setResettingDay(null)
+    }
+  }
+
+  /**
+   * Handle tick button click.
+   * CRITICAL: This function prevents overlapping tick requests by:
+   * 1. Disabling the button via tickInFlight state
+   * 2. Awaiting the response before allowing another tick
+   * Per spec 7.4: UI must be sequential, no overlapping ticks
+   */
+  const handleTick = async () => {
+    // Prevent overlapping tick requests (UI invariant)
+    if (tickInFlight) return
+
+    setTickInFlight(true)
+    setLastTickError(null)
+
+    try {
+      const res = await fetch(`/api/distill/runs/${runId}/tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        const apiError = data as ApiError
+        setLastTickError({
+          code: apiError.error?.code || 'UNKNOWN',
+          message: apiError.error?.message || 'Tick failed',
+        })
+        return
+      }
+
+      // Store the successful tick result
+      setLastTickResult(data as TickResult)
+
+      // Re-fetch run details to update job table and progress
+      await fetchRun()
+    } catch (err) {
+      setLastTickError({
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Network error during tick',
+      })
+    } finally {
+      // CRITICAL: Only set tickInFlight to false after request completes
+      // This ensures sequential tick requests per spec
+      setTickInFlight(false)
     }
   }
 
@@ -199,6 +279,15 @@ export default function RunDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Manual Tick Control */}
+      <TickControl
+        runStatus={run.status}
+        tickInFlight={tickInFlight}
+        lastTickResult={lastTickResult}
+        lastTickError={lastTickError}
+        onTick={handleTick}
+      />
 
       {/* Run Info */}
       <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
@@ -355,6 +444,116 @@ function ProgressCard({
     <div className={`p-3 rounded ${color}`}>
       <div className="text-2xl font-bold">{count}</div>
       <div className="text-xs text-gray-600">{label}</div>
+    </div>
+  )
+}
+
+/**
+ * Manual tick control component.
+ * Per spec 7.5.1: Manual Tick control (single request; show last tick result)
+ * CRITICAL invariant: No overlapping tick requests allowed.
+ */
+function TickControl({
+  runStatus,
+  tickInFlight,
+  lastTickResult,
+  lastTickError,
+  onTick,
+}: {
+  runStatus: string
+  tickInFlight: boolean
+  lastTickResult: TickResult | null
+  lastTickError: TickError | null
+  onTick: () => void
+}) {
+  // Disable tick for terminal run states
+  const isTerminal = runStatus === 'cancelled' || runStatus === 'completed'
+  const canTick = !isTerminal && !tickInFlight
+
+  return (
+    <div className="mt-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+      <h2 className="text-lg font-semibold mb-3">Manual Tick Control</h2>
+
+      <div className="flex items-center gap-4">
+        <button
+          onClick={onTick}
+          disabled={!canTick}
+          className={`px-4 py-2 rounded font-medium ${
+            canTick
+              ? 'bg-green-600 text-white hover:bg-green-700'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          {tickInFlight ? 'Processing...' : 'Tick'}
+        </button>
+
+        {isTerminal && (
+          <span className="text-sm text-gray-500">
+            Run is {runStatus} — no more ticks allowed
+          </span>
+        )}
+
+        {tickInFlight && (
+          <span className="text-sm text-blue-600">
+            Tick in progress — waiting for response...
+          </span>
+        )}
+      </div>
+
+      {/* Last tick result display */}
+      {(lastTickResult || lastTickError) && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Last Tick Result</h3>
+
+          {lastTickError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
+              <span className="font-medium text-red-700">Error:</span>{' '}
+              <code className="text-red-600">{lastTickError.code}</code>
+              <span className="text-red-700"> — {lastTickError.message}</span>
+            </div>
+          )}
+
+          {lastTickResult && !lastTickError && (
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded text-sm">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <dt className="text-gray-600">Processed:</dt>
+                <dd className="font-medium">{lastTickResult.processed} job(s)</dd>
+                <dt className="text-gray-600">Run Status:</dt>
+                <dd>
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(lastTickResult.runStatus)}`}
+                  >
+                    {lastTickResult.runStatus}
+                  </span>
+                </dd>
+              </dl>
+
+              {/* Show processed jobs details if any */}
+              {lastTickResult.jobs.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <span className="text-xs text-gray-500">Processed jobs:</span>
+                  <ul className="mt-1 space-y-1">
+                    {lastTickResult.jobs.map((job) => (
+                      <li key={job.dayDate} className="text-xs">
+                        <code className="bg-gray-200 px-1 rounded">{job.dayDate}</code>
+                        {' → '}
+                        <span
+                          className={`px-1.5 py-0.5 rounded ${getJobStatusColor(job.status)}`}
+                        >
+                          {job.status}
+                        </span>
+                        {job.error && (
+                          <span className="text-red-600 ml-1">({job.error})</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
