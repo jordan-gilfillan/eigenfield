@@ -77,6 +77,7 @@ export async function GET(
       startDate: run.startDate,
       endDate: run.endDate,
       config: {
+        promptVersionIds: config.promptVersionIds,
         labelSpec: config.labelSpec,
         filterProfile: config.filterProfileSnapshot,
         timezone: config.timezone,
