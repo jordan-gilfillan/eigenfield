@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState, useEffect, useCallback } from 'react'
 
 interface ClassifyResult {
   importBatchId: string
@@ -37,6 +37,13 @@ interface ImportBatch {
   }
 }
 
+interface FilterProfile {
+  id: string
+  name: string
+  mode: string
+  categories: string[]
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -50,6 +57,16 @@ function DashboardContent() {
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
+
+  // Run creation state
+  const [filterProfiles, setFilterProfiles] = useState<FilterProfile[]>([])
+  const [selectedFilterProfileId, setSelectedFilterProfileId] = useState<string>('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [selectedSources, setSelectedSources] = useState<string[]>(['chatgpt', 'claude', 'grok'])
+  const [model, setModel] = useState('stub_summarizer_v1')
+  const [creatingRun, setCreatingRun] = useState(false)
+  const [createRunError, setCreateRunError] = useState<string | null>(null)
 
   // Fetch import batches on mount
   useEffect(() => {
@@ -91,6 +108,40 @@ function DashboardContent() {
     }
     fetchPromptVersion()
   }, [])
+
+  // Fetch filter profiles on mount
+  useEffect(() => {
+    async function fetchProfiles() {
+      try {
+        const res = await fetch('/api/distill/filter-profiles')
+        if (res.ok) {
+          const data = await res.json()
+          setFilterProfiles(data.items || [])
+          // Auto-select professional-only as default
+          const defaultProfile = data.items?.find((p: FilterProfile) => p.name === 'professional-only')
+          if (defaultProfile) {
+            setSelectedFilterProfileId(defaultProfile.id)
+          } else if (data.items?.length > 0) {
+            setSelectedFilterProfileId(data.items[0].id)
+          }
+        }
+      } catch {
+        // Silently fail
+      }
+    }
+    fetchProfiles()
+  }, [])
+
+  // Compute selectedBatch before effects that depend on it
+  const selectedBatch = importBatches.find((b) => b.id === selectedBatchId)
+
+  // Update date range when batch changes
+  useEffect(() => {
+    if (selectedBatch) {
+      setStartDate(selectedBatch.stats.coverage_start)
+      setEndDate(selectedBatch.stats.coverage_end)
+    }
+  }, [selectedBatch])
 
   // Update URL when batch selection changes (for shareability)
   function handleBatchSelect(batchId: string) {
@@ -134,7 +185,53 @@ function DashboardContent() {
     }
   }
 
-  const selectedBatch = importBatches.find((b) => b.id === selectedBatchId)
+  const handleSourceToggle = useCallback((source: string) => {
+    setSelectedSources((prev) =>
+      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
+    )
+  }, [])
+
+  const handleCreateRun = useCallback(async () => {
+    if (!selectedBatchId || !classifyPromptVersion || !selectedFilterProfileId) return
+    if (!startDate || !endDate) return
+    if (selectedSources.length === 0) return
+
+    setCreatingRun(true)
+    setCreateRunError(null)
+
+    try {
+      const res = await fetch('/api/distill/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          importBatchId: selectedBatchId,
+          startDate,
+          endDate,
+          sources: selectedSources,
+          filterProfileId: selectedFilterProfileId,
+          model,
+          labelSpec: {
+            model: 'stub_v1',
+            promptVersionId: classifyPromptVersion.id,
+          },
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setCreateRunError(data.error?.message || 'Failed to create run')
+        return
+      }
+
+      // Navigate to the new run's detail page
+      router.push(`/distill/runs/${data.id}`)
+    } catch (err) {
+      setCreateRunError(err instanceof Error ? err.message : 'Failed to create run')
+    } finally {
+      setCreatingRun(false)
+    }
+  }, [selectedBatchId, classifyPromptVersion, selectedFilterProfileId, startDate, endDate, selectedSources, model, router])
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
@@ -282,14 +379,135 @@ function DashboardContent() {
           )}
         </div>
 
-        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">
-          <h2 className="text-xl font-semibold mb-4">Run</h2>
+        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md md:col-span-2">
+          <h2 className="text-xl font-semibold mb-4">Create Run</h2>
           <p className="text-gray-600 mb-4">
-            Create summarization runs with frozen configs.
+            Create a summarization run with frozen config from the selected batch.
           </p>
-          <span className="inline-block px-4 py-2 bg-gray-300 text-gray-500 rounded cursor-not-allowed">
-            Coming in Phase 4
-          </span>
+
+          {!selectedBatchId ? (
+            <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
+              Select an import batch first
+            </span>
+          ) : !classifyResult ? (
+            <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
+              Classify the batch first (section above)
+            </span>
+          ) : (
+            <div className="space-y-4">
+              {/* Date Range */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+              </div>
+
+              {/* Sources */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Sources
+                </label>
+                <div className="flex gap-4">
+                  {['chatgpt', 'claude', 'grok'].map((source) => (
+                    <label key={source} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedSources.includes(source)}
+                        onChange={() => handleSourceToggle(source)}
+                        className="rounded"
+                      />
+                      <span className="capitalize">{source}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Filter Profile */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Filter Profile
+                </label>
+                <select
+                  value={selectedFilterProfileId}
+                  onChange={(e) => setSelectedFilterProfileId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                >
+                  {filterProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} ({profile.mode}: {profile.categories.join(', ')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Model */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Model
+                </label>
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="stub_summarizer_v1"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              {/* Error */}
+              {createRunError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded">
+                  <p className="text-red-700">{createRunError}</p>
+                </div>
+              )}
+
+              {/* Create Button */}
+              <button
+                onClick={handleCreateRun}
+                disabled={
+                  creatingRun ||
+                  !selectedBatchId ||
+                  !startDate ||
+                  !endDate ||
+                  selectedSources.length === 0 ||
+                  !selectedFilterProfileId ||
+                  !model
+                }
+                className={`px-4 py-2 rounded text-white ${
+                  creatingRun ||
+                  !selectedBatchId ||
+                  !startDate ||
+                  !endDate ||
+                  selectedSources.length === 0 ||
+                  !selectedFilterProfileId ||
+                  !model
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {creatingRun ? 'Creating...' : 'Create Run'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">

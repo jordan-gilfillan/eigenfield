@@ -127,6 +127,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - UI invariant: no polling, no setInterval, output fetched on user action only
   - 190 tests passing (no regressions)
 
+- Phase 5 UI Shell - PR-5.5: Dashboard run creation wiring
+  - `GET /api/distill/filter-profiles` endpoint (lists all filter profiles)
+  - Run creation form on `/distill` dashboard:
+    - Import batch selector (existing, auto-selects latest)
+    - Date range picker (auto-fills from batch coverage)
+    - Sources checkboxes (chatgpt, claude, grok)
+    - Filter profile dropdown (defaults to professional-only)
+    - Model input field (defaults to stub_summarizer_v1)
+  - Create Run button calling `POST /api/distill/runs`
+  - On success: navigates to `/distill/runs/:runId`
+  - Error display for run creation failures
+  - Requires classification before run creation (enforced in UI)
+  - UI invariant: no background polling, user-driven actions only
+  - 190 tests passing (no regressions)
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -144,8 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting and cost tracking
 - Error handling for API failures
 
-### Planned (Phase 5: UI Shell - remaining PRs)
-- PR-5.5: Dashboard with run creation wiring
+### Planned (Phase 5: Complete)
+- All PR-5.x items completed (5.1 through 5.5)
 
 ### Planned (Phase 6: Search + Inspector)
 - Postgres FTS indexes on MessageAtom.text and Output.outputText

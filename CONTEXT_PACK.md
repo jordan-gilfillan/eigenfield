@@ -18,12 +18,13 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
 - Current test count: 190 passing.
-- Phase 5 UI Shell in progress:
+- Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
   - PR-5.3 complete: manual tick control + last tick result display
   - PR-5.4 complete: output viewer (markdown) + inspector metadata on run detail page
-  - Next: PR-5.5 (dashboard run creation).
+  - PR-5.5 complete: dashboard run creation wiring (`/distill` with form + navigation)
+  - Next: Phase 6 (Search + Inspector).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
