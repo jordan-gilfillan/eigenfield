@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
+import { OutputViewer } from './components/OutputViewer'
 
 interface RunConfig {
   promptVersionIds: { summarize: string }
@@ -337,6 +338,7 @@ export default function RunDetailPage() {
                 <JobRow
                   key={job.dayDate}
                   job={job}
+                  runId={run.id}
                   runStatus={run.status}
                   isResetting={resettingDay === job.dayDate}
                   onReset={() => handleResetJob(job.dayDate)}
@@ -560,11 +562,13 @@ function TickControl({
 
 function JobRow({
   job,
+  runId,
   runStatus,
   isResetting,
   onReset,
 }: {
   job: JobDetail
+  runId: string
   runStatus: string
   isResetting: boolean
   onReset: () => void
@@ -584,41 +588,49 @@ function JobRow({
   const canReset = runStatus !== 'cancelled'
 
   return (
-    <tr className="border-b border-gray-100 hover:bg-gray-50">
-      <td className="py-2 pr-4">
-        <code className="text-xs bg-gray-100 px-1 rounded">{job.dayDate}</code>
-      </td>
-      <td className="py-2 pr-4">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getJobStatusColor(job.status)}`}>
-          {job.status}
-        </span>
-      </td>
-      <td className="py-2 pr-4 text-center">{job.attempt}</td>
-      <td className="py-2 pr-4 text-right">{job.tokensIn.toLocaleString()}</td>
-      <td className="py-2 pr-4 text-right">{job.tokensOut.toLocaleString()}</td>
-      <td className="py-2 pr-4 text-right">${job.costUsd.toFixed(4)}</td>
-      <td className="py-2 pr-4">
-        {errorDisplay && (
-          <span className="text-xs text-red-600 truncate block max-w-[150px]" title={errorDisplay}>
-            {errorDisplay}
+    <>
+      <tr className="border-b border-gray-100 hover:bg-gray-50">
+        <td className="py-2 pr-4">
+          <code className="text-xs bg-gray-100 px-1 rounded">{job.dayDate}</code>
+        </td>
+        <td className="py-2 pr-4">
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getJobStatusColor(job.status)}`}>
+            {job.status}
           </span>
-        )}
-      </td>
-      <td className="py-2">
-        <button
-          onClick={onReset}
-          disabled={isResetting || !canReset}
-          className={`px-2 py-1 text-xs rounded ${
-            isResetting || !canReset
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-          }`}
-          title={!canReset ? 'Cannot reset jobs on cancelled runs' : 'Reset this job'}
-        >
-          {isResetting ? 'Resetting...' : 'Reset'}
-        </button>
-      </td>
-    </tr>
+        </td>
+        <td className="py-2 pr-4 text-center">{job.attempt}</td>
+        <td className="py-2 pr-4 text-right">{job.tokensIn.toLocaleString()}</td>
+        <td className="py-2 pr-4 text-right">{job.tokensOut.toLocaleString()}</td>
+        <td className="py-2 pr-4 text-right">${job.costUsd.toFixed(4)}</td>
+        <td className="py-2 pr-4">
+          {errorDisplay && (
+            <span className="text-xs text-red-600 truncate block max-w-[150px]" title={errorDisplay}>
+              {errorDisplay}
+            </span>
+          )}
+        </td>
+        <td className="py-2">
+          <button
+            onClick={onReset}
+            disabled={isResetting || !canReset}
+            className={`px-2 py-1 text-xs rounded ${
+              isResetting || !canReset
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+            }`}
+            title={!canReset ? 'Cannot reset jobs on cancelled runs' : 'Reset this job'}
+          >
+            {isResetting ? 'Resetting...' : 'Reset'}
+          </button>
+        </td>
+      </tr>
+      {/* Output viewer row - spans all columns */}
+      <tr className="bg-gray-50/50">
+        <td colSpan={8} className="px-4 pb-3">
+          <OutputViewer runId={runId} dayDate={job.dayDate} jobStatus={job.status} />
+        </td>
+      </tr>
+    </>
   )
 }
 

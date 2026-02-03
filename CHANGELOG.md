@@ -111,6 +111,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Re-fetches run details after successful tick to update job table and progress
   - UI invariant enforced: no overlapping tick requests (sequential await), no setInterval, no background polling
 
+- Phase 5 UI Shell - PR-5.4: Output viewer (markdown) + inspector metadata
+  - `GET /api/distill/runs/:runId/jobs/:dayDate/output` endpoint
+    - Returns output data for a specific job (on-demand fetch)
+    - Includes outputText, bundleHash, bundleContextHash, segmentation metadata
+    - Returns raw outputJson for collapsible viewer
+  - OutputViewer component (`src/app/distill/runs/[runId]/components/OutputViewer.tsx`)
+    - Renders Output.outputText as markdown (using react-markdown)
+    - Displays bundleHash and bundleContextHash
+    - Shows segmentation metadata when present (segmented, segmentCount, segmentIds)
+    - Collapsible raw JSON viewer for Output.outputJson
+    - On-demand data fetching (avoids loading all outputs in run detail)
+  - Integrated into job table rows on run detail page
+  - "View Output" toggle appears for succeeded jobs
+  - UI invariant: no polling, no setInterval, output fetched on user action only
+  - 190 tests passing (no regressions)
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -129,7 +145,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error handling for API failures
 
 ### Planned (Phase 5: UI Shell - remaining PRs)
-- PR-5.4: Output viewer (markdown) + minimal inspector metadata
 - PR-5.5: Dashboard with run creation wiring
 
 ### Planned (Phase 6: Search + Inspector)

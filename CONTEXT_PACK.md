@@ -22,7 +22,8 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
   - PR-5.3 complete: manual tick control + last tick result display
-  - Next: PR-5.4 (output viewer + inspector metadata), PR-5.5 (dashboard run creation).
+  - PR-5.4 complete: output viewer (markdown) + inspector metadata on run detail page
+  - Next: PR-5.5 (dashboard run creation).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
