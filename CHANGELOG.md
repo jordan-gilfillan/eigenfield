@@ -75,6 +75,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 190 tests passing (34 new tests for segmentation + run controls + idempotency)
   - **Gate passed**: segmentation determinism verified, run controls work as intended
 
+- Phase 5 UI Shell - PR-5.1: Run detail page + frozen config
+  - `/distill/runs/:runId` page route
+  - Frozen config block displaying values exactly as stored in `Run.configJson`:
+    - `promptVersionIds` (summarize)
+    - `labelSpec` (model, promptVersionId)
+    - `filterProfileSnapshot` (name, mode, categories)
+    - `timezone`
+    - `maxInputTokens`
+  - Progress summary (queued/running/succeeded/failed/cancelled counts)
+  - Run info section (import batch, model, sources, date range)
+  - Error handling for run not found
+  - Fixed `GET /api/distill/runs/:runId` to include `promptVersionIds` in response
+  - UI invariant: no background polling, frozen config displayed exactly as stored
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -92,11 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting and cost tracking
 - Error handling for API failures
 
-### Planned (Phase 5: UI Shell)
-- Dashboard with run creation
-- Run detail page with job table
-- Sequential polling implementation
-- Output viewer (rendered markdown)
+### Planned (Phase 5: UI Shell - remaining PRs)
+- PR-5.2: Job table + per-day reset control
+- PR-5.3: Manual tick control (single-request) + last tick result
+- PR-5.4: Output viewer (markdown) + minimal inspector metadata
+- PR-5.5: Dashboard with run creation wiring
 
 ### Planned (Phase 6: Search + Inspector)
 - Postgres FTS indexes on MessageAtom.text and Output.outputText
