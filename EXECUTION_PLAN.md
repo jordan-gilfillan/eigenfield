@@ -286,6 +286,21 @@ Per spec 9.2:
 
 Goal: make the system operable and debuggable end-to-end without adding new backend dependencies.
 
+```
+
+**Status:** ✅ Complete (PR-5.1 through PR-5.5)
+
+Completed PRs:
+- PR-5.1: Run detail page scaffold + frozen config
+- PR-5.2: Job table + per-day reset control
+- PR-5.3: Manual tick control (single-request) + last tick result
+- PR-5.4: Output viewer (markdown) + inspector metadata (on-demand output fetch)
+- PR-5.5: Dashboard run creation wiring (+ filter profiles list endpoint)
+
+Notes:
+- UI invariants held throughout: no background polling loops, no setInterval, sequential tick only, buttons map 1:1 to API calls, frozen config displayed exactly as stored.
+```
+
 UI invariants (non-negotiable):
 - No background polling loops. Tick is user-driven.
 - No overlapping tick requests. The UI MUST await each tick response before sending the next.
@@ -369,51 +384,73 @@ Phase Gate (Phase 5):
 
 ---
 
----
-
 ### Phase 6: Search + Inspector
 
-**Step 1: FTS Indexes**
-Add Postgres Full-Text Search:
-- `MessageAtom.text` → tsvector
-- `Output.outputText` → tsvector
+Goal: make the dataset and outputs inspectable at scale (find, filter, and open a concrete pre/post view) without adding new model dependencies.
 
-**Step 2: Search Endpoint**
-`GET /api/distill/search`:
-- Query params: `query`, `scope`, `importBatchId`, `runId`, `startDate`, `endDate`, `sources`, `categories`, `limit`, `cursor`
-- Category/confidence from labelSpec context
-- Pagination with cursor
-- Return response per 7.9 schema
+Implementation strategy: ship Phase 6 as small PRs. Each PR should be mergeable and keep tests green.
 
-**Step 3: Search UI**
-`/distill/search` page:
-- Search input
-- Scope tabs (Raw / Outputs)
-- Result list with snippets
-- Click to open inspector
+#### PR-6.1: FTS indexes + search API (minimal)
+Work:
+- Add Postgres FTS support:
+  - `MessageAtom.text` → stored/generated `tsvector` + GIN index
+  - `Output.outputText` → stored/generated `tsvector` + GIN index
+- Add `GET /api/distill/search` endpoint (minimal fields + cursor pagination):
+  - Query params (v0): `q`, `scope` (raw|outputs), `limit`, `cursor`, optional `importBatchId`, optional `runId`, optional `startDate`, optional `endDate`.
+  - Raw scope returns: `messageAtomId`, `timestampUtc`, `source`, `role`, `snippet`, `rank`.
+  - Outputs scope returns: `runId`, `dayDate`, `outputId` (or stable locator), `snippet`, `rank`.
+- Deterministic ordering:
+  - Order by `rank DESC`, then stable tie-breakers (id/dayDate).
 
-**Step 4: Inspector Views**
-Import inspector:
-- Day list (coverage)
-- Per-day message view
-- Filter by category/role/source
+Acceptance (manual):
+- Known strings in MessageAtoms and Outputs are found in their respective scopes.
+- Pagination works (cursor advances, no duplicates across pages).
 
-Run inspector:
-- Left: Input (filtered bundle preview)
-- Right: Output (rendered markdown)
-- Collapsible raw JSON
+#### PR-6.2: Search UI (results list)
+Pages:
+- `/distill/search`
 
-**Deliverables:**
-- [ ] FTS indexes
-- [ ] Search endpoint
-- [ ] Search UI
-- [ ] Import inspector
-- [ ] Run inspector
+Work:
+- Search input + submit (no background polling).
+- Scope tabs: Raw / Outputs.
+- Results list with snippets and stable links:
+  - Raw hit → link to Import inspector day view (PR-6.3).
+  - Output hit → link to Run detail day output viewer (existing Phase 5 UI).
 
-**Phase Gate:**
-- [ ] FTS query returns relevant atoms/outputs
-- [ ] Pagination works with cursor
-- [ ] Inspector shows before/after for a given day
+Acceptance (manual):
+- Searching returns results and clicking a result navigates to the correct target.
+
+#### PR-6.3: Import inspector (day view)
+Work:
+- Import inspector views:
+  - Day list (coverage) for an ImportBatch.
+  - Per-day message view (atoms ordered per spec), with filters for `source` and `role`.
+- Minimal endpoints as needed:
+  - `GET /api/distill/import-batches/:id/days`
+  - `GET /api/distill/import-batches/:id/days/:dayDate/atoms`
+
+Acceptance (manual):
+- Can open an ImportBatch, select a day, and view ordered atoms with filters.
+- A raw search result can deep-link into this day view.
+
+#### PR-6.4: Run inspector (pre/post view)
+Work:
+- Run inspector on the run detail page (or dedicated view):
+  - Left: input bundle preview for that day (filtered, deterministic render)
+  - Right: output viewer (already exists)
+  - Collapsible raw JSON
+- Minimal endpoint as needed:
+  - `GET /api/distill/runs/:runId/jobs/:dayDate/input` (returns rendered bundle preview + hashes)
+
+Acceptance (manual):
+- For a given day, inspector shows before/after (bundle preview + output markdown).
+- Output hashes match those shown in Phase 5 output viewer.
+
+Phase Gate (Phase 6):
+- [ ] FTS query returns relevant atoms/outputs with stable ordering
+- [ ] Cursor pagination works
+- [ ] Search UI navigates correctly to raw day view and run output
+- [ ] Inspector shows concrete pre/post view for a day
 
 ---
 
