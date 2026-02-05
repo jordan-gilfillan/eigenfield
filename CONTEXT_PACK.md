@@ -17,14 +17,16 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 190 passing.
+- Current test count: 190 passing (+ search integration tests pending DB).
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
   - PR-5.3 complete: manual tick control + last tick result display
   - PR-5.4 complete: output viewer (markdown) + inspector metadata on run detail page
   - PR-5.5 complete: dashboard run creation wiring (`/distill` with form + navigation)
-  - Next: Phase 6 (Search + Inspector).
+- Phase 6 Search + Inspector in progress:
+  - PR-6.1 complete: Postgres FTS indexes (tsvector + GIN) + `GET /api/distill/search` endpoint + cursor pagination
+  - Next: PR-6.2 (Search UI), PR-6.3 (Import inspector), PR-6.4 (Run inspector).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
@@ -40,3 +42,21 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Provide summary + list of files changed + test results.
 - Checkin often with informative comments.
 - Update CHANGELOG.md and CONTEXT_PACK.md current status.
+
+## 5) Git hygiene (non-negotiable)
+Before starting any work session or PR:
+- Print repo state:
+  - `git branch --show-current`
+  - `git status -sb`
+  - `git log --oneline -5`
+- Do NOT create/switch branches unless explicitly requested by the user.
+- For PR work, assume a new branch is desired unless the user says otherwise.
+  - Branch naming: `phase<PHASE>/<short-topic>-pr<NN>` (e.g., `phase6/search-ui-pr62`).
+- Commits:
+  - Stage only files relevant to the PR.
+  - Ensure working tree is clean after commit.
+- Always report back:
+  - current branch
+  - commit hash
+  - files changed summary
+  - test status
