@@ -162,12 +162,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned (Phase 5: Complete)
 - All PR-5.x items completed (5.1 through 5.5)
 
-### Planned (Phase 6: Search + Inspector)
-- Postgres FTS indexes on MessageAtom.text and Output.outputText
-- `GET /api/distill/search` endpoint
-- Search UI with tabs (Raw / Outputs)
-- Import inspector (day list, per-day message view)
-- Run inspector (input/output side-by-side)
+- Phase 6 Search + Inspector - PR-6.1: FTS indexes + search API
+  - Prisma migration: tsvector generated columns + GIN indexes on `MessageAtom.text` and `Output.outputText`
+  - `GET /api/distill/search` endpoint with params: `q`, `scope` (raw|outputs), `limit`, `cursor`, `importBatchId`, `runId`, `startDate`, `endDate`
+  - Raw scope returns: atomStableId, timestampUtc, source, role, snippet, rank
+  - Outputs scope returns: runId, dayDate, stage, snippet, rank
+  - Cursor pagination (opaque base64url cursor, keyset on rank+id)
+  - Deterministic ordering: rank DESC, id ASC (stable tie-breakers)
+  - ts_headline snippets with `<<`/`>>` markers
+  - Integration tests for both scopes, pagination, filtering, and result shape
+
+### Planned (Phase 6 continued)
+- Search UI with tabs (Raw / Outputs) (PR-6.2)
+- Import inspector (day list, per-day message view) (PR-6.3)
+- Run inspector (input/output side-by-side) (PR-6.4)
 
 ### Planned (Phase 7: Additional Parsers)
 - Claude export parser
