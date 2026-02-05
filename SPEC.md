@@ -408,11 +408,13 @@ Stub mode must be deterministic for tests.
 ### 7.3 Run creation
 UI: `/distill` dashboard
 
-POST `/api/distill/runs`
-- Input: `{ importBatchId, startDate, endDate, sources[], filterProfileId, model, outputTarget:"db" }`
+- Input: `{ importBatchId, startDate, endDate, sources[], filterProfileId, model, outputTarget:"db", labelSpec?: { model: string, promptVersionId: string } }`
 - Behavior:
   1) Freeze `promptVersionIds` for summarize/redact (and classify if needed)
-  2) Freeze `labelSpec` for filtering (classifier model + promptVersionId)
+  2) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
+     - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
+     - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
+     - If the import batch has no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   3) Freeze `filterProfileSnapshot`
   4) Determine eligible days: days where at least one MessageAtom matches
      - importBatchId
@@ -442,6 +444,19 @@ UI polling:
 - sequential: wait for each tick response before next tick
 - no `setInterval` fire-and-forget
 - The UI MUST NOT use setInterval for tick; it must be a sequential loop (manual or controlled play button).
+
+
+#### 7.4.1 Run status transitions (normative)
+Run.status is a coarse, user-facing summary and MUST follow these rules:
+- On run creation: `queued`.
+- When any job is started or completed by tick: transition to `running` (unless run is already terminal).
+- When all jobs are terminal:
+  - if any job `failed` -> `failed`
+  - else if run was cancelled -> `cancelled`
+  - else -> `completed`
+- Tick MUST NOT transition a cancelled run to any non-terminal status (terminal status rule in 7.6).
+
+Note: `progress` in tick responses is the ground truth for counts; `runStatus` MUST be consistent with it.
 
 ### 7.5 Inspect
 UI: `/distill/runs/:runId`
@@ -646,6 +661,7 @@ Notes:
 - `jobs` MUST include the jobs processed in this tick (may be empty if none).
 
 #### GET /api/distill/search
+Query params (v0.3): use `q` for the search string (not `query`). All other filters are optional.
 Returns:
 
 ```json
@@ -756,8 +772,7 @@ Implementation:
   - MessageAtom.text
   - Output.outputText
 
-API:
-- GET `/api/distill/search?query=...&scope=raw|outputs|both&importBatchId=...&runId=...&startDate=...&endDate=...&sources=...&categories=...&limit=...`
+- GET `/api/distill/search?q=...&scope=raw|outputs|both&importBatchId=...&runId=...&startDate=...&endDate=...&sources=...&categories=...&limit=...&cursor=...`
 - Returns:
   - resultType (atom|output)
   - stable reference (atomStableId or {runId, dayDate, stage})
@@ -786,7 +801,7 @@ Run inspector (per day):
 ### 10.3 Pagination
 List/search endpoints MUST support pagination:
 - request: `limit` (default 50, max 200) and `cursor` (opaque)
-- response: `{ items: [...], nextCursor?: string }`
+- response: `{ items: [...], nextCursor?: string }` (for search endpoints, `nextCursor` is the pagination token)
 
 ---
 

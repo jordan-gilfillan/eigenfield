@@ -75,6 +75,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 190 tests passing (34 new tests for segmentation + run controls + idempotency)
   - **Gate passed**: segmentation determinism verified, run controls work as intended
 
+- Phase 5 UI Shell - PR-5.1: Run detail page + frozen config
+  - `/distill/runs/:runId` page route
+  - Frozen config block displaying values exactly as stored in `Run.configJson`:
+    - `promptVersionIds` (summarize)
+    - `labelSpec` (model, promptVersionId)
+    - `filterProfileSnapshot` (name, mode, categories)
+    - `timezone`
+    - `maxInputTokens`
+  - Progress summary (queued/running/succeeded/failed/cancelled counts)
+  - Run info section (import batch, model, sources, date range)
+  - Error handling for run not found
+  - Fixed `GET /api/distill/runs/:runId` to include `promptVersionIds` in response
+  - UI invariant: no background polling, frozen config displayed exactly as stored
+
+- Phase 5 UI Shell - PR-5.2: Job table + per-day reset control
+  - Job table on `/distill/runs/:runId` with columns:
+    - `dayDate`, `status`, `attempt`, `tokensIn`, `tokensOut`, `costUsd`, `error`
+  - Per-row Reset button calling `POST /api/distill/runs/:runId/jobs/:dayDate/reset`
+  - After reset: re-fetch run data, UI shows incremented attempt + job returns to queued
+  - Reset disabled for cancelled runs (terminal status rule enforced in UI)
+  - Extended `GET /api/distill/runs/:runId` to include `jobs` array
+  - Error handling for reset failures with user-visible error message
+  - UI invariant: no background polling, no setInterval
+
+- Phase 5 UI Shell - PR-5.3: Manual tick control + last tick result
+  - Tick button on `/distill/runs/:runId` calling `POST /api/distill/runs/:runId/tick`
+  - Button disabled during in-flight request (prevents overlapping tick requests)
+  - Tick disabled for terminal run states (cancelled, completed)
+  - Last tick result panel showing:
+    - Processed count (number of jobs processed in this tick)
+    - Run status after tick
+    - Error code and message if tick failed
+    - List of processed jobs with their status
+  - Re-fetches run details after successful tick to update job table and progress
+  - UI invariant enforced: no overlapping tick requests (sequential await), no setInterval, no background polling
+
+- Phase 5 UI Shell - PR-5.4: Output viewer (markdown) + inspector metadata
+  - `GET /api/distill/runs/:runId/jobs/:dayDate/output` endpoint
+    - Returns output data for a specific job (on-demand fetch)
+    - Includes outputText, bundleHash, bundleContextHash, segmentation metadata
+    - Returns raw outputJson for collapsible viewer
+  - OutputViewer component (`src/app/distill/runs/[runId]/components/OutputViewer.tsx`)
+    - Renders Output.outputText as markdown (using react-markdown)
+    - Displays bundleHash and bundleContextHash
+    - Shows segmentation metadata when present (segmented, segmentCount, segmentIds)
+    - Collapsible raw JSON viewer for Output.outputJson
+    - On-demand data fetching (avoids loading all outputs in run detail)
+  - Integrated into job table rows on run detail page
+  - "View Output" toggle appears for succeeded jobs
+  - UI invariant: no polling, no setInterval, output fetched on user action only
+  - 190 tests passing (no regressions)
+
+- Phase 5 UI Shell - PR-5.5: Dashboard run creation wiring
+  - `GET /api/distill/filter-profiles` endpoint (lists all filter profiles)
+  - Run creation form on `/distill` dashboard:
+    - Import batch selector (existing, auto-selects latest)
+    - Date range picker (auto-fills from batch coverage)
+    - Sources checkboxes (chatgpt, claude, grok)
+    - Filter profile dropdown (defaults to professional-only)
+    - Model input field (defaults to stub_summarizer_v1)
+  - Create Run button calling `POST /api/distill/runs`
+  - On success: navigates to `/distill/runs/:runId`
+  - Error display for run creation failures
+  - Requires classification before run creation (enforced in UI)
+  - UI invariant: no background polling, user-driven actions only
+  - 190 tests passing (no regressions)
+
 - Documentation suite
   - `GLOSSARY.md`: Terms and definitions used throughout the codebase
   - `DECISIONS.md`: Architecture Decision Records (ADRs) explaining design choices
@@ -92,11 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting and cost tracking
 - Error handling for API failures
 
-### Planned (Phase 5: UI Shell)
-- Dashboard with run creation
-- Run detail page with job table
-- Sequential polling implementation
-- Output viewer (rendered markdown)
+### Planned (Phase 5: Complete)
+- All PR-5.x items completed (5.1 through 5.5)
 
 ### Planned (Phase 6: Search + Inspector)
 - Postgres FTS indexes on MessageAtom.text and Output.outputText

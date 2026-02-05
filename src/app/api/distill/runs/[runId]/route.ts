@@ -23,6 +23,9 @@ export async function GET(
         _count: {
           select: { jobs: true },
         },
+        jobs: {
+          orderBy: { dayDate: 'asc' },
+        },
       },
     })
 
@@ -68,6 +71,17 @@ export async function GET(
       maxInputTokens: number
     }
 
+    // Format jobs for response
+    const jobs = run.jobs.map((job) => ({
+      dayDate: job.dayDate.toISOString().split('T')[0], // YYYY-MM-DD
+      status: job.status.toLowerCase(),
+      attempt: job.attempt,
+      tokensIn: job.tokensIn || 0,
+      tokensOut: job.tokensOut || 0,
+      costUsd: job.costUsd || 0,
+      error: job.error, // JSON string or null
+    }))
+
     return NextResponse.json({
       id: run.id,
       status: run.status.toLowerCase(),
@@ -77,6 +91,7 @@ export async function GET(
       startDate: run.startDate,
       endDate: run.endDate,
       config: {
+        promptVersionIds: config.promptVersionIds,
         labelSpec: config.labelSpec,
         filterProfile: config.filterProfileSnapshot,
         timezone: config.timezone,
@@ -89,6 +104,7 @@ export async function GET(
         tokensOut: totals._sum.tokensOut || 0,
         costUsd: totals._sum.costUsd || 0,
       },
+      jobs,
       createdAt: run.createdAt.toISOString(),
     })
   } catch (error) {

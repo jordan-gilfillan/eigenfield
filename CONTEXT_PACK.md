@@ -18,8 +18,13 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
 - Current test count: 190 passing.
-- Docs updated to scope Phase 5 UI Shell (minimum operability slice): SPEC now includes UI invariants + Phase 5 acceptance criteria; EXECUTION_PLAN breaks Phase 5 into PR-5.1…PR-5.5.
-- Next planned work: Phase 5 PR-5.1 (run detail page scaffold + frozen config), then PR-5.2 (jobs + reset), PR-5.3 (manual tick), PR-5.4 (output viewer + inspector metadata), PR-5.5 (dashboard run creation).
+- Phase 5 UI Shell complete:
+  - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
+  - PR-5.2 complete: job table + per-day reset control on run detail page
+  - PR-5.3 complete: manual tick control + last tick result display
+  - PR-5.4 complete: output viewer (markdown) + inspector metadata on run detail page
+  - PR-5.5 complete: dashboard run creation wiring (`/distill` with form + navigation)
+  - Next: Phase 6 (Search + Inspector).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
@@ -33,4 +38,5 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Small diffs; one prompt/task at a time.
 - Prefer updating docs/comments + minimal code changes + tests.
 - Provide summary + list of files changed + test results.
-- Checkin often with informative comments
+- Checkin often with informative comments.
+- Update CHANGELOG.md and CONTEXT_PACK.md current status.
