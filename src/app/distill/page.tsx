@@ -515,9 +515,12 @@ function DashboardContent() {
           <p className="text-gray-600 mb-4">
             Full-text search across atoms and outputs.
           </p>
-          <span className="inline-block px-4 py-2 bg-gray-300 text-gray-500 rounded cursor-not-allowed">
-            Coming in Phase 6
-          </span>
+          <Link
+            href="/distill/search"
+            className="inline-block px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Search
+          </Link>
         </div>
       </div>
     </main>

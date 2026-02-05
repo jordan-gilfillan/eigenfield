@@ -172,8 +172,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ts_headline snippets with `<<`/`>>` markers
   - Integration tests for both scopes, pagination, filtering, and result shape
 
+- Phase 6 Search + Inspector - PR-6.2: Search UI (results list)
+  - `/distill/search` page with search input, scope tabs (Raw / Outputs), results list
+  - Snippet rendering with `<<`/`>>` highlight markers
+  - Cursor pagination via "Load more" button (appends results, no duplicates)
+  - Raw results link to import inspector day view (placeholder route for PR-6.3)
+  - Output results link to existing run detail page (`/distill/runs/:runId`)
+  - URL-driven state for shareable search links (`?q=...&scope=...`)
+  - Dashboard Search card updated: links to `/distill/search` (replaces "Coming in Phase 6")
+  - No background polling, no setInterval — search is user-driven (submit button)
+
 ### Planned (Phase 6 continued)
-- Search UI with tabs (Raw / Outputs) (PR-6.2)
 - Import inspector (day list, per-day message view) (PR-6.3)
 - Run inspector (input/output side-by-side) (PR-6.4)
 

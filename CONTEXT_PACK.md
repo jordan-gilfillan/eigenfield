@@ -26,7 +26,8 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-5.5 complete: dashboard run creation wiring (`/distill` with form + navigation)
 - Phase 6 Search + Inspector in progress:
   - PR-6.1 complete: Postgres FTS indexes (tsvector + GIN) + `GET /api/distill/search` endpoint + cursor pagination
-  - Next: PR-6.2 (Search UI), PR-6.3 (Import inspector), PR-6.4 (Run inspector).
+  - PR-6.2 complete: Search UI (`/distill/search`) with scope tabs (Raw/Outputs), snippet rendering, cursor pagination (Load more), result links, dashboard wiring
+  - Next: PR-6.3 (Import inspector), PR-6.4 (Run inspector).
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
