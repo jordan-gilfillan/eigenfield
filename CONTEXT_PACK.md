@@ -42,3 +42,21 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Provide summary + list of files changed + test results.
 - Checkin often with informative comments.
 - Update CHANGELOG.md and CONTEXT_PACK.md current status.
+
+## 5) Git hygiene (non-negotiable)
+Before starting any work session or PR:
+- Print repo state:
+  - `git branch --show-current`
+  - `git status -sb`
+  - `git log --oneline -5`
+- Do NOT create/switch branches unless explicitly requested by the user.
+- For PR work, assume a new branch is desired unless the user says otherwise.
+  - Branch naming: `phase<PHASE>/<short-topic>-pr<NN>` (e.g., `phase6/search-ui-pr62`).
+- Commits:
+  - Stage only files relevant to the PR.
+  - Ensure working tree is clean after commit.
+- Always report back:
+  - current branch
+  - commit hash
+  - files changed summary
+  - test status
