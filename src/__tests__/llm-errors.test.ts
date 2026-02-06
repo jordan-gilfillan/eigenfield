@@ -4,6 +4,7 @@ import {
   MissingApiKeyError,
   ProviderNotImplementedError,
   BudgetExceededError,
+  LlmBadOutputError,
 } from '../lib/llm/errors'
 
 describe('LLM error classes', () => {
@@ -92,6 +93,28 @@ describe('LLM error classes', () => {
     it('is an instance of LlmError', () => {
       const err = new BudgetExceededError(0.05, 4.96, 5.0, 'per_day')
       expect(err).toBeInstanceOf(LlmError)
+    })
+  })
+
+  describe('LlmBadOutputError', () => {
+    it('has code LLM_BAD_OUTPUT', () => {
+      const err = new LlmBadOutputError('bad output')
+      expect(err.code).toBe('LLM_BAD_OUTPUT')
+    })
+
+    it('accepts optional details', () => {
+      const err = new LlmBadOutputError('bad output', { rawOutput: 'garbage' })
+      expect(err.details).toEqual({ rawOutput: 'garbage' })
+    })
+
+    it('is an instance of LlmError', () => {
+      const err = new LlmBadOutputError('bad output')
+      expect(err).toBeInstanceOf(LlmError)
+    })
+
+    it('has descriptive message', () => {
+      const err = new LlmBadOutputError('LLM output is not valid JSON')
+      expect(err.message).toContain('not valid JSON')
     })
   })
 })

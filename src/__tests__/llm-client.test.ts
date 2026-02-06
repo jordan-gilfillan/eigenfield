@@ -110,6 +110,76 @@ describe('callLlm', () => {
     })
   })
 
+  describe('dry_run classify mode', () => {
+    it('returns JSON when metadata.stage=classify', async () => {
+      const resp = await callLlm({
+        ...baseRequest,
+        metadata: { stage: 'classify', atomStableId: 'test-atom-1' },
+      })
+      expect(resp.dryRun).toBe(true)
+      const parsed = JSON.parse(resp.text)
+      expect(parsed).toHaveProperty('category')
+      expect(parsed).toHaveProperty('confidence', 0.7)
+    })
+
+    it('is deterministic for same atomStableId', async () => {
+      const req = { ...baseRequest, metadata: { stage: 'classify', atomStableId: 'stable-id-abc' } }
+      const r1 = await callLlm(req)
+      const r2 = await callLlm(req)
+      expect(r1.text).toBe(r2.text)
+    })
+
+    it('different atomStableIds can produce different categories', async () => {
+      const categories = new Set<string>()
+      for (let i = 0; i < 50; i++) {
+        const resp = await callLlm({
+          ...baseRequest,
+          metadata: { stage: 'classify', atomStableId: `vary-${i}` },
+        })
+        const parsed = JSON.parse(resp.text)
+        categories.add(parsed.category)
+      }
+      expect(categories.size).toBeGreaterThanOrEqual(2)
+    })
+
+    it('returns valid core category', async () => {
+      const coreCategories = ['WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER']
+      const resp = await callLlm({
+        ...baseRequest,
+        metadata: { stage: 'classify', atomStableId: 'some-id' },
+      })
+      const parsed = JSON.parse(resp.text)
+      expect(coreCategories).toContain(parsed.category)
+    })
+
+    it('simulates cost when simulateCost is set', async () => {
+      const resp = await callLlm(
+        { ...baseRequest, metadata: { stage: 'classify', atomStableId: 'cost-test' } },
+        { simulateCost: true }
+      )
+      expect(resp.costUsd).toBeGreaterThan(0)
+    })
+
+    it('returns costUsd=0 without simulateCost', async () => {
+      const resp = await callLlm({
+        ...baseRequest,
+        metadata: { stage: 'classify', atomStableId: 'no-cost' },
+      })
+      expect(resp.costUsd).toBe(0)
+    })
+
+    it('falls back to input text hash when atomStableId is absent', async () => {
+      const resp = await callLlm({
+        ...baseRequest,
+        metadata: { stage: 'classify' },
+      })
+      expect(resp.dryRun).toBe(true)
+      const parsed = JSON.parse(resp.text)
+      expect(parsed).toHaveProperty('category')
+      expect(parsed).toHaveProperty('confidence', 0.7)
+    })
+  })
+
   describe('real mode', () => {
     beforeEach(() => {
       process.env.LLM_MODE = 'real'

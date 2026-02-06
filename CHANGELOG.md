@@ -265,11 +265,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Env vars: LLM_MODE, LLM_PROVIDER_DEFAULT, LLM_MIN_DELAY_MS, LLM_MAX_USD_PER_RUN, LLM_MAX_USD_PER_DAY
   - 78 new unit tests (config, errors, rate limiter, budget, client)
 
-### Planned (Phase 3b: Real Classification)
-- Real classification with LLM integration (mode="real")
-- Reuses LLM plumbing from Phase 4
-- Rate limiting to prevent wallet-fire
-- **Gate**: classify with mode="real" works, labels written with correct labelSpec
+- Phase 3b Real Classification - PR-3b.1: Wire classify mode="real" through LLM plumbing
+  - Real-mode classification pipeline (`classifyBatch` mode="real") using `callLlm` from `src/lib/llm/`
+  - Dry-run mode (default): deterministic classification JSON based on `sha256(atomStableId)` → category from core 6, confidence 0.7
+  - Stage-aware dry-run in `callLlm`: `metadata.stage="classify"` triggers classify-specific response
+  - LLM output parser (`parseClassifyOutput`): validates JSON structure, category in full Category enum, confidence 0..1
+  - `LlmBadOutputError` error class (code `LLM_BAD_OUTPUT`) for unparseable LLM output → HTTP 502
+  - `BudgetExceededError` → HTTP 402 in classify route
+  - Rate limiting per atom via `RateLimiter`; budget guard via `assertWithinBudget`
+  - Provider inference from model string (claude→anthropic, gpt→openai, fallback to env default)
+  - Seed updated: `classify_real_v1` PromptVersion with classification system prompt template
+  - Route updated: removed 501 Not Implemented guard for mode="real"; added LLM error handling
+  - Idempotent: same (messageAtomId, promptVersionId, model) → skip
+  - 36 new tests (7 client dry-run classify, 4 LlmBadOutputError, 25 real-mode integration)
+  - 451 tests passing total
+  - **Gate passed**: classify with mode="real" works end-to-end in dry-run, labels written with correct labelSpec
+
+### Planned (Phase 3b continued: Real provider calls)
+- Actual OpenAI/Anthropic SDK calls (replace ProviderNotImplementedError in real LLM_MODE)
 
 ### Planned (Phase 4b: Real LLM Integration)
 - Real summarization with OpenAI/Anthropic APIs

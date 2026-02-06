@@ -95,6 +95,33 @@ async function main() {
   })
   console.log(`    PromptVersion: classify_stub_v1 (active)`)
 
+  await prisma.promptVersion.upsert({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_real_v1',
+      },
+    },
+    update: {},
+    create: {
+      promptId: classifyPrompt.id,
+      versionLabel: 'classify_real_v1',
+      templateText: `You are a message classifier. Classify the following AI conversation message into exactly one category.
+
+Categories: WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER, MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
+
+Respond with ONLY a JSON object, no other text:
+{"category":"<CATEGORY>","confidence":<0.0-1.0>}
+
+Rules:
+- category MUST be one of the listed categories (uppercase, exact match)
+- confidence MUST be a number between 0.0 and 1.0
+- Do NOT include any explanation or text outside the JSON object`,
+      isActive: false,
+    },
+  })
+  console.log(`    PromptVersion: classify_real_v1 (inactive)`)
+
   // Summarize prompt with placeholder version
   const summarizePrompt = await prisma.prompt.upsert({
     where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },

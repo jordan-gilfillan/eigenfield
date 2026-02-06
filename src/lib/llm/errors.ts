@@ -55,3 +55,10 @@ export class BudgetExceededError extends LlmError {
     this.name = 'BudgetExceededError'
   }
 }
+
+export class LlmBadOutputError extends LlmError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super('LLM_BAD_OUTPUT', message, details)
+    this.name = 'LlmBadOutputError'
+  }
+}
