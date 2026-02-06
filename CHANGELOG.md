@@ -298,13 +298,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 40 new tests (33 unit: pricing module + error, 7 integration: run creation + DB persistence)
   - 491 tests passing total
 
-### Planned (Phase 3b continued: Real provider calls)
-- Actual OpenAI/Anthropic SDK calls (replace ProviderNotImplementedError in real LLM_MODE)
+- Phase 3b Provider SDKs - PR-3b.2: OpenAI + Anthropic real provider integrations
+  - OpenAI provider (`src/lib/llm/providers/openai.ts`): Responses API wrapper
+    - Extracts `output_text`, `usage.input_tokens`, `usage.output_tokens` from response
+    - Maps `system` role to `developer` in input messages
+    - Passes `instructions`, `temperature`, `max_output_tokens`
+  - Anthropic provider (`src/lib/llm/providers/anthropic.ts`): Messages API wrapper
+    - Extracts text from `content` blocks (type='text'), joins with newline
+    - Extracts `usage.input_tokens`, `usage.output_tokens`
+    - Filters system messages from messages array (uses `system` param instead)
+    - Defaults `max_tokens` to 1024
+  - `callLlm()` real mode now routes to provider SDKs (replaces `ProviderNotImplementedError`)
+    - Validates API key via `getApiKey()` (throws `MissingApiKeyError` if missing)
+    - Dispatches to `callOpenAi` or `callAnthropic` based on `req.provider`
+    - Computes `costUsd` from actual token counts via pricing book
+    - Returns `dryRun: false` with `raw` response object
+  - `LlmProviderError` error class (code `LLM_PROVIDER_ERROR`) with optional `status` and `name` details
+  - SDK dependencies: `openai`, `@anthropic-ai/sdk`
+  - 49 new tests (14 OpenAI provider, 15 Anthropic provider, 15 client real-mode, 5 error class)
+  - 540 tests passing total
 
 ### Planned (Phase 4b: Real LLM Integration)
 - Real summarization with OpenAI/Anthropic APIs
-- Rate limiting and cost tracking
-- Error handling for API failures
 
 ---
 

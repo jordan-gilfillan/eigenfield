@@ -4,13 +4,14 @@
  * Single exported function: callLlm(req, ctx)
  *
  * - DRY_RUN mode returns deterministic responses (stage-aware for classify).
- * - REAL mode throws ProviderNotImplementedError (to be filled in future PRs).
+ * - REAL mode calls OpenAI or Anthropic via provider modules.
  */
 
 import type { LlmRequest, LlmResponse, LlmCallContext } from './types'
-import { getLlmMode, requireApiKeyForRealMode } from './config'
-import { ProviderNotImplementedError } from './errors'
+import { getLlmMode, getApiKey } from './config'
 import { estimateCostUsd } from './pricing'
+import { callOpenAi } from './providers/openai'
+import { callAnthropic } from './providers/anthropic'
 import { createHash } from 'crypto'
 
 /**
@@ -111,8 +112,8 @@ function dryRunResponse(req: LlmRequest, ctx: LlmCallContext): LlmResponse {
 /**
  * Calls an LLM provider or returns a dry-run response.
  *
- * Real mode throws ProviderNotImplementedError (actual provider calls
- * will be added in a future PR).
+ * Real mode routes to the appropriate provider SDK (OpenAI or Anthropic),
+ * extracts token counts, and computes costUsd via the pricing book.
  */
 export async function callLlm(
   req: LlmRequest,
@@ -124,7 +125,34 @@ export async function callLlm(
     return dryRunResponse(req, ctx)
   }
 
-  // Real mode: validate API key first, then fail with not-implemented
-  requireApiKeyForRealMode(req.provider)
-  throw new ProviderNotImplementedError(req.provider)
+  // Real mode: get API key (throws MissingApiKeyError if not set)
+  const apiKey = getApiKey(req.provider)
+
+  // Call the appropriate provider
+  const result = req.provider === 'anthropic'
+    ? await callAnthropic(req, apiKey)
+    : await callOpenAi(req, apiKey)
+
+  // Compute cost from actual token counts using the pricing book
+  let costUsd = 0
+  try {
+    costUsd = estimateCostUsd({
+      provider: req.provider,
+      model: req.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+    })
+  } catch {
+    // Unknown model pricing — return 0 rather than failing the call
+    costUsd = 0
+  }
+
+  return {
+    text: result.text,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    costUsd,
+    dryRun: false,
+    raw: result.raw,
+  }
 }

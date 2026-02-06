@@ -5,6 +5,7 @@ import {
   ProviderNotImplementedError,
   BudgetExceededError,
   LlmBadOutputError,
+  LlmProviderError,
 } from '../lib/llm/errors'
 
 describe('LLM error classes', () => {
@@ -115,6 +116,35 @@ describe('LLM error classes', () => {
     it('has descriptive message', () => {
       const err = new LlmBadOutputError('LLM output is not valid JSON')
       expect(err.message).toContain('not valid JSON')
+    })
+  })
+
+  describe('LlmProviderError', () => {
+    it('has code LLM_PROVIDER_ERROR', () => {
+      const err = new LlmProviderError('openai', 'rate limit exceeded')
+      expect(err.code).toBe('LLM_PROVIDER_ERROR')
+    })
+
+    it('includes provider in details', () => {
+      const err = new LlmProviderError('anthropic', 'overloaded')
+      expect(err.details?.provider).toBe('anthropic')
+    })
+
+    it('includes optional status and name in details', () => {
+      const err = new LlmProviderError('openai', 'rate limit', { status: 429, name: 'RateLimitError' })
+      expect(err.details?.status).toBe(429)
+      expect(err.details?.name).toBe('RateLimitError')
+    })
+
+    it('is an instance of LlmError', () => {
+      const err = new LlmProviderError('openai', 'error')
+      expect(err).toBeInstanceOf(LlmError)
+    })
+
+    it('has descriptive message with provider name', () => {
+      const err = new LlmProviderError('openai', 'timeout')
+      expect(err.message).toContain('openai')
+      expect(err.message).toContain('timeout')
     })
   })
 })
