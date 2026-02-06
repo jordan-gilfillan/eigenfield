@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 218 passing.
+- Current test count: 229 passing.
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -28,7 +28,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-6.1 complete: Postgres FTS indexes (tsvector + GIN) + `GET /api/distill/search` endpoint + cursor pagination
   - PR-6.2 complete: Search UI (`/distill/search`) with scope tabs (Raw/Outputs), snippet rendering, cursor pagination (Load more), result links, dashboard wiring
   - PR-6.3 complete: Import inspector (`/distill/import/inspect`) with day list, per-day atom view (deterministic ordering), source filter, category/confidence display, search deep-linking
-  - Next: PR-6.4 (Run inspector).
+  - PR-6.4 complete: Run inspector pre/post view with `GET /api/distill/runs/:runId/jobs/:dayDate/input` endpoint, InputViewer component, side-by-side input/output display on run detail page
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
