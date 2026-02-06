@@ -210,6 +210,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Phase 6 complete** — all PR-6.x items shipped (6.1 through 6.4). 229 tests passing.
 
+- Phase 7 Additional Parsers - PR-7.1: Claude export parser
+  - Claude export parser (`src/lib/parsers/claude.ts`) supporting Anthropic official data export format
+    - Supported shape: array of conversations with `uuid`, `name`, `chat_messages` array
+    - Each message has `uuid`, `text`, `sender` ("human"/"assistant"), `created_at` (ISO 8601)
+    - Role mapping: "human" → "user", "assistant" → "assistant"; unknown senders skipped with warning
+    - Deterministic ordering: timestamp ASC, role ASC (user before assistant), message ID ASC
+  - Parser registered in `src/lib/parsers/index.ts` — available via `sourceOverride: "claude"` and auto-detection
+  - `UNSUPPORTED_FORMAT` error code added to `src/lib/api-utils.ts` for unimplemented parser requests
+  - Import route updated to return `UNSUPPORTED_FORMAT` error for unsupported sources
+  - Timestamp normalization: handles ISO with/without milliseconds, timezone offsets, microsecond precision
+  - Unit tests (24 new): canParse detection, role mapping, empty/missing messages, timestamp edge cases, multi-conversation, deterministic ordering
+  - Integration tests (9 new): both roles imported, re-import idempotency (no duplicates), day bucketing with timezone, timestamp normalization (non-ms → ms), import stats
+  - 262 tests passing (33 new)
+
 ### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")
 - Reuses LLM plumbing from Phase 4
