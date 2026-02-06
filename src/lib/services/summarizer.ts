@@ -2,13 +2,15 @@
  * Summarizer Service
  *
  * Handles summarization of bundles. Supports stub mode for testing
- * and real LLM mode (to be implemented in Phase 3b/4 continued).
+ * and real LLM mode via callLlm().
  *
  * Spec references: 7.4 (Process), 6.10 (Output)
  */
 
 import { prisma } from '../db'
 import { estimateTokens } from './bundle'
+import { callLlm, inferProvider } from '../llm'
+import type { LlmRequest } from '../llm'
 
 export interface SummarizeOptions {
   bundleText: string
@@ -27,7 +29,7 @@ export interface SummarizeResult {
  * Summarizes a bundle using the specified model.
  *
  * For stub models (stub_summarizer_v1), returns a deterministic stub response.
- * For real models (gpt-4o, claude-3-5-sonnet, etc.), calls the LLM API.
+ * For real models (gpt-4o, claude-sonnet-4-5, etc.), calls the LLM API via callLlm().
  */
 export async function summarize(options: SummarizeOptions): Promise<SummarizeResult> {
   const { bundleText, model, promptVersionId } = options
@@ -45,8 +47,24 @@ export async function summarize(options: SummarizeOptions): Promise<SummarizeRes
     return stubSummarize(bundleText, model)
   }
 
-  // Real LLM mode - not yet implemented
-  throw new Error(`NOT_IMPLEMENTED: Real summarization with model "${model}" is not yet available`)
+  // Real LLM mode: call provider via callLlm()
+  const provider = inferProvider(model)
+  const req: LlmRequest = {
+    provider,
+    model,
+    system: promptVersion.templateText,
+    messages: [{ role: 'user', content: bundleText }],
+    metadata: { stage: 'summarize' },
+  }
+
+  const resp = await callLlm(req)
+
+  return {
+    text: resp.text,
+    tokensIn: resp.tokensIn,
+    tokensOut: resp.tokensOut,
+    costUsd: resp.costUsd,
+  }
 }
 
 /**

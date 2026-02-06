@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 540 passing.
+- Current test count: 554 passing.
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -38,6 +38,8 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-3b.1 complete: Real-mode classify pipeline wired through `callLlm` — stage-aware dry-run (deterministic JSON), LLM output parsing/validation, `LlmBadOutputError`, budget guard integration, rate limiting; 36 new tests
   - PR-3b0.1 complete: Pricing book + cost calculator + run pricing snapshot — per-provider/per-model rates in `src/lib/llm/pricing.ts`, `pricingSnapshot` captured into `Run.configJson`, dry-run uses pricing book for cost simulation, tick uses snapshot for job cost; 40 new tests
   - PR-3b.2 complete: OpenAI + Anthropic provider SDKs — `callLlm()` real mode routes to provider modules, returns actual token counts, computes `costUsd` via pricing book; `LlmProviderError` for SDK errors; 49 new tests
+- Phase 4b Real Summarization:
+  - PR-4b complete: Real LLM summarization during tick — non-stub models call `callLlm()` via provider SDKs, LLM error handling (LlmProviderError→retriable, BudgetExceededError→not retriable, MissingApiKeyError→not retriable), partial segment failure captures partial tokens/cost, UTC date formatting fix in formatDate(); 14 new tests
 
 ## LLM plumbing
 
@@ -67,6 +69,13 @@ The `src/lib/llm/` module provides shared infrastructure for LLM calls used by b
 - `costUsd` is computed from actual token counts via the pricing book
 - Provider errors are wrapped in `LlmProviderError` (code `LLM_PROVIDER_ERROR`)
 - Dependencies: `openai`, `@anthropic-ai/sdk` (only constructed in real mode)
+
+**Real Summarization (PR-4b):**
+- `summarize()` in `src/lib/services/summarizer.ts` routes non-stub models through `callLlm()`
+- System prompt comes from `PromptVersion.templateText`; user message is the bundle text
+- Tick error handling: `LlmProviderError` → retriable, `BudgetExceededError` / `MissingApiKeyError` → not retriable
+- Partial segment failure: tokens/cost from completed segments are captured even on error
+- `formatDate()` in tick.ts and run.ts now uses UTC methods to prevent timezone-dependent date shifts
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md

@@ -318,8 +318,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 49 new tests (14 OpenAI provider, 15 Anthropic provider, 15 client real-mode, 5 error class)
   - 540 tests passing total
 
-### Planned (Phase 4b: Real LLM Integration)
-- Real summarization with OpenAI/Anthropic APIs
+- Phase 4b Real Summarization - PR-4b: Real LLM summarization during tick
+  - Real summarization path in `src/lib/services/summarizer.ts`
+    - Non-stub models (gpt-4o, claude-sonnet-4-5, etc.) call `callLlm()` via provider SDKs
+    - Infers provider from model string, builds LlmRequest with system=promptVersion.templateText
+    - Returns actual tokensIn/tokensOut/costUsd from provider response
+  - Tick error handling (`src/lib/services/tick.ts`) for LLM-specific errors
+    - `LlmProviderError` → FAILED + retriable=true (rate limits, server errors)
+    - `BudgetExceededError` → FAILED + retriable=false
+    - `MissingApiKeyError` → FAILED + retriable=false
+    - Partial segment failure captures tokens/cost from completed segments
+    - Generic `LlmError` subclasses use their `.code` with retriable=true
+  - UTC date formatting fix in `formatDate()` (tick.ts, run.ts)
+    - Changed `getFullYear()/getMonth()/getDate()` → `getUTCFullYear()/getUTCMonth()/getUTCDate()`
+    - Fixes date-shift bug when server timezone ≠ UTC (dates no longer shift by -1 day)
+  - 14 new integration tests (`tick-real-summarize.test.ts`)
+    - Real model triggers summarize path (not stub), stores output, populates tokens/cost
+    - Pricing snapshot overrides summarize costUsd with frozen rates
+    - Multi-tick processing across all eligible days
+    - Segmented bundles: multiple calls summed, meta records segmentation
+    - Provider error → FAILED + correct error code + retriable flag
+    - Partial segment failure captures partial tokens/cost
+    - Run status transitions to FAILED when all jobs fail
+    - Stub model unchanged (delegates to stub implementation)
+    - Output metadata: bundleHash, bundleContextHash, promptVersionId stored
+  - 554 tests passing total (14 new)
 
 ---
 
