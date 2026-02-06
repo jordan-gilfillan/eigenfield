@@ -54,6 +54,7 @@ function DashboardContent() {
   const [loadingBatches, setLoadingBatches] = useState(true)
 
   const [classifyPromptVersion, setClassifyPromptVersion] = useState<PromptVersion | null>(null)
+  const [classifyMode, setClassifyMode] = useState<'stub' | 'real'>('stub')
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
@@ -158,22 +159,25 @@ function DashboardContent() {
     setClassifyError(null)
     setClassifyResult(null)
 
+    const classifyModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
+
     try {
       const res = await fetch('/api/distill/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           importBatchId: selectedBatchId,
-          model: 'stub_v1',
+          model: classifyModel,
           promptVersionId: classifyPromptVersion.id,
-          mode: 'stub',
+          mode: classifyMode,
         }),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
-        setClassifyError(data.error?.message || 'Classification failed')
+        const code = data.error?.code ? `[${data.error.code}] ` : ''
+        setClassifyError(`${code}${data.error?.message || 'Classification failed'}`)
         return
       }
 
@@ -305,9 +309,45 @@ function DashboardContent() {
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
           <h2 className="text-lg font-semibold mb-3 text-blue-800">Classification</h2>
 
+          {/* Mode selector */}
+          <div className="mb-3">
+            <label className="block text-sm font-medium text-blue-800 mb-1">Mode</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="classifyMode"
+                  value="stub"
+                  checked={classifyMode === 'stub'}
+                  onChange={() => setClassifyMode('stub')}
+                  disabled={classifying}
+                />
+                Stub (deterministic)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="classifyMode"
+                  value="real"
+                  checked={classifyMode === 'real'}
+                  onChange={() => setClassifyMode('real')}
+                  disabled={classifying}
+                />
+                Real (LLM-backed)
+              </label>
+            </div>
+            {classifyMode === 'real' && (
+              <p className="text-xs text-amber-700 mt-1">
+                Requires LLM_MODE=real and provider API key. Spend caps apply.
+              </p>
+            )}
+          </div>
+
           {classifyResult && (
             <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded">
-              <p className="text-green-700 font-medium">Classification complete!</p>
+              <p className="text-green-700 font-medium">
+                Classification complete ({classifyResult.mode} mode)
+              </p>
               <ul className="text-green-600 text-sm mt-1 space-y-1">
                 <li>Total atoms: {classifyResult.totals.messageAtoms}</li>
                 <li>Newly labeled: {classifyResult.totals.newlyLabeled}</li>
@@ -336,13 +376,17 @@ function DashboardContent() {
                   : 'bg-green-600 hover:bg-green-700'
               }`}
             >
-              {classifying ? 'Classifying...' : 'Classify (stub)'}
+              {classifying
+                ? 'Classifying...'
+                : `Classify (${classifyMode})`}
             </button>
             {!classifyPromptVersion && (
               <span className="text-sm text-gray-500">Loading prompt version...</span>
             )}
             <span className="text-sm text-blue-600">
-              Assigns categories to all messages using deterministic stub algorithm
+              {classifyMode === 'stub'
+                ? 'Assigns categories using deterministic stub algorithm'
+                : 'Assigns categories using LLM provider (costs apply)'}
             </span>
           </div>
         </div>
