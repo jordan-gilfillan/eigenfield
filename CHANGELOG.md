@@ -237,6 +237,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `.gitignore` updated: `conversations_*.json` pattern excludes personal export data files
   - 297 tests passing (35 new)
 
+- Phase 7 Additional Parsers - PR-7.3: Parser auto-detection + registry wiring
+  - Parser auto-detection logic in `src/lib/parsers/index.ts`
+    - Runs ALL parsers' `canParse()` on input (no short-circuit)
+    - Exactly 1 match → use that parser
+    - 0 matches → `UNSUPPORTED_FORMAT` error
+    - >1 matches → `AMBIGUOUS_FORMAT` error with matched parser ids in `details.matched`
+  - `Parser` interface extended with `id` property (`"chatgpt" | "claude" | "grok"`)
+  - `AMBIGUOUS_FORMAT` error code added to `src/lib/api-utils.ts`
+  - Import route (`POST /api/distill/import`) updated:
+    - Uses typed `UnsupportedFormatError` / `AmbiguousFormatError` error classes
+    - Auto-detection runs only when `sourceOverride` is absent
+    - `sourceOverride` bypasses detection and uses the specified parser directly
+  - Unit tests (30 new): parser id, getParser, auto-detect happy path (all 3 formats), zero-match errors, ambiguous-match errors, format discrimination (no cross-contamination), parseExport with/without override
+  - Integration tests (10 new): auto-detect each format without override, sourceOverride bypass, unrecognized JSON → UNSUPPORTED_FORMAT, invalid JSON → UNSUPPORTED_FORMAT, synthetic ambiguous data → AMBIGUOUS_FORMAT with matched ids, DB source correctness, re-import idempotency preserved
+  - 337 tests passing (40 new)
+
+- **Phase 7 complete** — all PR-7.x items shipped (7.1 through 7.3). 337 tests passing.
+
 ### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")
 - Reuses LLM plumbing from Phase 4
@@ -247,11 +265,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Real summarization with OpenAI/Anthropic APIs
 - Rate limiting and cost tracking
 - Error handling for API failures
-
-### Planned (Phase 7: Additional Parsers)
-- Claude export parser
-- Grok export parser
-- Parser auto-detection
 
 ---
 

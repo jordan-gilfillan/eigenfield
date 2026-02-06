@@ -41,6 +41,9 @@ export interface ParseResult {
  * Parser interface that all format-specific parsers must implement.
  */
 export interface Parser {
+  /** Unique parser identifier (e.g., "chatgpt", "claude", "grok") */
+  id: SourceApi
+
   /**
    * Attempts to parse the given content.
    * @param content - Raw file content (usually JSON string)

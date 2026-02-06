@@ -51,6 +51,9 @@ export const errors = {
   unsupportedFormat: (message: string, details?: Record<string, unknown>) =>
     errorResponse(400, 'UNSUPPORTED_FORMAT', message, details),
 
+  ambiguousFormat: (message: string, details?: Record<string, unknown>) =>
+    errorResponse(400, 'AMBIGUOUS_FORMAT', message, details),
+
   notImplemented: (message: string) =>
     errorResponse(501, 'NOT_IMPLEMENTED', message),
 

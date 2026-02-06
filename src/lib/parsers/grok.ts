@@ -183,6 +183,7 @@ function isGrokShape(data: unknown): data is GrokExport {
  * Parses a Grok conversations export.
  */
 export const grokParser: Parser = {
+  id: 'grok',
   canParse(content: string): boolean {
     try {
       const data = JSON.parse(content)

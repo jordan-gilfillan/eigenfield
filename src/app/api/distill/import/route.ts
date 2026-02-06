@@ -4,11 +4,16 @@
  * Imports a conversation export file.
  *
  * Spec reference: 7.1, 7.9
+ *
+ * PR-7.3: Auto-detection returns structured errors:
+ * - UNSUPPORTED_FORMAT if 0 parsers match
+ * - AMBIGUOUS_FORMAT if >1 parsers match (with matched parser ids)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { importExport } from '@/lib/services/import'
 import { errors } from '@/lib/api-utils'
+import { UnsupportedFormatError, AmbiguousFormatError } from '@/lib/parsers'
 import type { SourceApi } from '@/lib/enums'
 import { SOURCE_VALUES } from '@/lib/enums'
 
@@ -50,6 +55,18 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Import error:', error)
 
+    // Auto-detection: no parser matched
+    if (error instanceof UnsupportedFormatError) {
+      return errors.unsupportedFormat(error.message)
+    }
+
+    // Auto-detection: multiple parsers matched
+    if (error instanceof AmbiguousFormatError) {
+      return errors.ambiguousFormat(error.message, {
+        matched: error.matched,
+      })
+    }
+
     if (error instanceof Error) {
       // Parser not implemented for requested source
       if (error.message.includes('is not implemented')) {
@@ -58,7 +75,6 @@ export async function POST(request: NextRequest) {
 
       // Known errors from parsing or validation
       if (
-        error.message.includes('Could not auto-detect') ||
         error.message.includes('No messages found') ||
         error.message.includes('must be an array')
       ) {
