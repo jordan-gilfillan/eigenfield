@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 337 passing.
+- Current test count: 415 passing.
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -33,6 +33,25 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-7.1 complete: Claude export parser (`src/lib/parsers/claude.ts`) with full integration into import pipeline, 33 new tests
   - PR-7.2 complete: Grok export parser (`src/lib/parsers/grok.ts`) with full integration into import pipeline, 35 new tests
   - PR-7.3 complete: Parser auto-detection + registry wiring — runs all parsers' `canParse()`, requires exactly 1 match; `UNSUPPORTED_FORMAT` (0 matches) / `AMBIGUOUS_FORMAT` (>1 matches) errors; 40 new tests
+- Phase 3b LLM Plumbing (partial):
+  - PR-3b0 complete: Shared LLM infrastructure (`src/lib/llm/`) — provider abstraction, env key management, rate limiting, spend caps, dry-run mode; 78 new tests
+
+## LLM plumbing
+
+The `src/lib/llm/` module provides shared infrastructure for LLM calls used by both classification (PR-3b.1) and summarization (PR-4b).
+
+**How to enable real mode:**
+1. Set `LLM_MODE=real` in `.env.local`
+2. Set the API key for your provider: `OPENAI_API_KEY=sk-...` or `ANTHROPIC_API_KEY=sk-ant-...`
+3. (Optional) Set `LLM_PROVIDER_DEFAULT=openai` or `anthropic`
+
+**Safeguards:**
+- **Dry-run mode** (default): `LLM_MODE=dry_run` — returns deterministic placeholder text, no API calls, costUsd=0
+- **Rate limiting**: `LLM_MIN_DELAY_MS=250` (default) — enforces minimum delay between API calls; await-based, no background intervals
+- **Spend caps**: `LLM_MAX_USD_PER_RUN` and `LLM_MAX_USD_PER_DAY` — throws `BUDGET_EXCEEDED` if next call would exceed cap
+- **Key validation**: Real mode throws `MISSING_API_KEY` if the provider's key is not set
+
+**Note:** Real provider calls are not yet implemented (PR-3b0 throws `PROVIDER_NOT_IMPLEMENTED`). PR-3b.1 and PR-4b will add actual OpenAI/Anthropic SDK calls.
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
