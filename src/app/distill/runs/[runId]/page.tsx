@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { OutputViewer } from './components/OutputViewer'
+import { InputViewer } from './components/InputViewer'
 
 interface RunConfig {
   promptVersionIds: { summarize: string }
@@ -624,10 +625,13 @@ function JobRow({
           </button>
         </td>
       </tr>
-      {/* Output viewer row - spans all columns */}
+      {/* Inspector row - spans all columns */}
       <tr className="bg-gray-50/50">
         <td colSpan={8} className="px-4 pb-3">
-          <OutputViewer runId={runId} dayDate={job.dayDate} jobStatus={job.status} />
+          <div className="flex gap-2">
+            <InputViewer runId={runId} dayDate={job.dayDate} />
+            <OutputViewer runId={runId} dayDate={job.dayDate} jobStatus={job.status} />
+          </div>
         </td>
       </tr>
     </>

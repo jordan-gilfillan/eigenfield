@@ -195,8 +195,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration tests: days list ordering, atoms deterministic ordering, source filter, label inclusion
   - 218 tests passing (28 new)
 
-### Planned (Phase 6 continued)
-- Run inspector (input/output side-by-side) (PR-6.4)
+- Phase 6 Search + Inspector - PR-6.4: Run inspector (pre/post view)
+  - `GET /api/distill/runs/:runId/jobs/:dayDate/input` endpoint
+    - Returns input bundle preview for a specific job day
+    - Reuses `buildBundle()` from tick/job execution (same deterministic ordering + hashes)
+    - Uses run's frozen config (labelSpec, filterProfileSnapshot) from Run.configJson
+    - Returns: hasInput, bundlePreviewText, bundleHash, bundleContextHash, atomCount, previewItems, rawBundleJson
+    - 404 for nonexistent runId or dayDate not in run's jobs
+    - hasInput=false for days with no eligible atoms (not an error)
+  - InputViewer component (`src/app/distill/runs/[runId]/components/InputViewer.tsx`)
+    - Displays input bundle preview (monospace/preformatted, scrollable)
+    - Shows bundleHash + bundleContextHash prominently
+    - Collapsible raw JSON viewer for bundle data
+    - On-demand data fetching (avoids loading all inputs on page load)
+  - Run detail page updated: job rows now show both "View Input" and "View Output" controls
+    - Left: InputViewer (filtered bundle preview)
+    - Right: OutputViewer (existing markdown + hashes)
+    - Hashes match between input and output viewers for succeeded jobs
+  - Integration tests: 11 tests covering all acceptance criteria
+    - 404 for bad runId, 404 for dayDate not in run
+    - hasInput=false for day with no eligible atoms
+    - Deterministic ordering of preview items (source ASC, timestampUtc ASC, role ASC, atomStableId ASC)
+    - Hash fields present (sha256 hex format)
+    - Input hashes match stored Output hashes for succeeded days
+    - Filtering correctly applied (PERSONAL excluded from INCLUDE WORK/LEARNING profile)
+    - Bundle text format matches spec 9.1
+  - 229 tests passing (11 new)
 
 ### Planned (Phase 7: Additional Parsers)
 - Claude export parser
