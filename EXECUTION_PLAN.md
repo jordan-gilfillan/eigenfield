@@ -388,6 +388,19 @@ Phase Gate (Phase 5):
 
 Goal: make the dataset and outputs inspectable at scale (find, filter, and open a concrete pre/post view) without adding new model dependencies.
 
+**Status:** ✅ Complete (PR-6.1 through PR-6.4)
+
+Completed PRs:
+- PR-6.1: FTS indexes (`tsvector` + GIN on `MessageAtom.text` and `Output.outputText`) + `GET /api/distill/search` endpoint + cursor pagination
+- PR-6.2: `/distill/search` UI with scope tabs (Raw/Outputs), snippet rendering, "Load more" pagination, deep-links to inspector views
+- PR-6.3: `/distill/import/inspect` day view with `GET .../days` and `GET .../days/:dayDate/atoms` endpoints, deterministic ordering, source filter, category display
+- PR-6.4: Run pre/post inspector with `GET /api/distill/runs/:runId/jobs/:dayDate/input` endpoint, InputViewer component, side-by-side input/output on run detail page
+
+Notes:
+- 229 tests passing after Phase 6 (11 new in PR-6.4, 28 new in PR-6.3, 17 new in PR-6.1).
+- Input endpoint reuses `buildBundle()` from tick/job execution so hashes match stored Output hashes.
+- No background polling introduced; all fetches are user-driven and on-demand.
+
 Implementation strategy: ship Phase 6 as small PRs. Each PR should be mergeable and keep tests green.
 
 #### PR-6.1: FTS indexes + search API (minimal)
@@ -447,10 +460,60 @@ Acceptance (manual):
 - Output hashes match those shown in Phase 5 output viewer.
 
 Phase Gate (Phase 6):
-- [ ] FTS query returns relevant atoms/outputs with stable ordering
-- [ ] Cursor pagination works
-- [ ] Search UI navigates correctly to raw day view and run output
-- [ ] Inspector shows concrete pre/post view for a day
+- [x] FTS query returns relevant atoms/outputs with stable ordering
+- [x] Cursor pagination works
+- [x] Search UI navigates correctly to raw day view and run output
+- [x] Inspector shows concrete pre/post view for a day
+
+---
+
+### Next Steps
+
+Two independent work streams are available. Either can be started next; they share no dependencies.
+
+#### Path A: Phase 7 — Additional Parsers (Claude + Grok)
+
+##### PR-7.1: Claude export parser
+- Parse Claude conversation export format (JSON)
+- Map fields to MessageAtom schema (timestamp normalization, role mapping, conversation/message IDs)
+- Unit tests: field mapping, both roles, timestamp edge cases
+
+##### PR-7.2: Grok export parser
+- Parse Grok export format
+- Map fields to MessageAtom schema
+- Unit tests: same coverage as Claude parser
+
+##### PR-7.3: Parser registry + auto-detection
+- Auto-detection logic (inspect file structure to determine source)
+- Source override handling (user can force a parser)
+- Integration test: upload file without `sourceOverride`, verify correct parser selected
+
+**Acceptance:**
+- All three parsers produce valid MessageAtoms with correct atomStableId
+- Auto-detection correctly identifies each source format
+- Re-import idempotency works across all parsers
+
+#### Path B: Phase 3b/4b — Real LLM Integration
+
+Prerequisites (set up before writing code):
+- API key management (env vars: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+- Rate limiting strategy (token bucket or simple delay between calls)
+- Spend caps / budget guard (max cost per run, abort if exceeded)
+- Dry-run mode (log the prompt + estimated tokens without calling the API)
+
+##### PR-3b: Real classification (mode="real")
+- Wire `POST /api/distill/classify` with `mode: "real"` to an LLM call
+- Use the active `classify` PromptVersion template
+- Respect rate limits; track token usage per call
+- Tests: verify labels written with correct labelSpec; cost recorded
+
+##### PR-4b: Real summarization
+- Wire `summarize()` in tick to call a real LLM when model is not `stub_*`
+- Track tokensIn/tokensOut/costUsd on Job
+- Error handling: transient API failures → mark job FAILED with `retriable: true`
+- Tests: verify Output stored with correct hashes, cost visible in run detail
+
+**Suggested order:** 3b first (classification is simpler, proves the LLM plumbing), then 4b (summarization reuses the same HTTP/rate-limit infrastructure).
 
 ---
 

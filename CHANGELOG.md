@@ -148,20 +148,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ACCEPTANCE.md`: Testable acceptance criteria and verification steps
   - Updated `SPEC.md` to align response schemas with implementation
 
-### Planned (Phase 3b: Real Classification)
-- Real classification with LLM integration (mode="real")
-- Reuses LLM plumbing from Phase 4
-- Rate limiting to prevent wallet-fire
-- **Gate**: classify with mode="real" works, labels written with correct labelSpec
-
-### Planned (Phase 4b: Real LLM Integration)
-- Real summarization with OpenAI/Anthropic APIs
-- Rate limiting and cost tracking
-- Error handling for API failures
-
-### Planned (Phase 5: Complete)
-- All PR-5.x items completed (5.1 through 5.5)
-
 - Phase 6 Search + Inspector - PR-6.1: FTS indexes + search API
   - Prisma migration: tsvector generated columns + GIN indexes on `MessageAtom.text` and `Output.outputText`
   - `GET /api/distill/search` endpoint with params: `q`, `scope` (raw|outputs), `limit`, `cursor`, `importBatchId`, `runId`, `startDate`, `endDate`
@@ -176,10 +162,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `/distill/search` page with search input, scope tabs (Raw / Outputs), results list
   - Snippet rendering with `<<`/`>>` highlight markers
   - Cursor pagination via "Load more" button (appends results, no duplicates)
-  - Raw results link to import inspector day view (placeholder route for PR-6.3)
+  - Raw results link to import inspector day view (PR-6.3)
   - Output results link to existing run detail page (`/distill/runs/:runId`)
   - URL-driven state for shareable search links (`?q=...&scope=...`)
-  - Dashboard Search card updated: links to `/distill/search` (replaces "Coming in Phase 6")
+  - Dashboard Search card updated: links to `/distill/search`
   - No background polling, no setInterval — search is user-driven (submit button)
 
 - Phase 6 Search + Inspector - PR-6.3: Import inspector (day view)
@@ -221,6 +207,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Filtering correctly applied (PERSONAL excluded from INCLUDE WORK/LEARNING profile)
     - Bundle text format matches spec 9.1
   - 229 tests passing (11 new)
+
+- **Phase 6 complete** — all PR-6.x items shipped (6.1 through 6.4). 229 tests passing.
+
+### Planned (Phase 3b: Real Classification)
+- Real classification with LLM integration (mode="real")
+- Reuses LLM plumbing from Phase 4
+- Rate limiting to prevent wallet-fire
+- **Gate**: classify with mode="real" works, labels written with correct labelSpec
+
+### Planned (Phase 4b: Real LLM Integration)
+- Real summarization with OpenAI/Anthropic APIs
+- Rate limiting and cost tracking
+- Error handling for API failures
 
 ### Planned (Phase 7: Additional Parsers)
 - Claude export parser
