@@ -48,6 +48,9 @@ export const errors = {
   notFound: (resource: string) =>
     errorResponse(404, 'NOT_FOUND', `${resource} not found`),
 
+  unsupportedFormat: (message: string, details?: Record<string, unknown>) =>
+    errorResponse(400, 'UNSUPPORTED_FORMAT', message, details),
+
   notImplemented: (message: string) =>
     errorResponse(501, 'NOT_IMPLEMENTED', message),
 

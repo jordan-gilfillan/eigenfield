@@ -5,6 +5,7 @@
 import type { Parser, ParseResult } from './types'
 import type { SourceApi } from '../enums'
 import { chatgptParser } from './chatgpt'
+import { claudeParser } from './claude'
 
 export type { Parser, ParseResult, ParsedMessage } from './types'
 
@@ -13,7 +14,7 @@ export type { Parser, ParseResult, ParsedMessage } from './types'
  */
 const parsers: Record<SourceApi, Parser | null> = {
   chatgpt: chatgptParser,
-  claude: null, // Phase 7
+  claude: claudeParser,
   grok: null, // Phase 7
   mixed: null, // Not a real parser
 }

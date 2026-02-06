@@ -51,6 +51,11 @@ export async function POST(request: NextRequest) {
     console.error('Import error:', error)
 
     if (error instanceof Error) {
+      // Parser not implemented for requested source
+      if (error.message.includes('is not implemented')) {
+        return errors.unsupportedFormat(error.message)
+      }
+
       // Known errors from parsing or validation
       if (
         error.message.includes('Could not auto-detect') ||
