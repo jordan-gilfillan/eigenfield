@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- UI: dashboard classify supports stub/real mode
+  - Mode selector (radio buttons): Stub (deterministic) / Real (LLM-backed)
+  - Button label reflects selected mode: "Classify (stub)" or "Classify (real)"
+  - Real mode helper text: "Requires LLM_MODE=real and provider API key. Spend caps apply."
+  - Error display includes error code from API (e.g., `[MISSING_API_KEY] ...`)
+  - Success message shows which mode was used
+  - No background polling; buttons disabled during in-flight request
+
 ### Added
 - Phase 1: Foundation complete
   - Next.js 15 with App Router and TypeScript
