@@ -255,6 +255,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Phase 7 complete** — all PR-7.x items shipped (7.1 through 7.3). 337 tests passing.
 
+- Phase 3b LLM Plumbing - PR-3b0: Shared LLM infrastructure
+  - Provider abstraction (`src/lib/llm/types.ts`): ProviderId, LlmRequest, LlmResponse, LlmCallContext
+  - Configuration (`src/lib/llm/config.ts`): env-based key management, mode selection (dry_run/real), spend caps
+  - Rate limiter (`src/lib/llm/rateLimit.ts`): await-based min-delay limiter with injectable clock for testing
+  - Budget guard (`src/lib/llm/budget.ts`): per-run and per-day spend caps with BudgetExceededError
+  - LLM client (`src/lib/llm/client.ts`): callLlm() with dry-run path (deterministic placeholder) and real path stub
+  - Typed error classes (`src/lib/llm/errors.ts`): MissingApiKeyError, ProviderNotImplementedError, BudgetExceededError
+  - Env vars: LLM_MODE, LLM_PROVIDER_DEFAULT, LLM_MIN_DELAY_MS, LLM_MAX_USD_PER_RUN, LLM_MAX_USD_PER_DAY
+  - 78 new unit tests (config, errors, rate limiter, budget, client)
+
 ### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")
 - Reuses LLM plumbing from Phase 4
