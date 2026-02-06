@@ -2,13 +2,15 @@
  * POST /api/distill/classify
  *
  * Classifies MessageAtoms in an ImportBatch.
+ * Supports stub mode (deterministic) and real mode (LLM-based).
  *
  * Spec reference: 7.2, 7.9
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { classifyBatch } from '@/lib/services/classify'
-import { errors } from '@/lib/api-utils'
+import { errors, errorResponse } from '@/lib/api-utils'
+import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
 
 interface ClassifyRequest {
   importBatchId: string
@@ -38,11 +40,6 @@ export async function POST(request: NextRequest) {
       return errors.invalidInput('mode must be "stub" or "real"')
     }
 
-    // Real mode returns 501 Not Implemented
-    if (body.mode === 'real') {
-      return errors.notImplemented('Real classification mode is not yet available')
-    }
-
     // Classify the batch
     const result = await classifyBatch({
       importBatchId: body.importBatchId,
@@ -56,15 +53,24 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Classify error:', error)
 
+    if (error instanceof BudgetExceededError) {
+      return errorResponse(402, error.code, error.message, error.details)
+    }
+
+    if (error instanceof LlmBadOutputError) {
+      return errorResponse(502, error.code, error.message, error.details)
+    }
+
+    if (error instanceof LlmError) {
+      return errorResponse(500, error.code, error.message, error.details)
+    }
+
     if (error instanceof Error) {
       if (error.message.includes('ImportBatch not found')) {
         return errors.notFound('ImportBatch')
       }
       if (error.message.includes('PromptVersion not found')) {
         return errors.notFound('PromptVersion')
-      }
-      if (error.message.includes('NOT_IMPLEMENTED')) {
-        return errors.notImplemented(error.message.replace('NOT_IMPLEMENTED: ', ''))
       }
     }
 

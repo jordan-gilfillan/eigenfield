@@ -2,7 +2,7 @@
  * Classification Service
  *
  * Handles classification of MessageAtoms.
- * Supports stub mode (deterministic) and real mode (LLM-based, future).
+ * Supports stub mode (deterministic) and real mode (LLM-based via callLlm).
  *
  * Spec references: 7.2 (Classify), 6.3 (MessageLabel), 6.4 (Category)
  */
@@ -10,6 +10,17 @@
 import { prisma } from '../db'
 import { sha256, hashToUint32 } from '../hash'
 import type { Category } from '@prisma/client'
+import {
+  callLlm,
+  getDefaultProvider,
+  getMinDelayMs,
+  getSpendCaps,
+  assertWithinBudget,
+  RateLimiter,
+  LlmBadOutputError,
+  BudgetExceededError,
+} from '../llm'
+import type { ProviderId, LlmCallContext } from '../llm'
 
 /**
  * Core categories in the exact order required by stub_v1 algorithm (spec 7.2)
@@ -22,6 +33,13 @@ const STUB_CATEGORIES: Category[] = [
   'PERSONAL',
   'OTHER',
 ]
+
+/** All valid Category values from the Prisma enum (spec 6.4) */
+const ALL_CATEGORIES: ReadonlySet<string> = new Set([
+  'WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER',
+  'MEDICAL', 'MENTAL_HEALTH', 'ADDICTION_RECOVERY', 'INTIMACY',
+  'FINANCIAL', 'LEGAL', 'EMBARRASSING',
+])
 
 /** Batch size for processing to avoid Postgres bind variable limits */
 const BATCH_SIZE = 10000
@@ -66,6 +84,67 @@ export function computeStubCategory(atomStableId: string): Category {
 }
 
 /**
+ * Infers provider from model string.
+ * Falls back to env default, then to 'openai'.
+ */
+function inferProvider(model: string): ProviderId {
+  const lower = model.toLowerCase()
+  if (lower.includes('claude') || lower.includes('anthropic')) return 'anthropic'
+  if (lower.includes('gpt') || lower.includes('openai') || lower.includes('o1') || lower.includes('o3')) return 'openai'
+  return getDefaultProvider() ?? 'openai'
+}
+
+/**
+ * Parses and validates LLM classification output.
+ *
+ * Expected format: {"category":"WORK","confidence":0.7}
+ *
+ * @throws LlmBadOutputError if output is invalid
+ */
+export function parseClassifyOutput(text: string): { category: Category; confidence: number } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.trim())
+  } catch {
+    throw new LlmBadOutputError('LLM output is not valid JSON', { rawOutput: text })
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new LlmBadOutputError('LLM output is not a JSON object', { rawOutput: text })
+  }
+
+  const obj = parsed as Record<string, unknown>
+
+  // Validate category
+  if (typeof obj.category !== 'string') {
+    throw new LlmBadOutputError('LLM output missing or invalid "category" field', { rawOutput: text })
+  }
+  const categoryUpper = obj.category.toUpperCase()
+  if (!ALL_CATEGORIES.has(categoryUpper)) {
+    throw new LlmBadOutputError(
+      `LLM output has invalid category: "${obj.category}"`,
+      { rawOutput: text, category: obj.category, validCategories: [...ALL_CATEGORIES] }
+    )
+  }
+
+  // Validate confidence
+  if (typeof obj.confidence !== 'number') {
+    throw new LlmBadOutputError('LLM output missing or invalid "confidence" field', { rawOutput: text })
+  }
+  if (obj.confidence < 0 || obj.confidence > 1) {
+    throw new LlmBadOutputError(
+      `LLM output has confidence out of range [0, 1]: ${obj.confidence}`,
+      { rawOutput: text, confidence: obj.confidence }
+    )
+  }
+
+  return {
+    category: categoryUpper as Category,
+    confidence: obj.confidence,
+  }
+}
+
+/**
  * Classifies all MessageAtoms in an ImportBatch.
  *
  * Label versioning rules (spec 6.3):
@@ -75,7 +154,8 @@ export function computeStubCategory(atomStableId: string): Category {
  *
  * @throws Error if importBatchId not found
  * @throws Error if promptVersionId not found
- * @throws Error if mode is 'real' (not implemented)
+ * @throws BudgetExceededError if budget cap exceeded during real mode
+ * @throws LlmBadOutputError if LLM returns unparseable output
  */
 export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyResult> {
   const { importBatchId, model, promptVersionId, mode } = options
@@ -94,11 +174,6 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   })
   if (!promptVersion) {
     throw new Error(`PromptVersion not found: ${promptVersionId}`)
-  }
-
-  // Real mode not implemented
-  if (mode === 'real') {
-    throw new Error('NOT_IMPLEMENTED: Real classification mode is not yet available')
   }
 
   // Count total atoms for this batch
@@ -144,41 +219,42 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }
   }
 
-  // Process atoms in batches to avoid memory issues
-  // Use cursor-based pagination for efficient iteration
+  // Dispatch to mode-specific implementation
+  if (mode === 'stub') {
+    return classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms)
+  }
+
+  return classifyBatchReal(importBatchId, model, promptVersionId, totalAtoms, promptVersion.templateText)
+}
+
+/**
+ * Stub classification: deterministic categories based on atomStableId hash.
+ */
+async function classifyBatchStub(
+  importBatchId: string,
+  model: string,
+  promptVersionId: string,
+  totalAtoms: number,
+): Promise<ClassifyResult> {
   let newlyLabeled = 0
   let cursor: string | undefined
 
   while (true) {
-    // Fetch a batch of atoms that DON'T have labels for this labelSpec
-    // Using a subquery approach to avoid large IN clauses
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
         messageLabels: {
-          none: {
-            promptVersionId,
-            model,
-          },
+          none: { promptVersionId, model },
         },
       },
-      select: {
-        id: true,
-        atomStableId: true,
-      },
+      select: { id: true, atomStableId: true },
       take: BATCH_SIZE,
-      ...(cursor && {
-        skip: 1,
-        cursor: { id: cursor },
-      }),
+      ...(cursor && { skip: 1, cursor: { id: cursor } }),
       orderBy: { id: 'asc' },
     })
 
-    if (atomsBatch.length === 0) {
-      break
-    }
+    if (atomsBatch.length === 0) break
 
-    // Create labels for this batch
     const labelsData = atomsBatch.map((atom) => ({
       messageAtomId: atom.id,
       category: computeStubCategory(atom.atomStableId),
@@ -187,7 +263,6 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       promptVersionId,
     }))
 
-    // Use createMany with skipDuplicates for concurrency safety
     const result = await prisma.messageLabel.createMany({
       data: labelsData,
       skipDuplicates: true,
@@ -196,13 +271,9 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     newlyLabeled += result.count
     cursor = atomsBatch[atomsBatch.length - 1].id
 
-    // If we got fewer than BATCH_SIZE, we're done
-    if (atomsBatch.length < BATCH_SIZE) {
-      break
-    }
+    if (atomsBatch.length < BATCH_SIZE) break
   }
 
-  // Count total labels now
   const totalLabeled = await prisma.messageLabel.count({
     where: {
       messageAtom: { importBatchId },
@@ -214,7 +285,124 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   return {
     importBatchId,
     labelSpec: { model, promptVersionId },
-    mode,
+    mode: 'stub',
+    totals: {
+      messageAtoms: totalAtoms,
+      labeled: totalLabeled,
+      newlyLabeled,
+      skippedAlreadyLabeled: totalAtoms - newlyLabeled,
+    },
+  }
+}
+
+/**
+ * Real classification: calls callLlm for each unlabeled atom.
+ * Uses rate limiting and budget guard.
+ */
+async function classifyBatchReal(
+  importBatchId: string,
+  model: string,
+  promptVersionId: string,
+  totalAtoms: number,
+  templateText: string,
+): Promise<ClassifyResult> {
+  const provider = inferProvider(model)
+  const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
+  const budgetPolicy = getSpendCaps()
+  let spentUsdSoFar = 0
+  let newlyLabeled = 0
+  let cursor: string | undefined
+
+  while (true) {
+    const atomsBatch = await prisma.messageAtom.findMany({
+      where: {
+        importBatchId,
+        messageLabels: {
+          none: { promptVersionId, model },
+        },
+      },
+      select: { id: true, atomStableId: true, text: true, source: true, role: true },
+      take: BATCH_SIZE,
+      ...(cursor && { skip: 1, cursor: { id: cursor } }),
+      orderBy: { id: 'asc' },
+    })
+
+    if (atomsBatch.length === 0) break
+
+    for (const atom of atomsBatch) {
+      // Rate limit
+      await rateLimiter.acquire()
+
+      const ctx: LlmCallContext = {
+        spentUsdSoFar,
+        simulateCost: true,
+      }
+
+      // Budget guard: estimate next cost before calling
+      // Use a conservative estimate for budget check
+      const estimatedNextCost = 0.001
+      assertWithinBudget({
+        nextCostUsd: estimatedNextCost,
+        spentUsdSoFar,
+        policy: budgetPolicy,
+      })
+
+      const response = await callLlm(
+        {
+          provider,
+          model,
+          system: templateText,
+          messages: [
+            {
+              role: 'user',
+              content: `Source: ${atom.source}\nRole: ${atom.role}\n\n${atom.text}`,
+            },
+          ],
+          temperature: 0,
+          metadata: {
+            stage: 'classify',
+            atomStableId: atom.atomStableId,
+          },
+        },
+        ctx,
+      )
+
+      spentUsdSoFar += response.costUsd
+
+      // Parse and validate the LLM output
+      const { category, confidence } = parseClassifyOutput(response.text)
+
+      // Write label (skipDuplicates for concurrency safety)
+      const result = await prisma.messageLabel.createMany({
+        data: [{
+          messageAtomId: atom.id,
+          category,
+          confidence,
+          model,
+          promptVersionId,
+        }],
+        skipDuplicates: true,
+      })
+
+      newlyLabeled += result.count
+    }
+
+    cursor = atomsBatch[atomsBatch.length - 1].id
+    if (atomsBatch.length < BATCH_SIZE) break
+  }
+
+  const totalLabeled = await prisma.messageLabel.count({
+    where: {
+      messageAtom: { importBatchId },
+      promptVersionId,
+      model,
+    },
+  })
+
+  return {
+    importBatchId,
+    labelSpec: { model, promptVersionId },
+    mode: 'real',
     totals: {
       messageAtoms: totalAtoms,
       labeled: totalLabeled,

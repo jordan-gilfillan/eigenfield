@@ -3,14 +3,19 @@
  *
  * Single exported function: callLlm(req, ctx)
  *
- * In PR-3b0:
- * - DRY_RUN mode returns deterministic placeholder text + estimated tokens.
- * - REAL mode throws ProviderNotImplementedError (to be filled in PR-3b.1/4b).
+ * - DRY_RUN mode returns deterministic responses (stage-aware for classify).
+ * - REAL mode throws ProviderNotImplementedError (to be filled in future PRs).
  */
 
 import type { LlmRequest, LlmResponse, LlmCallContext } from './types'
 import { getLlmMode, requireApiKeyForRealMode } from './config'
 import { ProviderNotImplementedError } from './errors'
+import { createHash } from 'crypto'
+
+/** Core categories matching spec 7.2 stub_v1 order */
+const CORE_CATEGORIES = [
+  'WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER',
+] as const
 
 /**
  * Estimates input token count from text (chars / 4 heuristic).
@@ -32,9 +37,39 @@ function buildInputText(req: LlmRequest): string {
 }
 
 /**
+ * Dry-run response for classify stage: returns deterministic category JSON
+ * based on hash of atomStableId (passed via metadata).
+ */
+function dryRunClassifyResponse(req: LlmRequest, ctx: LlmCallContext): LlmResponse {
+  const inputText = buildInputText(req)
+  const tokensIn = estimateTokens(inputText)
+
+  const atomStableId = req.metadata?.atomStableId as string | undefined
+  const seed = atomStableId ?? inputText
+  const h = createHash('sha256').update(seed, 'utf8').digest('hex')
+  const index = (parseInt(h.slice(0, 8), 16) >>> 0) % CORE_CATEGORIES.length
+  const category = CORE_CATEGORIES[index]
+
+  const text = JSON.stringify({ category, confidence: 0.7 })
+  const tokensOut = estimateTokens(text)
+
+  let costUsd = 0
+  if (ctx.simulateCost) {
+    costUsd = (tokensIn / 1000) * 0.01 + (tokensOut / 1000) * 0.03
+  }
+
+  return { text, tokensIn, tokensOut, costUsd, dryRun: true }
+}
+
+/**
  * Dry-run response: deterministic placeholder text + estimated tokens.
  */
 function dryRunResponse(req: LlmRequest, ctx: LlmCallContext): LlmResponse {
+  // Stage-specific dry-run responses
+  if (req.metadata?.stage === 'classify') {
+    return dryRunClassifyResponse(req, ctx)
+  }
+
   const inputText = buildInputText(req)
   const tokensIn = estimateTokens(inputText)
 
@@ -63,8 +98,8 @@ function dryRunResponse(req: LlmRequest, ctx: LlmCallContext): LlmResponse {
 /**
  * Calls an LLM provider or returns a dry-run response.
  *
- * In PR-3b0, real mode throws ProviderNotImplementedError.
- * PR-3b.1 / PR-4b will replace the real path with actual provider calls.
+ * Real mode throws ProviderNotImplementedError (actual provider calls
+ * will be added in a future PR).
  */
 export async function callLlm(
   req: LlmRequest,

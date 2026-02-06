@@ -460,7 +460,7 @@ describe('Classification Service', () => {
       ).rejects.toThrow('PromptVersion not found')
     })
 
-    it('throws error for mode=real (not implemented)', async () => {
+    it('mode=real classifies via LLM pipeline (dry-run)', async () => {
       const content = createTestExport([
         { id: 'msg-real-1', role: 'user', text: 'Real mode test', timestamp: 1705316400, conversationId: 'conv-real-mode' },
       ])
@@ -472,14 +472,16 @@ describe('Classification Service', () => {
       })
       createdBatchIds.push(importResult.importBatch.id)
 
-      await expect(
-        classifyBatch({
-          importBatchId: importResult.importBatch.id,
-          model: 'gpt-4',
-          promptVersionId: defaultPromptVersionId,
-          mode: 'real',
-        })
-      ).rejects.toThrow('NOT_IMPLEMENTED')
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4',
+        promptVersionId: defaultPromptVersionId,
+        mode: 'real',
+      })
+
+      expect(result.mode).toBe('real')
+      expect(result.totals.newlyLabeled).toBe(1)
+      expect(result.totals.messageAtoms).toBe(1)
     })
 
     it('handles empty import batch gracefully', async () => {
