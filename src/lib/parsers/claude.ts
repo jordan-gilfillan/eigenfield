@@ -70,6 +70,7 @@ function mapSender(sender: string): RoleApi | null {
  * Parses a Claude conversations.json export.
  */
 export const claudeParser: Parser = {
+  id: 'claude',
   canParse(content: string): boolean {
     try {
       const data = JSON.parse(content)

@@ -110,6 +110,7 @@ function mapRole(chatgptRole: string): RoleApi | null {
  * Parses a ChatGPT conversations.json export.
  */
 export const chatgptParser: Parser = {
+  id: 'chatgpt',
   canParse(content: string): boolean {
     try {
       const data = JSON.parse(content)
