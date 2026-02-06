@@ -51,6 +51,8 @@ export function inferProvider(model: string): ProviderId {
  */
 const RATE_TABLE: Record<string, Record<string, Rate>> = {
   openai: {
+    // Text models (USD per 1M tokens).
+    // Prices reflect the default (non-priority) service tier.
     'gpt-4o': {
       inputPer1MUsd: 2.5,
       outputPer1MUsd: 10.0,
@@ -76,12 +78,46 @@ const RATE_TABLE: Record<string, Record<string, Rate>> = {
       outputPer1MUsd: 0.4,
       cachedInputPer1MUsd: 0.025,
     },
+
+    // Reasoning models often used for harder classification/debugging.
+    'o4-mini': {
+      inputPer1MUsd: 1.1,
+      outputPer1MUsd: 4.4,
+      cachedInputPer1MUsd: 0.275,
+    },
+    'o3-mini': {
+      inputPer1MUsd: 1.1,
+      outputPer1MUsd: 4.4,
+      cachedInputPer1MUsd: 0.55,
+    },
   },
   anthropic: {
+    // Claude 4.5 aliases + snapshot IDs.
     'claude-sonnet-4-5': {
       inputPer1MUsd: 3.0,
       outputPer1MUsd: 15.0,
+      // Anthropic prompt-cache reads are priced at 0.1x input.
       cachedInputPer1MUsd: 0.3,
+    },
+    'claude-sonnet-4-5-20250929': {
+      inputPer1MUsd: 3.0,
+      outputPer1MUsd: 15.0,
+      cachedInputPer1MUsd: 0.3,
+    },
+    'claude-haiku-4-5': {
+      inputPer1MUsd: 1.0,
+      outputPer1MUsd: 5.0,
+      cachedInputPer1MUsd: 0.1,
+    },
+    'claude-haiku-4-5-20251001': {
+      inputPer1MUsd: 1.0,
+      outputPer1MUsd: 5.0,
+      cachedInputPer1MUsd: 0.1,
+    },
+    'claude-opus-4-6': {
+      inputPer1MUsd: 5.0,
+      outputPer1MUsd: 25.0,
+      cachedInputPer1MUsd: 0.5,
     },
     'claude-3-5-sonnet': {
       inputPer1MUsd: 3.0,

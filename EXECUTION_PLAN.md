@@ -188,9 +188,11 @@ const confidence = 0.5
 - Return response per 7.9 schema
 
 **Step 3: Real Classification (Phase 3b)**
-- LLM integration (OpenAI/Anthropic)
-- Batch processing with rate limiting
-- Cost tracking
+- Shared LLM plumbing (mode, keys, rate limiting, spend caps, dry-run)
+- Pricing book + cost calculator (compute cost from token usage)
+- Provider SDK integrations (OpenAI/Anthropic)
+- Batch processing with rate limiting (await-based)
+- Cost tracking + auditability (pricing snapshot + per-call costUsd)
 
 **Deliverables:**
 - [ ] Stub classifier
@@ -234,6 +236,8 @@ Per spec 7.4, advisory locks are session-scoped. **Pinned approach:**
   - Build bundle (deterministic ordering per 9.1)
   - Check token count, segment if needed
   - Call summarizer
+  - Compute `tokensIn`/`tokensOut` and `costUsd` via pricing book (stub = 0, real = computed)
+  - Enforce spend caps before each real call (abort safely if exceeded)
   - Store Output with both hashes
   - Update job (status, tokens, cost)
 - Release lock
@@ -497,23 +501,45 @@ Two independent work streams are available. Either can be started next; they sha
 
 Prerequisites (set up before writing code):
 - API key management (env vars: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
-- Rate limiting strategy (token bucket or simple delay between calls)
-- Spend caps / budget guard (max cost per run, abort if exceeded)
-- Dry-run mode (log the prompt + estimated tokens without calling the API)
+- Rate limiting strategy (min-delay or token bucket; MUST be await-based, no background timers)
+- Spend caps / budget guard (max cost per run/day; abort if exceeded)
+- Dry-run mode (log prompt shape + estimated tokens/cost without calling the API)
+- Pricing “price book” + cost calculator (per-provider/per-model rates; compute cost from tokens)
+- Pricing snapshot for auditability (capture rates into `Run.configJson` at run creation)
 
-##### PR-3b: Real classification (mode="real")
-- Wire `POST /api/distill/classify` with `mode: "real"` to an LLM call
-- Use the active `classify` PromptVersion template
-- Respect rate limits; track token usage per call
-- Tests: verify labels written with correct labelSpec; cost recorded
+##### PR-3b0: LLM plumbing (shared)
+**Status:** ✅ Complete
+- Provider-agnostic request/response types
+- Env-based config (mode, keys, caps)
+- Await-based rate limiting (no background loops)
+- Spend cap guards (per-run/per-day)
+- Dry-run path (no external calls)
+
+##### PR-3b.1: Real classification wiring (mode="real")
+**Status:** ✅ Complete (dry-run end-to-end)
+- `POST /api/distill/classify` supports `mode: "real"` using LLM plumbing
+- Strict JSON output parsing + validation (`category`, `confidence`)
+- Idempotent label writes (skip existing labels for same labelSpec)
+- Budget exceeded → 402; bad LLM output → 502
+
+##### PR-3b0.1: Pricing book + cost calculator + run pricing snapshot
+- Add `src/lib/llm/pricing.ts` with per-provider/per-model rates (source: official provider pricing pages)
+- Add `estimateCostUsd({ provider, model, tokensIn, tokensOut, cachedIn? })`
+- Wire dry-run and real paths to compute `costUsd` via pricing (dry-run = “would-have-cost”)
+- Capture `pricingSnapshot` into `Run.configJson` at run creation for auditability
+
+##### PR-3b.2: Provider SDK integrations (OpenAI/Anthropic)
+- Implement real provider calls in `callLlm()` for OpenAI and Anthropic
+- Populate `tokensIn`, `tokensOut`, and `costUsd` from usage + pricing book
+- Ensure missing keys produce `MISSING_API_KEY` and unknown models produce a clear error
 
 ##### PR-4b: Real summarization
-- Wire `summarize()` in tick to call a real LLM when model is not `stub_*`
-- Track tokensIn/tokensOut/costUsd on Job
-- Error handling: transient API failures → mark job FAILED with `retriable: true`
-- Tests: verify Output stored with correct hashes, cost visible in run detail
+- Wire tick summarization to real LLM when model is not `stub_*`
+- Track `tokensIn`/`tokensOut`/`costUsd` on Job using pricing book
+- Error handling: transient API failures → mark job FAILED (retriable)
+- Tests: Output stored with correct hashes; costs visible in run detail
 
-**Suggested order:** 3b first (classification is simpler, proves the LLM plumbing), then 4b (summarization reuses the same HTTP/rate-limit infrastructure).
+**Suggested order:** PR-3b0.1 (pricing) → PR-3b.2 (SDKs) → PR-4b (summarization)
 
 ---
 
