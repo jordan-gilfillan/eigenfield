@@ -45,3 +45,6 @@ next-env.d.ts
 # IDE
 .idea
 .vscode
+
+# AI chat export data files (personal data — never commit)
+conversations_*.json

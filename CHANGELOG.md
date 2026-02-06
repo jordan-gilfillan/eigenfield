@@ -224,6 +224,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration tests (9 new): both roles imported, re-import idempotency (no duplicates), day bucketing with timezone, timestamp normalization (non-ms → ms), import stats
   - 262 tests passing (33 new)
 
+- Phase 7 Additional Parsers - PR-7.2: Grok export parser
+  - Grok export parser (`src/lib/parsers/grok.ts`) supporting xAI Grok data export format
+    - Supported shape: `{ conversations: [{ conversation: { id, title, ... }, responses: [{ response: { _id, message, sender, create_time, ... } }] }] }`
+    - Timestamps use MongoDB extended JSON: `{ $date: { $numberLong: "epoch_ms" } }`
+    - Role mapping: "human" → "user", "assistant"/"ASSISTANT" → "assistant" (case-insensitive); unknown senders skipped with warning
+    - Deterministic ordering: timestamp ASC, role ASC (user before assistant), message ID ASC
+  - Parser registered in `src/lib/parsers/index.ts` — available via `sourceOverride: "grok"` and auto-detection
+  - `canParse()` validates Grok-specific structure (object with `conversations` array, nested `conversation`/`responses` keys, `_id`/`sender` fields)
+  - Unit tests (27 new): canParse detection (positive + 6 negative cases), role mapping (including ASSISTANT uppercase), empty/missing messages, timestamp edge cases, deterministic ordering, multi-conversation, error handling
+  - Integration tests (8 new): both roles imported, re-import idempotency (no duplicates), day bucketing with timezone, timestamp normalization (epoch ms → Date), millisecond precision preserved, import stats
+  - `.gitignore` updated: `conversations_*.json` pattern excludes personal export data files
+  - 297 tests passing (35 new)
+
 ### Planned (Phase 3b: Real Classification)
 - Real classification with LLM integration (mode="real")
 - Reuses LLM plumbing from Phase 4
