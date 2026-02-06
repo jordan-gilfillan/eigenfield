@@ -12,7 +12,7 @@ import { sha256, hashToUint32 } from '../hash'
 import type { Category } from '@prisma/client'
 import {
   callLlm,
-  getDefaultProvider,
+  inferProvider,
   getMinDelayMs,
   getSpendCaps,
   assertWithinBudget,
@@ -81,17 +81,6 @@ export function computeStubCategory(atomStableId: string): Category {
   const h = sha256(atomStableId)
   const index = hashToUint32(h) % STUB_CATEGORIES.length
   return STUB_CATEGORIES[index]
-}
-
-/**
- * Infers provider from model string.
- * Falls back to env default, then to 'openai'.
- */
-function inferProvider(model: string): ProviderId {
-  const lower = model.toLowerCase()
-  if (lower.includes('claude') || lower.includes('anthropic')) return 'anthropic'
-  if (lower.includes('gpt') || lower.includes('openai') || lower.includes('o1') || lower.includes('o3')) return 'openai'
-  return getDefaultProvider() ?? 'openai'
 }
 
 /**

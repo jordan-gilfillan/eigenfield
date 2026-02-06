@@ -10,7 +10,21 @@
 import type { LlmRequest, LlmResponse, LlmCallContext } from './types'
 import { getLlmMode, requireApiKeyForRealMode } from './config'
 import { ProviderNotImplementedError } from './errors'
+import { estimateCostUsd } from './pricing'
 import { createHash } from 'crypto'
+
+/**
+ * Computes cost using the pricing book.
+ * Returns 0 for stub models or if model pricing is unknown (graceful in dry-run).
+ */
+function computeCost(provider: string, model: string, tokensIn: number, tokensOut: number): number {
+  try {
+    return estimateCostUsd({ provider: provider as 'openai' | 'anthropic', model, tokensIn, tokensOut })
+  } catch {
+    // Unknown model pricing — return 0 in dry-run
+    return 0
+  }
+}
 
 /** Core categories matching spec 7.2 stub_v1 order */
 const CORE_CATEGORIES = [
@@ -55,7 +69,7 @@ function dryRunClassifyResponse(req: LlmRequest, ctx: LlmCallContext): LlmRespon
 
   let costUsd = 0
   if (ctx.simulateCost) {
-    costUsd = (tokensIn / 1000) * 0.01 + (tokensOut / 1000) * 0.03
+    costUsd = computeCost(req.provider, req.model, tokensIn, tokensOut)
   }
 
   return { text, tokensIn, tokensOut, costUsd, dryRun: true }
@@ -79,11 +93,10 @@ function dryRunResponse(req: LlmRequest, ctx: LlmCallContext): LlmResponse {
 
   const tokensOut = estimateTokens(text)
 
-  // Simulated cost: use a rough per-token rate if simulateCost is set
+  // Simulated cost: use pricing book for known models, 0 for stub/unknown
   let costUsd = 0
   if (ctx.simulateCost) {
-    // Rough estimate: $0.01 per 1K input tokens, $0.03 per 1K output tokens
-    costUsd = (tokensIn / 1000) * 0.01 + (tokensOut / 1000) * 0.03
+    costUsd = computeCost(req.provider, req.model, tokensIn, tokensOut)
   }
 
   return {

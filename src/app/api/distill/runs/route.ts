@@ -10,7 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRun } from '@/lib/services/run'
 import { prisma } from '@/lib/db'
-import { errors } from '@/lib/api-utils'
+import { errors, errorResponse } from '@/lib/api-utils'
+import { UnknownModelPricingError } from '@/lib/llm'
 
 interface CreateRunRequest {
   importBatchId: string
@@ -85,6 +86,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result)
   } catch (error) {
     console.error('Create run error:', error)
+
+    if (error instanceof UnknownModelPricingError) {
+      return errorResponse(400, error.code, error.message, error.details)
+    }
 
     if (error instanceof Error) {
       if (error.message.includes('ImportBatch not found')) {
