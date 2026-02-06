@@ -10,7 +10,7 @@ import { prisma } from '../db'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
-import { estimateCostFromSnapshot } from '../llm'
+import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError } from '../llm'
 import type { PricingSnapshot } from '../llm'
 import type { JobStatus, RunStatus } from '@prisma/client'
 
@@ -181,6 +181,11 @@ async function processJob(
 
   const dayDate = formatDate(job.dayDate)
 
+  // Track tokens/cost across segments for partial capture on failure
+  let totalTokensIn = 0
+  let totalTokensOut = 0
+  let totalCostUsd = 0
+
   try {
     // 1. Build bundle
     const bundle = await buildBundle({
@@ -227,9 +232,6 @@ async function processJob(
       atomCount: number
       estimatedInputTokens: number
     }
-    let totalTokensIn = 0
-    let totalTokensOut = 0
-    let totalCostUsd = 0
 
     if (needsSegmentation) {
       // Segment the bundle and process each segment
@@ -319,21 +321,42 @@ async function processJob(
       error: null,
     }
   } catch (error) {
-    // Mark job as failed
+    // Determine error code and retriability from LLM error types
     const errorMessage = error instanceof Error ? error.message : String(error)
+    let errorCode = 'PROCESSING_ERROR'
+    let retriable = true
+
+    if (error instanceof LlmProviderError) {
+      errorCode = 'LLM_PROVIDER_ERROR'
+      retriable = true // Provider errors (rate limits, timeouts) are retriable
+    } else if (error instanceof BudgetExceededError) {
+      errorCode = 'BUDGET_EXCEEDED'
+      retriable = false // Budget exceeded is not retriable without config change
+    } else if (error instanceof MissingApiKeyError) {
+      errorCode = 'MISSING_API_KEY'
+      retriable = false
+    } else if (error instanceof LlmError) {
+      errorCode = error.code
+      retriable = true
+    }
+
     const errorJson = JSON.stringify({
-      code: 'PROCESSING_ERROR',
+      code: errorCode,
       message: errorMessage,
       at: new Date().toISOString(),
-      retriable: true,
+      retriable,
     })
 
+    // Capture partial tokens/cost if segments ran before failure
     const updatedJob = await prisma.job.update({
       where: { id: jobId },
       data: {
         status: 'FAILED',
         finishedAt: new Date(),
         error: errorJson,
+        tokensIn: totalTokensIn > 0 ? totalTokensIn : null,
+        tokensOut: totalTokensOut > 0 ? totalTokensOut : null,
+        costUsd: totalCostUsd > 0 ? totalCostUsd : null,
       },
     })
 
@@ -341,9 +364,9 @@ async function processJob(
       dayDate,
       status: 'failed',
       attempt: updatedJob.attempt,
-      tokensIn: null,
-      tokensOut: null,
-      costUsd: null,
+      tokensIn: totalTokensIn > 0 ? totalTokensIn : null,
+      tokensOut: totalTokensOut > 0 ? totalTokensOut : null,
+      costUsd: totalCostUsd > 0 ? totalCostUsd : null,
       error: errorMessage,
     }
   }
@@ -414,8 +437,8 @@ function buildTickResult(
 }
 
 function formatDate(d: Date): string {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
