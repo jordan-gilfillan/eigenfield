@@ -40,6 +40,7 @@ export interface AtomSearchResult {
   snippet: string
   atom: {
     atomStableId: string
+    importBatchId: string
     source: string
     dayDate: string
     timestampUtc: string
@@ -136,6 +137,7 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
     SELECT
       ma."id",
       ma."atomStableId",
+      ma."importBatchId",
       ma."source",
       ma."dayDate",
       ma."timestampUtc",
@@ -152,6 +154,7 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
   const rows: Array<{
     id: string
     atomStableId: string
+    importBatchId: string
     source: string
     dayDate: Date
     timestampUtc: Date
@@ -169,6 +172,7 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
     snippet: row.snippet,
     atom: {
       atomStableId: row.atomStableId,
+      importBatchId: row.importBatchId,
       source: row.source.toLowerCase(),
       dayDate: formatDate(row.dayDate),
       timestampUtc: row.timestampUtc instanceof Date

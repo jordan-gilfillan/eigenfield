@@ -182,8 +182,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dashboard Search card updated: links to `/distill/search` (replaces "Coming in Phase 6")
   - No background polling, no setInterval — search is user-driven (submit button)
 
+- Phase 6 Search + Inspector - PR-6.3: Import inspector (day view)
+  - `/distill/import/inspect` page with query params: `importBatchId`, `dayDate`, `source`
+  - Batch selector when `importBatchId` is missing (lists all batches, user selects)
+  - Day list sidebar showing coverage (day dates ASC, atom counts, sources per day)
+  - Per-day message view: atoms in deterministic order (timestampUtc ASC, role ASC [user before assistant], atomStableId ASC)
+  - Source filter dropdown (filters atoms by source)
+  - Category + confidence displayed when labels exist
+  - `GET /api/distill/import-batches/:id/days` endpoint (day list with coverage info)
+  - `GET /api/distill/import-batches/:id/days/:dayDate/atoms` endpoint (atoms in deterministic order, optional `source` filter)
+  - Search results (PR-6.2) now include `importBatchId` and deep-link correctly to the inspector
+  - Integration tests: days list ordering, atoms deterministic ordering, source filter, label inclusion
+  - 218 tests passing (28 new)
+
 ### Planned (Phase 6 continued)
-- Import inspector (day list, per-day message view) (PR-6.3)
 - Run inspector (input/output side-by-side) (PR-6.4)
 
 ### Planned (Phase 7: Additional Parsers)

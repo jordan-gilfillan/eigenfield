@@ -14,6 +14,7 @@ interface AtomResult {
   snippet: string
   atom: {
     atomStableId: string
+    importBatchId: string
     source: string
     dayDate: string
     timestampUtc: string
@@ -77,8 +78,8 @@ function SnippetText({ snippet }: { snippet: string }) {
 
 function AtomResultCard({ result }: { result: AtomResult }) {
   const { atom } = result
-  // Link to import inspector day view (PR-6.3 route, placeholder)
-  const href = `/distill/import/inspect?dayDate=${atom.dayDate}&source=${atom.source}`
+  // Link to import inspector day view (PR-6.3)
+  const href = `/distill/import/inspect?importBatchId=${atom.importBatchId}&dayDate=${atom.dayDate}&source=${atom.source}`
 
   return (
     <div className="p-4 bg-white border border-gray-200 rounded-md hover:border-blue-300 transition-colors">
