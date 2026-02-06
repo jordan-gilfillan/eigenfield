@@ -10,6 +10,8 @@ import { prisma } from '../db'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
+import { estimateCostFromSnapshot } from '../llm'
+import type { PricingSnapshot } from '../llm'
 import type { JobStatus, RunStatus } from '@prisma/client'
 
 /** Default number of jobs to process per tick */
@@ -79,12 +81,13 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     }
 
     // Get config from run
-    const config = currentRun.configJson as {
+    const config = currentRun.configJson as unknown as {
       promptVersionIds: { summarize: string }
       labelSpec: { model: string; promptVersionId: string }
       filterProfileSnapshot: { name: string; mode: string; categories: string[] }
       timezone: string
       maxInputTokens: number
+      pricingSnapshot?: PricingSnapshot
     }
 
     // Get queued jobs
@@ -161,6 +164,7 @@ async function processJob(
       labelSpec: { model: string; promptVersionId: string }
       filterProfileSnapshot: { name: string; mode: string; categories: string[] }
       maxInputTokens: number
+      pricingSnapshot?: PricingSnapshot
     }
   }
 ): Promise<TickResult['jobs'][0]> {
@@ -272,6 +276,11 @@ async function processJob(
         atomCount: bundle.atomCount,
         estimatedInputTokens: estimatedTokens,
       }
+    }
+
+    // 2b. Compute cost from pricing snapshot if available
+    if (config.pricingSnapshot && !model.startsWith('stub')) {
+      totalCostUsd = estimateCostFromSnapshot(config.pricingSnapshot, totalTokensIn, totalTokensOut)
     }
 
     // 3. Store output

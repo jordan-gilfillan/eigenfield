@@ -281,6 +281,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 451 tests passing total
   - **Gate passed**: classify with mode="real" works end-to-end in dry-run, labels written with correct labelSpec
 
+- Phase 3b Pricing - PR-3b0.1: Pricing book + cost calculator + run pricing snapshot
+  - Pricing module (`src/lib/llm/pricing.ts`) with per-provider/per-model token rates
+    - Rate table: OpenAI (gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano), Anthropic (claude-sonnet-4-5, claude-3-5-sonnet, claude-3-5-haiku)
+    - `getRate(provider, model)`: returns Rate or throws UnknownModelPricingError
+    - `estimateCostUsd()`: computes cost from token counts + rate table
+    - `buildPricingSnapshot()`: captures rates at a point in time for auditability
+    - `estimateCostFromSnapshot()`: computes cost using stored snapshot rates
+    - `inferProvider()`: infers provider from model string (shared by classify + run services)
+    - Stub models (prefix "stub") return zero rates (cost = $0)
+  - `UnknownModelPricingError` (code `UNKNOWN_MODEL_PRICING`) with { provider, model } details
+  - Run creation captures `pricingSnapshot` into `Run.configJson` at creation time
+    - Unknown model → HTTP 400 `UNKNOWN_MODEL_PRICING`
+  - Dry-run cost simulation uses pricing book (replaces hardcoded rates)
+  - Tick job cost computation uses `pricingSnapshot` from run config for non-stub models
+  - 40 new tests (33 unit: pricing module + error, 7 integration: run creation + DB persistence)
+  - 491 tests passing total
+
 ### Planned (Phase 3b continued: Real provider calls)
 - Actual OpenAI/Anthropic SDK calls (replace ProviderNotImplementedError in real LLM_MODE)
 

@@ -62,3 +62,14 @@ export class LlmBadOutputError extends LlmError {
     this.name = 'LlmBadOutputError'
   }
 }
+
+export class UnknownModelPricingError extends LlmError {
+  constructor(provider: string, model: string) {
+    super(
+      'UNKNOWN_MODEL_PRICING',
+      `No pricing data for provider "${provider}", model "${model}". Add it to the rate table in src/lib/llm/pricing.ts.`,
+      { provider, model }
+    )
+    this.name = 'UnknownModelPricingError'
+  }
+}

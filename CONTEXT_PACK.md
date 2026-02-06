@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 451 passing.
+- Current test count: 491 passing.
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -36,6 +36,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Phase 3b LLM Plumbing (partial):
   - PR-3b0 complete: Shared LLM infrastructure (`src/lib/llm/`) — provider abstraction, env key management, rate limiting, spend caps, dry-run mode; 78 new tests
   - PR-3b.1 complete: Real-mode classify pipeline wired through `callLlm` — stage-aware dry-run (deterministic JSON), LLM output parsing/validation, `LlmBadOutputError`, budget guard integration, rate limiting; 36 new tests
+  - PR-3b0.1 complete: Pricing book + cost calculator + run pricing snapshot — per-provider/per-model rates in `src/lib/llm/pricing.ts`, `pricingSnapshot` captured into `Run.configJson`, dry-run uses pricing book for cost simulation, tick uses snapshot for job cost; 40 new tests
 
 ## LLM plumbing
 
@@ -51,6 +52,13 @@ The `src/lib/llm/` module provides shared infrastructure for LLM calls used by b
 - **Rate limiting**: `LLM_MIN_DELAY_MS=250` (default) — enforces minimum delay between API calls; await-based, no background intervals
 - **Spend caps**: `LLM_MAX_USD_PER_RUN` and `LLM_MAX_USD_PER_DAY` — throws `BUDGET_EXCEEDED` if next call would exceed cap
 - **Key validation**: Real mode throws `MISSING_API_KEY` if the provider's key is not set
+
+**Pricing:**
+- **Pricing book**: `src/lib/llm/pricing.ts` — per-provider/per-model rates (USD per 1M tokens)
+- **How to add a new model rate**: Add an entry to the `RATE_TABLE` object in `src/lib/llm/pricing.ts` under the provider key. Each entry needs `inputPer1MUsd`, `outputPer1MUsd`, and optionally `cachedInputPer1MUsd`.
+- **pricingSnapshot**: Captured into `Run.configJson` at run creation. Records the exact rates used, with a `capturedAt` timestamp. If the model has no known pricing, run creation fails with `UNKNOWN_MODEL_PRICING` (HTTP 400).
+- **Stub models** (prefix `stub`): always cost $0; no snapshot rates needed.
+- **Cost computation**: `estimateCostUsd()` for rate-table lookups; `estimateCostFromSnapshot()` for stored snapshots in tick processing.
 
 **Note:** Real provider calls are not yet implemented (real LLM_MODE throws `PROVIDER_NOT_IMPLEMENTED`). The classify pipeline is fully wired through `callLlm` and works end-to-end in dry-run mode. Future PRs will add actual OpenAI/Anthropic SDK calls.
 

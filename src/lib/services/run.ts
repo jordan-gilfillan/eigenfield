@@ -8,6 +8,8 @@
 
 import { prisma } from '../db'
 import type { FilterMode, Source } from '@prisma/client'
+import { buildPricingSnapshot, inferProvider } from '../llm'
+import type { PricingSnapshot } from '../llm'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -45,6 +47,7 @@ export interface CreateRunResult {
     filterProfile: { name: string; mode: string; categories: string[] }
     timezone: string
     maxInputTokens: number
+    pricingSnapshot?: PricingSnapshot
   }
   jobCount: number
   eligibleDays: string[]
@@ -124,7 +127,11 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     throw new Error('NO_ELIGIBLE_DAYS: No days match the filter criteria')
   }
 
-  // 6. Create run with frozen config
+  // 6. Capture pricing snapshot for the summarizer model
+  const provider = inferProvider(model)
+  const pricingSnapshot = buildPricingSnapshot(provider, model)
+
+  // 7. Create run with frozen config
   const filterProfileSnapshot = {
     name: filterProfile.name,
     mode: filterProfile.mode.toLowerCase(),
@@ -142,6 +149,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     filterProfileSnapshot,
     timezone: importBatch.timezone,
     maxInputTokens,
+    pricingSnapshot: { ...pricingSnapshot },
   }
 
   // Convert sources to uppercase for DB
@@ -190,6 +198,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       filterProfile: configJson.filterProfileSnapshot,
       timezone: configJson.timezone,
       maxInputTokens: configJson.maxInputTokens,
+      pricingSnapshot: configJson.pricingSnapshot,
     },
     jobCount: eligibleDays.length,
     eligibleDays,
