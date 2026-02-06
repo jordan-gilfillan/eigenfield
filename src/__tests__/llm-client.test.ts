@@ -1,7 +1,26 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { callLlm } from '../lib/llm/client'
-import { ProviderNotImplementedError, MissingApiKeyError } from '../lib/llm/errors'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { MissingApiKeyError } from '../lib/llm/errors'
 import type { LlmRequest } from '../lib/llm/types'
+
+// Mock provider modules so real-mode tests don't make network calls
+vi.mock('../lib/llm/providers/openai', () => ({
+  callOpenAi: vi.fn().mockResolvedValue({
+    text: '{"category":"WORK","confidence":0.9}',
+    tokensIn: 100,
+    tokensOut: 20,
+    raw: {},
+  }),
+}))
+vi.mock('../lib/llm/providers/anthropic', () => ({
+  callAnthropic: vi.fn().mockResolvedValue({
+    text: '{"category":"WORK","confidence":0.9}',
+    tokensIn: 100,
+    tokensOut: 20,
+    raw: {},
+  }),
+}))
+
+import { callLlm } from '../lib/llm/client'
 
 describe('callLlm', () => {
   const originalEnv = { ...process.env }
@@ -185,35 +204,22 @@ describe('callLlm', () => {
       process.env.LLM_MODE = 'real'
     })
 
-    it('throws MissingApiKeyError when key is not set', async () => {
+    it('throws MissingApiKeyError when openai key is not set', async () => {
       await expect(callLlm(baseRequest)).rejects.toThrow(MissingApiKeyError)
     })
 
-    it('throws ProviderNotImplementedError when key is set', async () => {
-      process.env.OPENAI_API_KEY = 'sk-test-key'
-      await expect(callLlm(baseRequest)).rejects.toThrow(
-        ProviderNotImplementedError
-      )
-    })
-
-    it('ProviderNotImplementedError has correct code', async () => {
-      process.env.OPENAI_API_KEY = 'sk-test-key'
-      try {
-        await callLlm(baseRequest)
-        expect.fail('should have thrown')
-      } catch (err) {
-        expect(err).toBeInstanceOf(ProviderNotImplementedError)
-        const e = err as ProviderNotImplementedError
-        expect(e.code).toBe('PROVIDER_NOT_IMPLEMENTED')
-        expect(e.details?.provider).toBe('openai')
-      }
-    })
-
-    it('validates key before throwing not-implemented for anthropic', async () => {
-      // No anthropic key set
+    it('throws MissingApiKeyError when anthropic key is not set', async () => {
       await expect(
         callLlm({ ...baseRequest, provider: 'anthropic' })
       ).rejects.toThrow(MissingApiKeyError)
+    })
+
+    it('calls provider and returns non-dry-run response when key is set', async () => {
+      process.env.OPENAI_API_KEY = 'sk-test-key'
+      const resp = await callLlm(baseRequest)
+      expect(resp.dryRun).toBe(false)
+      expect(resp.tokensIn).toBeGreaterThan(0)
+      expect(resp.tokensOut).toBeGreaterThan(0)
     })
   })
 })

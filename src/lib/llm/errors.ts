@@ -63,6 +63,17 @@ export class LlmBadOutputError extends LlmError {
   }
 }
 
+export class LlmProviderError extends LlmError {
+  constructor(provider: string, message: string, details?: { status?: number; name?: string }) {
+    super(
+      'LLM_PROVIDER_ERROR',
+      `Provider "${provider}" error: ${message}`,
+      { provider, ...details }
+    )
+    this.name = 'LlmProviderError'
+  }
+}
+
 export class UnknownModelPricingError extends LlmError {
   constructor(provider: string, model: string) {
     super(

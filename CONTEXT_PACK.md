@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 491 passing.
+- Current test count: 540 passing.
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -33,10 +33,11 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-7.1 complete: Claude export parser (`src/lib/parsers/claude.ts`) with full integration into import pipeline, 33 new tests
   - PR-7.2 complete: Grok export parser (`src/lib/parsers/grok.ts`) with full integration into import pipeline, 35 new tests
   - PR-7.3 complete: Parser auto-detection + registry wiring — runs all parsers' `canParse()`, requires exactly 1 match; `UNSUPPORTED_FORMAT` (0 matches) / `AMBIGUOUS_FORMAT` (>1 matches) errors; 40 new tests
-- Phase 3b LLM Plumbing (partial):
+- Phase 3b LLM Plumbing:
   - PR-3b0 complete: Shared LLM infrastructure (`src/lib/llm/`) — provider abstraction, env key management, rate limiting, spend caps, dry-run mode; 78 new tests
   - PR-3b.1 complete: Real-mode classify pipeline wired through `callLlm` — stage-aware dry-run (deterministic JSON), LLM output parsing/validation, `LlmBadOutputError`, budget guard integration, rate limiting; 36 new tests
   - PR-3b0.1 complete: Pricing book + cost calculator + run pricing snapshot — per-provider/per-model rates in `src/lib/llm/pricing.ts`, `pricingSnapshot` captured into `Run.configJson`, dry-run uses pricing book for cost simulation, tick uses snapshot for job cost; 40 new tests
+  - PR-3b.2 complete: OpenAI + Anthropic provider SDKs — `callLlm()` real mode routes to provider modules, returns actual token counts, computes `costUsd` via pricing book; `LlmProviderError` for SDK errors; 49 new tests
 
 ## LLM plumbing
 
@@ -60,7 +61,12 @@ The `src/lib/llm/` module provides shared infrastructure for LLM calls used by b
 - **Stub models** (prefix `stub`): always cost $0; no snapshot rates needed.
 - **Cost computation**: `estimateCostUsd()` for rate-table lookups; `estimateCostFromSnapshot()` for stored snapshots in tick processing.
 
-**Note:** Real provider calls are not yet implemented (real LLM_MODE throws `PROVIDER_NOT_IMPLEMENTED`). The classify pipeline is fully wired through `callLlm` and works end-to-end in dry-run mode. Future PRs will add actual OpenAI/Anthropic SDK calls.
+**Provider SDKs (PR-3b.2):**
+- Real mode now calls providers via `src/lib/llm/providers/openai.ts` and `src/lib/llm/providers/anthropic.ts`
+- OpenAI uses the Responses API; Anthropic uses the Messages API
+- `costUsd` is computed from actual token counts via the pricing book
+- Provider errors are wrapped in `LlmProviderError` (code `LLM_PROVIDER_ERROR`)
+- Dependencies: `openai`, `@anthropic-ai/sdk` (only constructed in real mode)
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
