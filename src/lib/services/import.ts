@@ -12,8 +12,8 @@ import { parseExport, type ParsedMessage } from '../parsers'
 import { computeAtomStableId, computeTextHash } from '../stableId'
 import { extractDayDate } from '../timestamp'
 import { buildRawEntryContent, computeRawEntryHash } from '../rawEntry'
-import { sourceToDb, roleToDb, type SourceApi } from '../enums'
-import type { Source, Role } from '@prisma/client'
+import { sourceToDb, sourceToApi, roleToApi, roleToDb, categoryToApi, type SourceApi } from '../enums'
+import type { Source, Role, Category } from '@prisma/client'
 
 /**
  * Default timezone per spec 7.1
@@ -319,4 +319,143 @@ export async function listImportBatches(options: {
     })),
     nextCursor,
   }
+}
+
+// =============================================================================
+// Import Inspector (PR-6.3)
+// =============================================================================
+
+export interface DayInfo {
+  dayDate: string // YYYY-MM-DD
+  atomCount: number
+  sources: string[] // lowercase
+}
+
+/**
+ * Gets the list of available days for an ImportBatch with coverage info.
+ *
+ * Returns days in ASC order (deterministic).
+ *
+ * Spec reference: 10.2 (Import inspector day list)
+ */
+export async function getImportBatchDays(importBatchId: string): Promise<DayInfo[]> {
+  // Verify batch exists
+  const batch = await prisma.importBatch.findUnique({
+    where: { id: importBatchId },
+    select: { id: true },
+  })
+  if (!batch) return []
+
+  // Aggregate days with counts and sources, ordered ASC
+  const rows = await prisma.$queryRaw<
+    Array<{ day_date: Date; atom_count: bigint; sources: string }>
+  >`
+    SELECT
+      "dayDate" AS day_date,
+      COUNT(*)::bigint AS atom_count,
+      STRING_AGG(DISTINCT LOWER(source::text), ',' ORDER BY LOWER(source::text)) AS sources
+    FROM "message_atoms"
+    WHERE "importBatchId" = ${importBatchId}
+    GROUP BY "dayDate"
+    ORDER BY "dayDate" ASC
+  `
+
+  return rows.map((row) => ({
+    dayDate: formatDate(row.day_date),
+    atomCount: Number(row.atom_count),
+    sources: row.sources.split(','),
+  }))
+}
+
+export interface AtomView {
+  atomStableId: string
+  source: string // lowercase
+  timestampUtc: string // RFC3339
+  role: string // lowercase
+  text: string
+  category: string | null // lowercase, from latest label if available
+  confidence: number | null
+}
+
+/**
+ * Gets atoms for a specific day in an ImportBatch with deterministic ordering.
+ *
+ * Ordering per spec 6.5 / 9.1:
+ *   timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
+ *
+ * Optionally filters by source.
+ *
+ * Spec reference: 10.2 (Import inspector per-day view)
+ */
+export async function getImportBatchDayAtoms(options: {
+  importBatchId: string
+  dayDate: string // YYYY-MM-DD
+  source?: string // lowercase
+}): Promise<AtomView[]> {
+  const { importBatchId, dayDate, source } = options
+
+  // Build where clause
+  const where: Record<string, unknown> = {
+    importBatchId,
+    dayDate: new Date(dayDate),
+  }
+  if (source) {
+    where.source = sourceToDb(source as SourceApi)
+  }
+
+  const atoms = await prisma.messageAtom.findMany({
+    where,
+    include: {
+      messageLabels: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: [
+      { timestampUtc: 'asc' },
+      { role: 'asc' }, // Prisma enum: ASSISTANT < USER alphabetically — corrected below
+      { atomStableId: 'asc' },
+    ],
+  })
+
+  // Prisma sorts Role enum alphabetically: ASSISTANT < USER.
+  // Spec requires user before assistant. Re-sort in memory for correctness.
+  atoms.sort((a, b) => {
+    // Primary: timestampUtc ASC
+    const tA = a.timestampUtc.getTime()
+    const tB = b.timestampUtc.getTime()
+    if (tA !== tB) return tA - tB
+
+    // Secondary: role ASC (user before assistant)
+    const roleOrder = { USER: 0, ASSISTANT: 1 } as const
+    const rA = roleOrder[a.role]
+    const rB = roleOrder[b.role]
+    if (rA !== rB) return rA - rB
+
+    // Tie-breaker: atomStableId ASC
+    return a.atomStableId.localeCompare(b.atomStableId)
+  })
+
+  return atoms.map((atom) => {
+    const label = atom.messageLabels[0] ?? null
+    return {
+      atomStableId: atom.atomStableId,
+      source: sourceToApi(atom.source as Parameters<typeof sourceToApi>[0]),
+      timestampUtc: atom.timestampUtc.toISOString(),
+      role: roleToApi(atom.role as Parameters<typeof roleToApi>[0]),
+      text: atom.text,
+      category: label ? categoryToApi(label.category as Category) : null,
+      confidence: label ? label.confidence : null,
+    }
+  })
+}
+
+/**
+ * Formats a Date as YYYY-MM-DD using UTC fields.
+ */
+function formatDate(d: Date): string {
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
