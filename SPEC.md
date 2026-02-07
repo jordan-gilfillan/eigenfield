@@ -307,7 +307,9 @@ Minimum fields (required):
 - PromptVersion: `id`, `promptId`, `versionLabel` (e.g. `v3`), `templateText`, `createdAt`, `isActive`
 
 Rules:
-- Exactly one active PromptVersion per stage at a time (for run creation defaults).
+- Exactly one active PromptVersion per stage at a time (used only as the server/UI default).
+- `isActive` is a default selector only. It MUST NOT be used to choose prompt behavior by "mode" (e.g., stub vs real).
+- Any endpoint that executes an LLM call MUST use an explicit PromptVersionId appropriate to that stage.
 - Runs MUST record the exact PromptVersion IDs used.
 
 ### 6.8 Run
@@ -397,6 +399,11 @@ POST `/api/distill/classify`
 - Input: `{ importBatchId, model, promptVersionId, mode: real|stub }`
 - Output: progress + counts
 
+**PromptVersion selection (normative):**
+- `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
+- `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
+- `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server MAY ignore `promptVersionId` in stub mode, but if it is recorded in labels it MUST reference the seeded `classify_stub_v1` PromptVersion.
+
 Stub mode must be deterministic for tests.
 
 **Deterministic stub algorithm (stub_v1):**
@@ -466,6 +473,8 @@ Must show:
 - job table (status, tokens, cost, errors)
 - per-day output viewer (rendered markdown)
 - input inspector (see 10)
+- `aggregate tokens + aggregate cost (sum over jobs processed so far)`
+- `last classify run stats for the selected labelSpec (totals/newlyLabeled/skippedAlreadyLabeled) when available`
 
 ### 7.5.1 Phase 5 UI Shell (minimum operability slice)
 
@@ -826,6 +835,8 @@ List/search endpoints MUST support pagination:
 - Run detail page allows manual tick; UI sends no overlapping tick requests (sequential await).
 - UI exposes per-day reset and shows attempt increments after reset.
 - For a processed day, UI can display output markdown and the input bundle hashes (bundleHash + bundleContextHash).
+- `Run detail page shows aggregate tokensIn/tokensOut and total costUsd summed over jobs (including partial segment success where recorded).`
+- `If classification has been run for the selected ImportBatch, the dashboard or run detail page can display the last classify totals (newlyLabeled, skippedAlreadyLabeled, labeled).`
 
 ### 11.5 Search + Inspector
 - Search returns results for known strings in MessageAtoms and Outputs.
