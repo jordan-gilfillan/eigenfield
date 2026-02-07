@@ -7,7 +7,7 @@
  * Seeds:
  * - FilterProfiles: professional-only, professional-plus-creative, safety-exclude
  * - Prompts: classify, summarize, redact
- * - PromptVersions: classify_stub_v1 (active for classify), summarize_v1 (active), redact_v1 (inactive)
+ * - PromptVersions: classify_stub_v1 (active), classify_real_v1 (active), summarize_v1 (active), redact_v1 (inactive)
  */
 
 import { PrismaClient } from '@prisma/client'
@@ -102,7 +102,7 @@ async function main() {
         versionLabel: 'classify_real_v1',
       },
     },
-    update: {},
+    update: { isActive: true },
     create: {
       promptId: classifyPrompt.id,
       versionLabel: 'classify_real_v1',
@@ -117,10 +117,10 @@ Rules:
 - category MUST be one of the listed categories (uppercase, exact match)
 - confidence MUST be a number between 0.0 and 1.0
 - Do NOT include any explanation or text outside the JSON object`,
-      isActive: false,
+      isActive: true,
     },
   })
-  console.log(`    PromptVersion: classify_real_v1 (inactive)`)
+  console.log(`    PromptVersion: classify_real_v1 (active)`)
 
   // Summarize prompt with placeholder version
   const summarizePrompt = await prisma.prompt.upsert({

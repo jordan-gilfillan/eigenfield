@@ -53,7 +53,10 @@ function DashboardContent() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(importBatchIdFromUrl)
   const [loadingBatches, setLoadingBatches] = useState(true)
 
-  const [classifyPromptVersion, setClassifyPromptVersion] = useState<PromptVersion | null>(null)
+  const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
+    stub: PromptVersion | null
+    real: PromptVersion | null
+  }>({ stub: null, real: null })
   const [classifyMode, setClassifyMode] = useState<'stub' | 'real'>('stub')
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
@@ -92,22 +95,25 @@ function DashboardContent() {
     fetchBatches()
   }, [importBatchIdFromUrl])
 
-  // Fetch active classify prompt version on mount
+  // Fetch classify prompt versions (stub + real) on mount
   useEffect(() => {
-    async function fetchPromptVersion() {
+    async function fetchPromptVersions() {
       try {
-        const res = await fetch('/api/distill/prompt-versions?stage=classify&active=true')
-        if (res.ok) {
-          const data = await res.json()
-          if (data.promptVersion) {
-            setClassifyPromptVersion(data.promptVersion)
-          }
-        }
+        const [stubRes, realRes] = await Promise.all([
+          fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_stub_v1'),
+          fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_real_v1'),
+        ])
+        const stubData = stubRes.ok ? await stubRes.json() : {}
+        const realData = realRes.ok ? await realRes.json() : {}
+        setClassifyPromptVersions({
+          stub: stubData.promptVersion ?? null,
+          real: realData.promptVersion ?? null,
+        })
       } catch {
         // Silently fail
       }
     }
-    fetchPromptVersion()
+    fetchPromptVersions()
   }, [])
 
   // Fetch filter profiles on mount
@@ -152,8 +158,11 @@ function DashboardContent() {
     router.push(`/distill?importBatchId=${batchId}`)
   }
 
+  // Derive the prompt version for the selected mode
+  const activeClassifyPv = classifyPromptVersions[classifyMode]
+
   async function handleClassify() {
-    if (!selectedBatchId || !classifyPromptVersion) return
+    if (!selectedBatchId || !activeClassifyPv) return
 
     setClassifying(true)
     setClassifyError(null)
@@ -168,7 +177,7 @@ function DashboardContent() {
         body: JSON.stringify({
           importBatchId: selectedBatchId,
           model: classifyModel,
-          promptVersionId: classifyPromptVersion.id,
+          promptVersionId: activeClassifyPv.id,
           mode: classifyMode,
         }),
       })
@@ -196,12 +205,16 @@ function DashboardContent() {
   }, [])
 
   const handleCreateRun = useCallback(async () => {
-    if (!selectedBatchId || !classifyPromptVersion || !selectedFilterProfileId) return
+    // Run creation uses whichever classify prompt version was used for classification
+    const classifyPvForRun = activeClassifyPv
+    if (!selectedBatchId || !classifyPvForRun || !selectedFilterProfileId) return
     if (!startDate || !endDate) return
     if (selectedSources.length === 0) return
 
     setCreatingRun(true)
     setCreateRunError(null)
+
+    const classifyModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
 
     try {
       const res = await fetch('/api/distill/runs', {
@@ -215,8 +228,8 @@ function DashboardContent() {
           filterProfileId: selectedFilterProfileId,
           model,
           labelSpec: {
-            model: 'stub_v1',
-            promptVersionId: classifyPromptVersion.id,
+            model: classifyModel,
+            promptVersionId: classifyPvForRun.id,
           },
         }),
       })
@@ -235,7 +248,7 @@ function DashboardContent() {
     } finally {
       setCreatingRun(false)
     }
-  }, [selectedBatchId, classifyPromptVersion, selectedFilterProfileId, startDate, endDate, selectedSources, model, router])
+  }, [selectedBatchId, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, model, router])
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
@@ -369,9 +382,9 @@ function DashboardContent() {
           <div className="flex gap-2 items-center">
             <button
               onClick={handleClassify}
-              disabled={classifying || !classifyPromptVersion}
+              disabled={classifying || !activeClassifyPv}
               className={`px-4 py-2 rounded text-white ${
-                classifying || !classifyPromptVersion
+                classifying || !activeClassifyPv
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-green-600 hover:bg-green-700'
               }`}
@@ -380,8 +393,12 @@ function DashboardContent() {
                 ? 'Classifying...'
                 : `Classify (${classifyMode})`}
             </button>
-            {!classifyPromptVersion && (
-              <span className="text-sm text-gray-500">Loading prompt version...</span>
+            {!activeClassifyPv && (
+              <span className="text-sm text-gray-500">
+                {classifyMode === 'real' && !classifyPromptVersions.real
+                  ? 'No real classify prompt version found. Run: npx prisma db seed'
+                  : 'Loading prompt version...'}
+              </span>
             )}
             <span className="text-sm text-blue-600">
               {classifyMode === 'stub'
