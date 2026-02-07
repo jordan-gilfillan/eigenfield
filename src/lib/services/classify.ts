@@ -70,6 +70,8 @@ const CATEGORY_ALIASES: Readonly<Record<string, Category>> = {
 /** Batch size for processing to avoid Postgres bind variable limits */
 const BATCH_SIZE = 10000
 const SAMPLE_CAP = 5
+const CHECKPOINT_ATOM_INTERVAL = 100
+const CHECKPOINT_MS_INTERVAL = 5000
 
 export interface ClassifyOptions {
   /** The import batch to classify */
@@ -258,12 +260,19 @@ export function parseClassifyOutput(text: string): { category: Category; confide
 }
 
 interface ClassifyProgress {
+  processedAtoms: number
   newlyLabeled: number
   skippedBadOutput: number
   aliasedCount: number
   tokensIn: number
   tokensOut: number
   costUsd: number
+  lastAtomStableIdProcessed: string | null
+}
+
+interface CheckpointState {
+  lastWriteMs: number
+  lastWrittenProcessedAtoms: number
 }
 
 interface PersistedClassifyError {
@@ -340,6 +349,78 @@ async function countLabelsForSpec(
   })
 }
 
+function buildProgressSnapshot(
+  totalAtoms: number,
+  existingLabelCount: number,
+  progress: ClassifyProgress,
+): {
+  processedAtoms: number
+  newlyLabeled: number
+  skippedAlreadyLabeled: number
+  skippedBadOutput: number
+  aliasedCount: number
+  labeledTotal: number
+} {
+  const processedAtoms = Math.min(existingLabelCount + progress.processedAtoms, totalAtoms)
+  const labeledTotal = Math.min(existingLabelCount + progress.newlyLabeled, totalAtoms)
+  const skippedAlreadyLabeled = Math.max(
+    processedAtoms - progress.newlyLabeled - progress.skippedBadOutput,
+    0,
+  )
+
+  return {
+    processedAtoms,
+    newlyLabeled: progress.newlyLabeled,
+    skippedAlreadyLabeled,
+    skippedBadOutput: progress.skippedBadOutput,
+    aliasedCount: progress.aliasedCount,
+    labeledTotal,
+  }
+}
+
+async function maybeCheckpointClassifyRun(
+  classifyRunId: string,
+  mode: 'stub' | 'real',
+  totalAtoms: number,
+  existingLabelCount: number,
+  progress: ClassifyProgress,
+  checkpointState: CheckpointState,
+  force = false,
+): Promise<void> {
+  const now = Date.now()
+  const processedSinceLastWrite = progress.processedAtoms - checkpointState.lastWrittenProcessedAtoms
+  const timeSinceLastWrite = now - checkpointState.lastWriteMs
+
+  if (!force && processedSinceLastWrite < CHECKPOINT_ATOM_INTERVAL && timeSinceLastWrite <= CHECKPOINT_MS_INTERVAL) {
+    return
+  }
+
+  const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
+
+  await prisma.classifyRun.update({
+    where: { id: classifyRunId },
+    data: {
+      processedAtoms: snapshot.processedAtoms,
+      newlyLabeled: snapshot.newlyLabeled,
+      skippedAlreadyLabeled: snapshot.skippedAlreadyLabeled,
+      skippedBadOutput: snapshot.skippedBadOutput,
+      aliasedCount: snapshot.aliasedCount,
+      labeledTotal: snapshot.labeledTotal,
+      lastAtomStableIdProcessed: progress.lastAtomStableIdProcessed,
+      ...(mode === 'real'
+        ? {
+            tokensIn: progress.tokensIn,
+            tokensOut: progress.tokensOut,
+            costUsd: progress.costUsd,
+          }
+        : {}),
+    },
+  })
+
+  checkpointState.lastWriteMs = now
+  checkpointState.lastWrittenProcessedAtoms = progress.processedAtoms
+}
+
 /**
  * Classifies all MessageAtoms in an ImportBatch.
  *
@@ -406,12 +487,18 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   const existingLabelCount = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   const progress: ClassifyProgress = {
+    processedAtoms: 0,
     newlyLabeled: 0,
     skippedBadOutput: 0,
     aliasedCount: 0,
     tokensIn: 0,
     tokensOut: 0,
     costUsd: 0,
+    lastAtomStableIdProcessed: null,
+  }
+  const checkpointState: CheckpointState = {
+    lastWriteMs: Date.now(),
+    lastWrittenProcessedAtoms: 0,
   }
 
   const classifyRun = await prisma.classifyRun.create({
@@ -422,11 +509,13 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       mode,
       status: 'running',
       totalAtoms,
+      processedAtoms: 0,
       newlyLabeled: 0,
       skippedAlreadyLabeled: existingLabelCount,
       skippedBadOutput: 0,
       aliasedCount: 0,
       labeledTotal: existingLabelCount,
+      lastAtomStableIdProcessed: null,
       startedAt: new Date(),
     },
   })
@@ -450,11 +539,13 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
         data: {
           status: 'succeeded',
           finishedAt: new Date(),
+          processedAtoms: 0,
           newlyLabeled: 0,
           skippedAlreadyLabeled: 0,
           skippedBadOutput: 0,
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
+          lastAtomStableIdProcessed: null,
         },
       })
 
@@ -480,11 +571,13 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
         data: {
           status: 'succeeded',
           finishedAt: new Date(),
+          processedAtoms: totalAtoms,
           newlyLabeled: 0,
           skippedAlreadyLabeled: existingLabelCount,
           skippedBadOutput: 0,
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
+          lastAtomStableIdProcessed: null,
         },
       })
 
@@ -497,12 +590,15 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       result = await classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms, progress)
     } else {
       result = await classifyBatchReal(
+        classifyRun.id,
         importBatchId,
         model,
         promptVersionId,
         totalAtoms,
+        existingLabelCount,
         promptVersion.templateText,
         progress,
+        checkpointState,
       )
     }
 
@@ -511,12 +607,14 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       data: {
         status: 'succeeded',
         finishedAt: new Date(),
+        processedAtoms: totalAtoms,
         totalAtoms: result.totals.messageAtoms,
         newlyLabeled: result.totals.newlyLabeled,
         skippedAlreadyLabeled: result.totals.skippedAlreadyLabeled,
         skippedBadOutput: result.warnings?.skippedBadOutput ?? progress.skippedBadOutput,
         aliasedCount: result.warnings?.aliasedCount ?? progress.aliasedCount,
         labeledTotal: result.totals.labeled,
+        lastAtomStableIdProcessed: progress.lastAtomStableIdProcessed,
         ...(mode === 'real'
           ? {
               tokensIn: progress.tokensIn,
@@ -530,20 +628,20 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     return result
   } catch (error) {
     try {
-      const labeledTotal = await countLabelsForSpec(importBatchId, promptVersionId, model)
-      const newlyLabeled = Math.max(labeledTotal - existingLabelCount, 0)
-      const skippedAlreadyLabeled = Math.max(labeledTotal - newlyLabeled, 0)
+      const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
 
       await prisma.classifyRun.update({
         where: { id: classifyRun.id },
         data: {
           status: 'failed',
           finishedAt: new Date(),
-          newlyLabeled,
-          skippedAlreadyLabeled,
-          skippedBadOutput: progress.skippedBadOutput,
-          aliasedCount: progress.aliasedCount,
-          labeledTotal,
+          processedAtoms: snapshot.processedAtoms,
+          newlyLabeled: snapshot.newlyLabeled,
+          skippedAlreadyLabeled: snapshot.skippedAlreadyLabeled,
+          skippedBadOutput: snapshot.skippedBadOutput,
+          aliasedCount: snapshot.aliasedCount,
+          labeledTotal: snapshot.labeledTotal,
+          lastAtomStableIdProcessed: progress.lastAtomStableIdProcessed,
           ...(mode === 'real'
             ? {
                 tokensIn: progress.tokensIn,
@@ -604,6 +702,8 @@ async function classifyBatchStub(
     })
 
     progress.newlyLabeled += result.count
+    progress.processedAtoms += atomsBatch.length
+    progress.lastAtomStableIdProcessed = atomsBatch[atomsBatch.length - 1].atomStableId
     cursor = atomsBatch[atomsBatch.length - 1].id
 
     if (atomsBatch.length < BATCH_SIZE) break
@@ -629,12 +729,15 @@ async function classifyBatchStub(
  * Uses rate limiting and budget guard.
  */
 async function classifyBatchReal(
+  classifyRunId: string,
   importBatchId: string,
   model: string,
   promptVersionId: string,
   totalAtoms: number,
+  existingLabelCount: number,
   templateText: string,
   progress: ClassifyProgress,
+  checkpointState: CheckpointState,
 ): Promise<ClassifyResult> {
   const provider = inferProvider(model)
   const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
@@ -715,9 +818,19 @@ async function classifyBatchReal(
       } catch (error) {
         if (error instanceof LlmBadOutputError) {
           progress.skippedBadOutput += 1
+          progress.processedAtoms += 1
+          progress.lastAtomStableIdProcessed = atom.atomStableId
           if (typeof error.details?.category === 'string') {
             addSample(badCategorySamples, error.details.category)
           }
+          await maybeCheckpointClassifyRun(
+            classifyRunId,
+            'real',
+            totalAtoms,
+            existingLabelCount,
+            progress,
+            checkpointState,
+          )
           continue
         }
         throw error
@@ -741,6 +854,16 @@ async function classifyBatchReal(
       })
 
       progress.newlyLabeled += result.count
+      progress.processedAtoms += 1
+      progress.lastAtomStableIdProcessed = atom.atomStableId
+      await maybeCheckpointClassifyRun(
+        classifyRunId,
+        'real',
+        totalAtoms,
+        existingLabelCount,
+        progress,
+        checkpointState,
+      )
     }
 
     cursor = atomsBatch[atomsBatch.length - 1].id
