@@ -47,11 +47,24 @@ interface FilterProfile {
 interface LastClassifyStats {
   hasStats: boolean
   stats?: {
+    status: 'running' | 'succeeded' | 'failed'
     totalAtoms: number
     newlyLabeled: number
     skippedAlreadyLabeled: number
+    skippedBadOutput: number
+    aliasedCount: number
     labeledTotal: number
+    tokensIn: number | null
+    tokensOut: number | null
+    costUsd: number | null
     mode: string
+    errorJson: {
+      code: string
+      message: string
+      details?: Record<string, unknown>
+    } | null
+    startedAt: string
+    finishedAt: string | null
     createdAt: string
   }
 }
@@ -459,14 +472,41 @@ function DashboardContent() {
           {/* Last Classify Stats (persisted) */}
           {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
             <div className="mt-3 p-3 bg-blue-100 border border-blue-300 rounded text-sm">
-              <p className="font-medium text-blue-800 mb-1">Last Classify Stats</p>
+              <div className="mb-1 flex items-center gap-2">
+                <p className="font-medium text-blue-800">Last Classify Stats</p>
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-medium ${getClassifyStatusColor(lastClassifyStats.stats.status)}`}
+                >
+                  {lastClassifyStats.stats.status}
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
                 <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
                 <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
                 <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
                 <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
+                <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
+                <div>Aliased category count: {lastClassifyStats.stats.aliasedCount}</div>
                 <div>Mode: {lastClassifyStats.stats.mode}</div>
-                <div>Run at: {new Date(lastClassifyStats.stats.createdAt).toLocaleString()}</div>
+                <div>
+                  Run at:{' '}
+                  {new Date(lastClassifyStats.stats.finishedAt ?? lastClassifyStats.stats.createdAt).toLocaleString()}
+                </div>
+                {lastClassifyStats.stats.tokensIn !== null && (
+                  <div>Tokens in: {lastClassifyStats.stats.tokensIn.toLocaleString()}</div>
+                )}
+                {lastClassifyStats.stats.tokensOut !== null && (
+                  <div>Tokens out: {lastClassifyStats.stats.tokensOut.toLocaleString()}</div>
+                )}
+                {lastClassifyStats.stats.costUsd !== null && (
+                  <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
+                )}
+                {lastClassifyStats.stats.status === 'failed' && lastClassifyStats.stats.errorJson && (
+                  <div className="col-span-2 text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-1">
+                    <span className="font-medium">Error [{lastClassifyStats.stats.errorJson.code}]</span>{' '}
+                    {lastClassifyStats.stats.errorJson.message}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -653,6 +693,19 @@ function DashboardContent() {
       </div>
     </main>
   )
+}
+
+function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): string {
+  switch (status) {
+    case 'running':
+      return 'bg-blue-200 text-blue-700'
+    case 'succeeded':
+      return 'bg-green-200 text-green-700'
+    case 'failed':
+      return 'bg-red-200 text-red-700'
+    default:
+      return 'bg-gray-200 text-gray-700'
+  }
 }
 
 export default function DashboardPage() {

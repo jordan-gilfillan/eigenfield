@@ -91,11 +91,24 @@ interface TickError {
 interface LastClassifyStats {
   hasStats: boolean
   stats?: {
+    status: 'running' | 'succeeded' | 'failed'
     totalAtoms: number
     newlyLabeled: number
     skippedAlreadyLabeled: number
+    skippedBadOutput: number
+    aliasedCount: number
     labeledTotal: number
+    tokensIn: number | null
+    tokensOut: number | null
+    costUsd: number | null
     mode: string
+    errorJson: {
+      code: string
+      message: string
+      details?: Record<string, unknown>
+    } | null
+    startedAt: string
+    finishedAt: string | null
     createdAt: string
   }
 }
@@ -323,7 +336,14 @@ export default function RunDetailPage() {
       {/* Last Classify Stats (shared endpoint with dashboard) */}
       {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
-          <h2 className="text-lg font-semibold mb-2 text-blue-800">Last Classify Stats</h2>
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-blue-800">Last Classify Stats</h2>
+            <span
+              className={`px-2 py-0.5 rounded text-xs font-medium ${getClassifyStatusColor(lastClassifyStats.stats.status)}`}
+            >
+              {lastClassifyStats.stats.status}
+            </span>
+          </div>
           <div className="grid grid-cols-3 gap-4 text-sm text-blue-700">
             <div>
               <span className="font-medium">Total Atoms:</span> {lastClassifyStats.stats.totalAtoms}
@@ -338,12 +358,39 @@ export default function RunDetailPage() {
               <span className="font-medium">Skipped (already):</span> {lastClassifyStats.stats.skippedAlreadyLabeled}
             </div>
             <div>
+              <span className="font-medium">Skipped (bad output):</span> {lastClassifyStats.stats.skippedBadOutput}
+            </div>
+            <div>
+              <span className="font-medium">Aliased category count:</span> {lastClassifyStats.stats.aliasedCount}
+            </div>
+            <div>
               <span className="font-medium">Mode:</span> {lastClassifyStats.stats.mode}
             </div>
             <div>
               <span className="font-medium">Classified at:</span>{' '}
-              {new Date(lastClassifyStats.stats.createdAt).toLocaleString()}
+              {new Date(lastClassifyStats.stats.finishedAt ?? lastClassifyStats.stats.createdAt).toLocaleString()}
             </div>
+            {lastClassifyStats.stats.tokensIn !== null && (
+              <div>
+                <span className="font-medium">Tokens In:</span> {lastClassifyStats.stats.tokensIn.toLocaleString()}
+              </div>
+            )}
+            {lastClassifyStats.stats.tokensOut !== null && (
+              <div>
+                <span className="font-medium">Tokens Out:</span> {lastClassifyStats.stats.tokensOut.toLocaleString()}
+              </div>
+            )}
+            {lastClassifyStats.stats.costUsd !== null && (
+              <div>
+                <span className="font-medium">Cost:</span> ${lastClassifyStats.stats.costUsd.toFixed(4)}
+              </div>
+            )}
+            {lastClassifyStats.stats.status === 'failed' && lastClassifyStats.stats.errorJson && (
+              <div className="col-span-3 text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                <span className="font-medium">Error [{lastClassifyStats.stats.errorJson.code}]</span>{' '}
+                {lastClassifyStats.stats.errorJson.message}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -420,6 +467,19 @@ export default function RunDetailPage() {
       </div>
     </main>
   )
+}
+
+function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): string {
+  switch (status) {
+    case 'running':
+      return 'bg-blue-200 text-blue-700'
+    case 'succeeded':
+      return 'bg-green-200 text-green-700'
+    case 'failed':
+      return 'bg-red-200 text-red-700'
+    default:
+      return 'bg-gray-200 text-gray-700'
+  }
 }
 
 function FrozenConfigBlock({ config }: { config: RunConfig }) {

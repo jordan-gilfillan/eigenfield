@@ -51,11 +51,20 @@ export async function GET(
     return NextResponse.json({
       hasStats: true,
       stats: {
+        status: classifyRun.status,
         totalAtoms: classifyRun.totalAtoms,
         newlyLabeled: classifyRun.newlyLabeled,
         skippedAlreadyLabeled: classifyRun.skippedAlreadyLabeled,
+        skippedBadOutput: classifyRun.skippedBadOutput,
+        aliasedCount: classifyRun.aliasedCount,
         labeledTotal: classifyRun.labeledTotal,
+        tokensIn: classifyRun.tokensIn,
+        tokensOut: classifyRun.tokensOut,
+        costUsd: classifyRun.costUsd,
         mode: classifyRun.mode,
+        errorJson: classifyRun.errorJson,
+        startedAt: classifyRun.startedAt.toISOString(),
+        finishedAt: classifyRun.finishedAt?.toISOString() ?? null,
         createdAt: classifyRun.createdAt.toISOString(),
       },
     })
