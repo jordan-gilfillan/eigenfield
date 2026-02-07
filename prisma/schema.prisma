@@ -87,9 +87,10 @@ model ImportBatch {
   statsJson        Json     // { message_count, day_count, coverage_start, coverage_end, per_source_counts }
 
   // Relations
-  messageAtoms MessageAtom[]
-  rawEntries   RawEntry[]
-  runs         Run[]
+  messageAtoms  MessageAtom[]
+  rawEntries    RawEntry[]
+  runs          Run[]
+  classifyRuns  ClassifyRun[]
 
   @@map("import_batches")
 }
@@ -201,6 +202,7 @@ model PromptVersion {
   prompt        Prompt         @relation(fields: [promptId], references: [id])
   messageLabels MessageLabel[]
   outputs       Output[]
+  classifyRuns  ClassifyRun[]
 
   @@unique([promptId, versionLabel])
   @@index([promptId])
@@ -255,6 +257,31 @@ model Job {
   @@index([runId])
   @@index([status])
   @@map("jobs")
+}
+
+// Section 6.11: ClassifyRun — persisted classify stats for dashboard/run-detail display
+model ClassifyRun {
+  id                   String   @id @default(cuid())
+  importBatchId        String
+  model                String   // classify model (e.g. "stub_v1", "gpt-4o")
+  promptVersionId      String
+  mode                 String   // "stub" | "real"
+  totalAtoms           Int
+  newlyLabeled         Int
+  skippedAlreadyLabeled Int
+  labeledTotal         Int      // total labeled after this run
+  tokensIn             Int?     // null for stub mode
+  tokensOut            Int?     // null for stub mode
+  costUsd              Float?   // null for stub mode
+  createdAt            DateTime @default(now())
+
+  // Relations
+  importBatch   ImportBatch   @relation(fields: [importBatchId], references: [id])
+  promptVersion PromptVersion @relation(fields: [promptVersionId], references: [id])
+
+  @@index([importBatchId])
+  @@index([importBatchId, model, promptVersionId])
+  @@map("classify_runs")
 }
 
 // Section 6.10: Output

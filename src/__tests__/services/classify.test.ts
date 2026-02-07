@@ -89,6 +89,7 @@ describe('Classification Service', () => {
   afterEach(async () => {
     // Clean up test data in correct order
     for (const id of createdBatchIds) {
+      await prisma.classifyRun.deleteMany({ where: { importBatchId: id } })
       await prisma.messageLabel.deleteMany({
         where: { messageAtom: { importBatchId: id } },
       })
@@ -100,6 +101,7 @@ describe('Classification Service', () => {
 
     // Clean up extra prompt versions (not the default one)
     for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
       await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
       await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
     }

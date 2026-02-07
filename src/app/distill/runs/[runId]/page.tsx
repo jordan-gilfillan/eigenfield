@@ -88,6 +88,18 @@ interface TickError {
   message: string
 }
 
+interface LastClassifyStats {
+  hasStats: boolean
+  stats?: {
+    totalAtoms: number
+    newlyLabeled: number
+    skippedAlreadyLabeled: number
+    labeledTotal: number
+    mode: string
+    createdAt: string
+  }
+}
+
 type LoadingState = 'loading' | 'success' | 'error'
 
 export default function RunDetailPage() {
@@ -104,6 +116,9 @@ export default function RunDetailPage() {
   const [tickInFlight, setTickInFlight] = useState(false)
   const [lastTickResult, setLastTickResult] = useState<TickResult | null>(null)
   const [lastTickError, setLastTickError] = useState<TickError | null>(null)
+
+  // Last classify stats (same shared endpoint as dashboard)
+  const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
 
   const fetchRun = useCallback(async () => {
     try {
@@ -128,6 +143,29 @@ export default function RunDetailPage() {
   useEffect(() => {
     fetchRun()
   }, [fetchRun])
+
+  // Fetch last classify stats once run is loaded (page load only, no polling)
+  useEffect(() => {
+    if (!run) return
+    const labelSpec = run.config.labelSpec
+    if (!labelSpec?.model || !labelSpec?.promptVersionId) return
+
+    async function fetchClassifyStats() {
+      try {
+        const res = await fetch(
+          `/api/distill/import-batches/${run!.importBatchId}/last-classify?model=${encodeURIComponent(run!.config.labelSpec.model)}&promptVersionId=${encodeURIComponent(run!.config.labelSpec.promptVersionId)}`
+        )
+        if (res.ok) {
+          const data: LastClassifyStats = await res.json()
+          setLastClassifyStats(data)
+        }
+      } catch {
+        // Silently fail
+      }
+    }
+    fetchClassifyStats()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id])
 
   const handleResetJob = async (dayDate: string) => {
     setResettingDay(dayDate)
@@ -281,6 +319,37 @@ export default function RunDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Last Classify Stats (shared endpoint with dashboard) */}
+      {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
+          <h2 className="text-lg font-semibold mb-2 text-blue-800">Last Classify Stats</h2>
+          <div className="grid grid-cols-3 gap-4 text-sm text-blue-700">
+            <div>
+              <span className="font-medium">Total Atoms:</span> {lastClassifyStats.stats.totalAtoms}
+            </div>
+            <div>
+              <span className="font-medium">Labeled Total:</span> {lastClassifyStats.stats.labeledTotal}
+            </div>
+            <div>
+              <span className="font-medium">Newly Labeled:</span> {lastClassifyStats.stats.newlyLabeled}
+            </div>
+            <div>
+              <span className="font-medium">Skipped (already):</span> {lastClassifyStats.stats.skippedAlreadyLabeled}
+            </div>
+            <div>
+              <span className="font-medium">Mode:</span> {lastClassifyStats.stats.mode}
+            </div>
+            <div>
+              <span className="font-medium">Classified at:</span>{' '}
+              {new Date(lastClassifyStats.stats.createdAt).toLocaleString()}
+            </div>
+          </div>
+        </div>
+      )}
+      {lastClassifyStats && !lastClassifyStats.hasStats && (
+        <p className="mt-4 text-sm text-gray-500">No classify stats available for this run&apos;s label spec.</p>
+      )}
 
       {/* Manual Tick Control */}
       <TickControl

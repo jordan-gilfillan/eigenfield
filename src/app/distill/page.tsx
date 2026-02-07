@@ -44,6 +44,18 @@ interface FilterProfile {
   categories: string[]
 }
 
+interface LastClassifyStats {
+  hasStats: boolean
+  stats?: {
+    totalAtoms: number
+    newlyLabeled: number
+    skippedAlreadyLabeled: number
+    labeledTotal: number
+    mode: string
+    createdAt: string
+  }
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -61,6 +73,9 @@ function DashboardContent() {
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
+
+  // Last classify stats (persisted, from shared endpoint)
+  const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
 
   // Run creation state
   const [filterProfiles, setFilterProfiles] = useState<FilterProfile[]>([])
@@ -155,11 +170,37 @@ function DashboardContent() {
     setSelectedBatchId(batchId)
     setClassifyResult(null)
     setClassifyError(null)
+    setLastClassifyStats(null)
     router.push(`/distill?importBatchId=${batchId}`)
   }
 
   // Derive the prompt version for the selected mode
   const activeClassifyPv = classifyPromptVersions[classifyMode]
+
+  // Fetch last classify stats for the selected batch + labelSpec
+  const fetchLastClassifyStats = useCallback(async (batchId: string, labelModel: string, pvId: string) => {
+    try {
+      const res = await fetch(
+        `/api/distill/import-batches/${batchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(pvId)}`
+      )
+      if (res.ok) {
+        const data: LastClassifyStats = await res.json()
+        setLastClassifyStats(data)
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [])
+
+  // Fetch last classify stats when batch or mode changes (and pv is known)
+  useEffect(() => {
+    if (!selectedBatchId || !activeClassifyPv) {
+      setLastClassifyStats(null)
+      return
+    }
+    const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
+    fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
+  }, [selectedBatchId, classifyMode, activeClassifyPv, fetchLastClassifyStats])
 
   async function handleClassify() {
     if (!selectedBatchId || !activeClassifyPv) return
@@ -191,6 +232,14 @@ function DashboardContent() {
       }
 
       setClassifyResult(data)
+
+      // Refresh last classify stats from shared endpoint
+      const classifyRes = data as ClassifyResult
+      fetchLastClassifyStats(
+        classifyRes.importBatchId,
+        classifyRes.labelSpec.model,
+        classifyRes.labelSpec.promptVersionId
+      )
     } catch (err) {
       setClassifyError(err instanceof Error ? err.message : 'Classification failed')
     } finally {
@@ -406,6 +455,24 @@ function DashboardContent() {
                 : 'Assigns categories using LLM provider (costs apply)'}
             </span>
           </div>
+
+          {/* Last Classify Stats (persisted) */}
+          {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
+            <div className="mt-3 p-3 bg-blue-100 border border-blue-300 rounded text-sm">
+              <p className="font-medium text-blue-800 mb-1">Last Classify Stats</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
+                <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
+                <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
+                <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
+                <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
+                <div>Mode: {lastClassifyStats.stats.mode}</div>
+                <div>Run at: {new Date(lastClassifyStats.stats.createdAt).toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+          {lastClassifyStats && !lastClassifyStats.hasStats && (
+            <p className="mt-3 text-sm text-gray-500">No classify stats yet for this batch + label spec.</p>
+          )}
         </div>
       )}
 
