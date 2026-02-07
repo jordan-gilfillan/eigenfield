@@ -149,6 +149,24 @@ export function parseClassifyOutput(text: string): { category: Category; confide
 }
 
 /**
+ * Persists a ClassifyRun stats record for dashboard/run-detail retrieval.
+ */
+async function persistClassifyRun(result: ClassifyResult): Promise<void> {
+  await prisma.classifyRun.create({
+    data: {
+      importBatchId: result.importBatchId,
+      model: result.labelSpec.model,
+      promptVersionId: result.labelSpec.promptVersionId,
+      mode: result.mode,
+      totalAtoms: result.totals.messageAtoms,
+      newlyLabeled: result.totals.newlyLabeled,
+      skippedAlreadyLabeled: result.totals.skippedAlreadyLabeled,
+      labeledTotal: result.totals.labeled,
+    },
+  })
+}
+
+/**
  * Classifies all MessageAtoms in an ImportBatch.
  *
  * Label versioning rules (spec 6.3):
@@ -215,7 +233,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   })
 
   if (totalAtoms === 0) {
-    return {
+    const result: ClassifyResult = {
       importBatchId,
       labelSpec: { model, promptVersionId },
       mode,
@@ -226,6 +244,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
         skippedAlreadyLabeled: 0,
       },
     }
+    await persistClassifyRun(result)
+    return result
   }
 
   // Count existing labels for this batch + labelSpec using a JOIN (no bind variable limit)
@@ -239,7 +259,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
 
   // If all atoms already labeled, skip processing
   if (existingLabelCount >= totalAtoms) {
-    return {
+    const result: ClassifyResult = {
       importBatchId,
       labelSpec: { model, promptVersionId },
       mode,
@@ -250,14 +270,20 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
         skippedAlreadyLabeled: totalAtoms,
       },
     }
+    await persistClassifyRun(result)
+    return result
   }
 
   // Dispatch to mode-specific implementation
+  let result: ClassifyResult
   if (mode === 'stub') {
-    return classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms)
+    result = await classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms)
+  } else {
+    result = await classifyBatchReal(importBatchId, model, promptVersionId, totalAtoms, promptVersion.templateText)
   }
 
-  return classifyBatchReal(importBatchId, model, promptVersionId, totalAtoms, promptVersion.templateText)
+  await persistClassifyRun(result)
+  return result
 }
 
 /**

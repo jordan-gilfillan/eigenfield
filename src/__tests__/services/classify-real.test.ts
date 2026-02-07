@@ -101,6 +101,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
 
     // Clean up test data in correct order
     for (const id of createdBatchIds) {
+      await prisma.classifyRun.deleteMany({ where: { importBatchId: id } })
       await prisma.messageLabel.deleteMany({
         where: { messageAtom: { importBatchId: id } },
       })
@@ -111,6 +112,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     createdBatchIds.length = 0
 
     for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
       await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
       await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
     }
