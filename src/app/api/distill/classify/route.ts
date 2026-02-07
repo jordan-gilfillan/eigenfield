@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { classifyBatch } from '@/lib/services/classify'
+import { classifyBatch, InvalidInputError } from '@/lib/services/classify'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
 
@@ -52,6 +52,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result)
   } catch (error) {
     console.error('Classify error:', error)
+
+    if (error instanceof InvalidInputError) {
+      return errorResponse(400, error.code, error.message, error.details)
+    }
 
     if (error instanceof BudgetExceededError) {
       return errorResponse(402, error.code, error.message, error.details)

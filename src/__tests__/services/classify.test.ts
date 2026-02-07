@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../lib/db'
-import { classifyBatch, computeStubCategory } from '../../lib/services/classify'
+import { classifyBatch, computeStubCategory, InvalidInputError } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
 
 /**
@@ -461,6 +461,26 @@ describe('Classification Service', () => {
     })
 
     it('mode=real classifies via LLM pipeline (dry-run)', async () => {
+      // Use a real classify prompt version (not stub)
+      const classifyPrompt = await prisma.prompt.findFirst({
+        where: { stage: 'CLASSIFY' },
+      })
+      const realPv = await prisma.promptVersion.upsert({
+        where: {
+          promptId_versionLabel: {
+            promptId: classifyPrompt!.id,
+            versionLabel: 'classify_real_v1',
+          },
+        },
+        update: {},
+        create: {
+          promptId: classifyPrompt!.id,
+          versionLabel: 'classify_real_v1',
+          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
+          isActive: true,
+        },
+      })
+
       const content = createTestExport([
         { id: 'msg-real-1', role: 'user', text: 'Real mode test', timestamp: 1705316400, conversationId: 'conv-real-mode' },
       ])
@@ -475,7 +495,7 @@ describe('Classification Service', () => {
       const result = await classifyBatch({
         importBatchId: importResult.importBatch.id,
         model: 'gpt-4',
-        promptVersionId: defaultPromptVersionId,
+        promptVersionId: realPv.id,
         mode: 'real',
       })
 
@@ -627,6 +647,304 @@ describe('Classification Service', () => {
         },
       })
       expect(label).not.toBeNull()
+    })
+  })
+
+  describe('PromptVersion guardrails (spec §6.7, §7.2)', () => {
+    let stubPromptVersionId: string
+    let realPromptVersionId: string
+
+    beforeEach(async () => {
+      // Ensure both stub and real classify prompt versions exist
+      const classifyPrompt = await prisma.prompt.findFirst({
+        where: { stage: 'CLASSIFY' },
+      })
+
+      const stubPv = await prisma.promptVersion.upsert({
+        where: {
+          promptId_versionLabel: {
+            promptId: classifyPrompt!.id,
+            versionLabel: 'classify_stub_v1',
+          },
+        },
+        update: { isActive: true },
+        create: {
+          promptId: classifyPrompt!.id,
+          versionLabel: 'classify_stub_v1',
+          templateText: 'STUB: Deterministic classification.',
+          isActive: true,
+        },
+      })
+      stubPromptVersionId = stubPv.id
+
+      const realPv = await prisma.promptVersion.upsert({
+        where: {
+          promptId_versionLabel: {
+            promptId: classifyPrompt!.id,
+            versionLabel: 'classify_real_v1',
+          },
+        },
+        update: {},
+        create: {
+          promptId: classifyPrompt!.id,
+          versionLabel: 'classify_real_v1',
+          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
+          isActive: true,
+        },
+      })
+      realPromptVersionId = realPv.id
+    })
+
+    it('mode=real + classify_stub_v1 → InvalidInputError', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-1', role: 'user', text: 'Guardrail test', timestamp: 1705316400, conversationId: 'conv-guard-stub' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: stubPromptVersionId,
+          mode: 'real',
+        })
+      ).rejects.toThrow(InvalidInputError)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: stubPromptVersionId,
+          mode: 'real',
+        })
+      ).rejects.toThrow('must not use classify_stub_v1')
+    })
+
+    it('mode=real + classify_stub_v1 → error has code INVALID_INPUT', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-2', role: 'user', text: 'Error code test', timestamp: 1705316400, conversationId: 'conv-guard-code' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      try {
+        await classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: stubPromptVersionId,
+          mode: 'real',
+        })
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(InvalidInputError)
+        const e = err as InvalidInputError
+        expect(e.code).toBe('INVALID_INPUT')
+        expect(e.details?.versionLabel).toBe('classify_stub_v1')
+      }
+    })
+
+    it('mode=real + classify_real_v1 → succeeds (dry-run)', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-3', role: 'user', text: 'Real mode OK test', timestamp: 1705316400, conversationId: 'conv-guard-real' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      expect(result.mode).toBe('real')
+      expect(result.totals.newlyLabeled).toBe(1)
+      expect(result.labelSpec.promptVersionId).toBe(realPromptVersionId)
+    })
+
+    it('mode=real rejects non-JSON-constraining template', async () => {
+      const classifyPrompt = await prisma.prompt.findFirst({
+        where: { stage: 'CLASSIFY' },
+      })
+      const badPv = await prisma.promptVersion.create({
+        data: {
+          promptId: classifyPrompt!.id,
+          versionLabel: 'classify_bad_template_test',
+          templateText: 'Just classify the message please.',
+          isActive: false,
+        },
+      })
+      createdPromptVersionIds.push(badPv.id)
+
+      const content = createTestExport([
+        { id: 'msg-guard-4', role: 'user', text: 'Bad template test', timestamp: 1705316400, conversationId: 'conv-guard-badtpl' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: badPv.id,
+          mode: 'real',
+        })
+      ).rejects.toThrow(InvalidInputError)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: badPv.id,
+          mode: 'real',
+        })
+      ).rejects.toThrow('JSON-constraining')
+    })
+
+    it('mode=real rejects wrong-stage prompt version', async () => {
+      // Create or find the summarize prompt and use its version
+      const summarizePrompt = await prisma.prompt.upsert({
+        where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
+        update: {},
+        create: { stage: 'SUMMARIZE', name: 'default-summarizer' },
+      })
+      const sumPv = await prisma.promptVersion.upsert({
+        where: {
+          promptId_versionLabel: {
+            promptId: summarizePrompt.id,
+            versionLabel: 'v1',
+          },
+        },
+        update: {},
+        create: {
+          promptId: summarizePrompt.id,
+          versionLabel: 'v1',
+          templateText: 'Summarize with category and confidence fields.',
+          isActive: true,
+        },
+      })
+
+      const content = createTestExport([
+        { id: 'msg-guard-5', role: 'user', text: 'Wrong stage test', timestamp: 1705316400, conversationId: 'conv-guard-stage' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: sumPv.id,
+          mode: 'real',
+        })
+      ).rejects.toThrow(InvalidInputError)
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: sumPv.id,
+          mode: 'real',
+        })
+      ).rejects.toThrow('stage must be CLASSIFY')
+    })
+
+    it('mode=stub + classify_stub_v1 → succeeds (no guardrail)', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-6', role: 'user', text: 'Stub mode OK test', timestamp: 1705316400, conversationId: 'conv-guard-stubok' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'stub_v1',
+        promptVersionId: stubPromptVersionId,
+        mode: 'stub',
+      })
+
+      expect(result.mode).toBe('stub')
+      expect(result.totals.newlyLabeled).toBe(1)
+    })
+
+    it('mode=stub does not trigger guardrails even with classify_real_v1', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-7', role: 'user', text: 'Stub with real PV', timestamp: 1705316400, conversationId: 'conv-guard-stubreal' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      // stub mode should accept any promptVersionId without validation
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'stub_v1',
+        promptVersionId: realPromptVersionId,
+        mode: 'stub',
+      })
+
+      expect(result.mode).toBe('stub')
+      expect(result.totals.newlyLabeled).toBe(1)
+    })
+
+    it('mode=real + stub prompt → no LLM calls made (fails fast)', async () => {
+      const content = createTestExport([
+        { id: 'msg-guard-8', role: 'user', text: 'Fast fail test', timestamp: 1705316400, conversationId: 'conv-guard-fastfail' },
+      ])
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      // Verify no labels were created (guardrail rejects before processing)
+      try {
+        await classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: stubPromptVersionId,
+          mode: 'real',
+        })
+      } catch {
+        // expected
+      }
+
+      const labels = await prisma.messageLabel.findMany({
+        where: {
+          messageAtom: { importBatchId: importResult.importBatch.id },
+          model: 'gpt-4o',
+        },
+      })
+      expect(labels).toHaveLength(0)
     })
   })
 })
