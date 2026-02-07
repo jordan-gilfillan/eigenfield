@@ -110,12 +110,14 @@ async function main() {
 
 Categories: WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER, MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
 
-Respond with ONLY a JSON object, no other text:
-{"category":"<CATEGORY>","confidence":<0.0-1.0>}
+Return ONLY a JSON object. No prose. No code fences.
+Example output:
+{"category":"WORK","confidence":0.72}
 
 Rules:
 - category MUST be one of the listed categories (uppercase, exact match)
 - confidence MUST be a number between 0.0 and 1.0
+- Never invent new categories. If uncertain, choose the closest category from the allowed list.
 - Do NOT include any explanation or text outside the JSON object`,
       isActive: true,
     },

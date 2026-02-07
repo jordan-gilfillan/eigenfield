@@ -56,8 +56,20 @@ const ALL_CATEGORIES: ReadonlySet<string> = new Set([
   'FINANCIAL', 'LEGAL', 'EMBARRASSING',
 ])
 
+/**
+ * Small explicit alias map for common near-miss categories emitted by models.
+ * Keep this intentionally tiny to preserve closed-set behavior.
+ */
+const CATEGORY_ALIASES: Readonly<Record<string, Category>> = {
+  ETHICAL: 'PERSONAL',
+  ETHICS: 'PERSONAL',
+  MORAL: 'PERSONAL',
+  VALUES: 'PERSONAL',
+}
+
 /** Batch size for processing to avoid Postgres bind variable limits */
 const BATCH_SIZE = 10000
+const SAMPLE_CAP = 5
 
 export interface ClassifyOptions {
   /** The import batch to classify */
@@ -83,6 +95,12 @@ export interface ClassifyResult {
     newlyLabeled: number
     skippedAlreadyLabeled: number
   }
+  warnings?: {
+    skippedBadOutput: number
+    aliasedCount: number
+    badCategorySamples: string[]
+    aliasedCategorySamples: string[]
+  }
 }
 
 /**
@@ -105,12 +123,101 @@ export function computeStubCategory(atomStableId: string): Category {
  *
  * @throws LlmBadOutputError if output is invalid
  */
-export function parseClassifyOutput(text: string): { category: Category; confidence: number } {
+function extractJsonCandidates(rawText: string): string[] {
+  const candidates: string[] = []
+  const seen = new Set<string>()
+
+  const addCandidate = (candidate: string) => {
+    const trimmed = candidate.trim()
+    if (!trimmed || seen.has(trimmed)) return
+    seen.add(trimmed)
+    candidates.push(trimmed)
+  }
+
+  // Fast path: already clean JSON
+  addCandidate(rawText)
+
+  // Common LLM wrapper: fenced code blocks
+  const fencedBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/gi
+  let match: RegExpExecArray | null
+  while ((match = fencedBlockRegex.exec(rawText)) !== null) {
+    addCandidate(match[1])
+  }
+
+  // Fallback: first valid balanced JSON object embedded in prose
+  let depth = 0
+  let objectStart = -1
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < rawText.length; i++) {
+    const ch = rawText[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === '\\') {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+
+    if (ch === '{') {
+      if (depth === 0) objectStart = i
+      depth += 1
+      continue
+    }
+
+    if (ch === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && objectStart >= 0) {
+        addCandidate(rawText.slice(objectStart, i + 1))
+        objectStart = -1
+      }
+    }
+  }
+
+  return candidates
+}
+
+function normalizeCategory(rawCategory: string): { category: string; aliasedFrom?: string } {
+  const normalized = rawCategory
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+
+  const aliased = CATEGORY_ALIASES[normalized]
+  if (aliased) {
+    return { category: aliased, aliasedFrom: normalized }
+  }
+  return { category: normalized }
+}
+
+export function parseClassifyOutput(text: string): { category: Category; confidence: number; aliasedFrom?: string } {
   let parsed: unknown
-  try {
-    parsed = JSON.parse(text.trim())
-  } catch {
-    throw new LlmBadOutputError('LLM output is not valid JSON', { rawOutput: text })
+  const parseErrors: string[] = []
+
+  for (const candidate of extractJsonCandidates(text)) {
+    try {
+      parsed = JSON.parse(candidate)
+      break
+    } catch (err) {
+      parseErrors.push(err instanceof Error ? err.message : 'Unknown parse error')
+    }
+  }
+
+  if (parsed === undefined) {
+    throw new LlmBadOutputError('LLM output is not valid JSON', {
+      rawOutput: text,
+      candidatesTried: parseErrors.length,
+      parseErrors: parseErrors.slice(0, 3),
+    })
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -123,7 +230,8 @@ export function parseClassifyOutput(text: string): { category: Category; confide
   if (typeof obj.category !== 'string') {
     throw new LlmBadOutputError('LLM output missing or invalid "category" field', { rawOutput: text })
   }
-  const categoryUpper = obj.category.toUpperCase()
+  const normalized = normalizeCategory(obj.category)
+  const categoryUpper = normalized.category
   if (!ALL_CATEGORIES.has(categoryUpper)) {
     throw new LlmBadOutputError(
       `LLM output has invalid category: "${obj.category}"`,
@@ -145,6 +253,7 @@ export function parseClassifyOutput(text: string): { category: Category; confide
   return {
     category: categoryUpper as Category,
     confidence: obj.confidence,
+    aliasedFrom: normalized.aliasedFrom,
   }
 }
 
@@ -370,7 +479,16 @@ async function classifyBatchReal(
   const budgetPolicy = getSpendCaps()
   let spentUsdSoFar = 0
   let newlyLabeled = 0
+  let skippedBadOutput = 0
+  let aliasedCount = 0
+  const badCategorySamples: string[] = []
+  const aliasedCategorySamples: string[] = []
   let cursor: string | undefined
+
+  const addSample = (samples: string[], value: string) => {
+    if (samples.length >= SAMPLE_CAP || samples.includes(value)) return
+    samples.push(value)
+  }
 
   while (true) {
     const atomsBatch = await prisma.messageAtom.findMany({
@@ -428,15 +546,32 @@ async function classifyBatchReal(
 
       spentUsdSoFar += response.costUsd
 
-      // Parse and validate the LLM output
-      const { category, confidence } = parseClassifyOutput(response.text)
+      let parsed: { category: Category; confidence: number; aliasedFrom?: string }
+      try {
+        // Parse and validate the LLM output
+        parsed = parseClassifyOutput(response.text)
+      } catch (error) {
+        if (error instanceof LlmBadOutputError) {
+          skippedBadOutput += 1
+          if (typeof error.details?.category === 'string') {
+            addSample(badCategorySamples, error.details.category)
+          }
+          continue
+        }
+        throw error
+      }
+
+      if (parsed.aliasedFrom) {
+        aliasedCount += 1
+        addSample(aliasedCategorySamples, parsed.aliasedFrom)
+      }
 
       // Write label (skipDuplicates for concurrency safety)
       const result = await prisma.messageLabel.createMany({
         data: [{
           messageAtomId: atom.id,
-          category,
-          confidence,
+          category: parsed.category,
+          confidence: parsed.confidence,
           model,
           promptVersionId,
         }],
@@ -466,7 +601,13 @@ async function classifyBatchReal(
       messageAtoms: totalAtoms,
       labeled: totalLabeled,
       newlyLabeled,
-      skippedAlreadyLabeled: totalAtoms - newlyLabeled,
+      skippedAlreadyLabeled: Math.max(totalAtoms - newlyLabeled - skippedBadOutput, 0),
+    },
+    warnings: {
+      skippedBadOutput,
+      aliasedCount,
+      badCategorySamples,
+      aliasedCategorySamples,
     },
   }
 }

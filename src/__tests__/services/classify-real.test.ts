@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../lib/db'
 import { classifyBatch, parseClassifyOutput } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
 import { LlmBadOutputError, BudgetExceededError } from '../../lib/llm'
+import * as llmModule from '../../lib/llm'
 
 /**
  * Integration tests for real-mode classification (dry-run LLM).
@@ -98,6 +99,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
 
   afterEach(async () => {
     process.env = { ...originalEnv }
+    vi.restoreAllMocks()
 
     // Clean up test data in correct order
     for (const id of createdBatchIds) {
@@ -464,6 +466,62 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       expect(label).not.toBeNull()
       expect(label!.confidence).toBe(0.7)
     })
+
+    it('continues when one atom has bad output category and reports warning stats', async () => {
+      const content = createTestExport([
+        { id: 'msg-badcat-1', role: 'user', text: 'First atom', timestamp: 1705316400, conversationId: 'conv-badcat' },
+        { id: 'msg-badcat-2', role: 'assistant', text: 'Second atom', timestamp: 1705316401, conversationId: 'conv-badcat' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      let callCount = 0
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount === 1) {
+          return {
+            text: '{"category":"GALACTIC","confidence":0.61}',
+            tokensIn: 10,
+            tokensOut: 10,
+            costUsd: 0.001,
+            dryRun: false,
+          }
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      expect(result.totals.newlyLabeled).toBe(1)
+      expect(result.warnings?.skippedBadOutput).toBe(1)
+      expect(result.warnings?.badCategorySamples).toContain('GALACTIC')
+
+      const labels = await prisma.messageLabel.findMany({
+        where: {
+          messageAtom: { importBatchId: importResult.importBatch.id },
+          model: 'gpt-4o',
+          promptVersionId: realPromptVersionId,
+        },
+      })
+      expect(labels).toHaveLength(1)
+      expect(labels[0].category).toBe('WORK')
+    })
   })
 
   describe('parseClassifyOutput', () => {
@@ -505,6 +563,41 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     it('handles whitespace around JSON', () => {
       const result = parseClassifyOutput('  \n{"category":"WORK","confidence":0.5}\n  ')
       expect(result.category).toBe('WORK')
+    })
+
+    it('parses fenced JSON output', () => {
+      const result = parseClassifyOutput('```json\n{"category":"WORK","confidence":0.73}\n```')
+      expect(result.category).toBe('WORK')
+      expect(result.confidence).toBe(0.73)
+    })
+
+    it('parses JSON with leading text', () => {
+      const result = parseClassifyOutput('Here is the classification:\n{"category":"LEGAL","confidence":0.61}')
+      expect(result.category).toBe('LEGAL')
+      expect(result.confidence).toBe(0.61)
+    })
+
+    it('parses JSON with trailing text', () => {
+      const result = parseClassifyOutput('{"category":"PERSONAL","confidence":0.54}\nThanks!')
+      expect(result.category).toBe('PERSONAL')
+      expect(result.confidence).toBe(0.54)
+    })
+
+    it('maps space/hyphen category variants safely', () => {
+      const mental = parseClassifyOutput('{"category":"mental health","confidence":0.77}')
+      expect(mental.category).toBe('MENTAL_HEALTH')
+
+      const recovery = parseClassifyOutput('{"category":"addiction-recovery","confidence":0.77}')
+      expect(recovery.category).toBe('ADDICTION_RECOVERY')
+    })
+
+    it('maps explicit ethical aliases to canonical category', () => {
+      const aliases = ['ETHICAL', 'ETHICS', 'MORAL', 'VALUES']
+      for (const alias of aliases) {
+        const result = parseClassifyOutput(`{"category":"${alias}","confidence":0.66}`)
+        expect(result.category).toBe('PERSONAL')
+        expect(result.aliasedFrom).toBe(alias)
+      }
     })
 
     it('throws LlmBadOutputError for invalid JSON', () => {
@@ -556,6 +649,21 @@ describe('Classification Service — Real Mode (dry-run)', () => {
         const e = err as LlmBadOutputError
         expect(e.code).toBe('LLM_BAD_OUTPUT')
         expect(e.details?.rawOutput).toBe('bad json')
+      }
+    })
+
+    it('invalid wrapped JSON still throws with helpful details', () => {
+      const raw = '```json\n{"category":"WORK","confidence":}\n```'
+      try {
+        parseClassifyOutput(raw)
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(LlmBadOutputError)
+        const e = err as LlmBadOutputError
+        expect(e.message).toContain('not valid JSON')
+        expect(e.details?.rawOutput).toBe(raw)
+        expect(e.details?.candidatesTried).toBeGreaterThan(0)
+        expect(Array.isArray(e.details?.parseErrors)).toBe(true)
       }
     })
 
