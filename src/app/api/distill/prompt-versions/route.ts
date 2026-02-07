@@ -1,11 +1,12 @@
 /**
  * GET /api/distill/prompt-versions
  *
- * Returns prompt versions, optionally filtered by stage and active status.
+ * Returns prompt versions, optionally filtered by stage, active status, or versionLabel.
  *
  * Query params:
  * - stage: 'classify' | 'summarize' | 'redact' (optional)
  * - active: 'true' to get only active version (optional)
+ * - versionLabel: exact match on versionLabel (optional)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -17,11 +18,33 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const stage = searchParams.get('stage')?.toUpperCase()
     const activeOnly = searchParams.get('active') === 'true'
+    const versionLabel = searchParams.get('versionLabel')
 
     // Validate stage if provided
     const validStages = ['CLASSIFY', 'SUMMARIZE', 'REDACT']
     if (stage && !validStages.includes(stage)) {
       return errors.invalidInput(`Invalid stage: ${stage}`, { validStages })
+    }
+
+    // Query by versionLabel: returns single promptVersion (like active+stage)
+    if (versionLabel) {
+      const promptVersion = await prisma.promptVersion.findFirst({
+        where: {
+          versionLabel,
+          ...(stage && {
+            prompt: {
+              stage: stage as 'CLASSIFY' | 'SUMMARIZE' | 'REDACT',
+            },
+          }),
+        },
+        include: {
+          prompt: {
+            select: { stage: true, name: true },
+          },
+        },
+      })
+
+      return NextResponse.json({ promptVersion })
     }
 
     // Build query

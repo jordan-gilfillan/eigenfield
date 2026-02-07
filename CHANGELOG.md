@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix: classify real mode uses JSON prompt version (`classify_real_v1`); stub unaffected
+  - Root cause: UI sent `classify_stub_v1` prompt ID for both modes; the stub template has no JSON formatting instructions, so the LLM returned prose → `LLM_BAD_OUTPUT`
+  - UI now fetches both prompt versions by `versionLabel` and sends the correct one per mode
+  - `GET /api/distill/prompt-versions` now supports `?versionLabel=` filter
+  - Seed updated: `classify_real_v1` is now active (idempotent `update: { isActive: true }`)
+  - Run creation `labelSpec` now reflects the classify mode actually used (was hardcoded `stub_v1`)
+
 ### Changed
 - UI: dashboard classify supports stub/real mode
   - Mode selector (radio buttons): Stub (deterministic) / Real (LLM-backed)

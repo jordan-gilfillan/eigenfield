@@ -44,19 +44,23 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 ## Dashboard: running real classification from UI
 
 The `/distill` dashboard has a Mode selector in the Classification section:
-- **Stub (deterministic)**: default, uses `stub_v1` model, no env vars needed.
-- **Real (LLM-backed)**: uses `gpt-4o` model, requires:
+- **Stub (deterministic)**: default, uses `stub_v1` model + `classify_stub_v1` prompt version, no env vars needed.
+- **Real (LLM-backed)**: uses `gpt-4o` model + `classify_real_v1` prompt version (JSON-constraining template), requires:
   1. `LLM_MODE=real` in `.env.local`
   2. `OPENAI_API_KEY=sk-...` in `.env.local`
   3. (Optional) spend caps: `LLM_MAX_USD_PER_RUN`, `LLM_MAX_USD_PER_DAY`
 
+**Prompt version selection**: The UI fetches both classify prompt versions by `versionLabel` on mount (`classify_stub_v1` and `classify_real_v1`) and sends the correct `promptVersionId` based on the selected mode. This ensures real mode always uses the JSON-formatted system prompt.
+
 If prerequisites are missing, the API returns a structured error (e.g., `MISSING_API_KEY`) and the UI displays it inline — no crash.
+
+If `classify_real_v1` is not in the database, the "Classify (real)" button is disabled with guidance to run `npx prisma db seed`.
 
 Manual verification:
 1. Start dev server (`npm run dev`)
 2. Select an ImportBatch on `/distill`
 3. Stub: select "Stub (deterministic)", click "Classify (stub)" → completes, UI shows success
-4. Real: set env vars above, select "Real (LLM-backed)", click "Classify (real)" → completes
+4. Real: set env vars above, run `npx prisma db seed` if needed, select "Real (LLM-backed)", click "Classify (real)" → completes
 5. Real without key: select "Real" without API key → UI shows `[MISSING_API_KEY] ...` error
 6. No background polling, no overlapping requests (button disabled while in-flight)
 
