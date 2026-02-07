@@ -23,6 +23,21 @@ import {
 import type { ProviderId, LlmCallContext } from '../llm'
 
 /**
+ * Thrown when classify request parameters are invalid per spec 7.2 guardrails.
+ * The route handler maps this to HTTP 400 with code INVALID_INPUT.
+ */
+export class InvalidInputError extends Error {
+  readonly code = 'INVALID_INPUT'
+  readonly details?: Record<string, unknown>
+
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message)
+    this.name = 'InvalidInputError'
+    this.details = details
+  }
+}
+
+/**
  * Core categories in the exact order required by stub_v1 algorithm (spec 7.2)
  */
 const STUB_CATEGORIES: Category[] = [
@@ -157,12 +172,41 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     throw new Error(`ImportBatch not found: ${importBatchId}`)
   }
 
-  // Verify prompt version exists
+  // Verify prompt version exists (include parent Prompt for stage check)
   const promptVersion = await prisma.promptVersion.findUnique({
     where: { id: promptVersionId },
+    include: { prompt: { select: { stage: true } } },
   })
   if (!promptVersion) {
     throw new Error(`PromptVersion not found: ${promptVersionId}`)
+  }
+
+  // ── Mode-aware PromptVersion guardrails (spec §6.7, §7.2) ──
+  if (mode === 'real') {
+    // Must belong to classify stage
+    if (promptVersion.prompt.stage !== 'CLASSIFY') {
+      throw new InvalidInputError(
+        `PromptVersion stage must be CLASSIFY for classify, got ${promptVersion.prompt.stage}`,
+        { promptVersionId, stage: promptVersion.prompt.stage }
+      )
+    }
+
+    // Must NOT be the seeded stub prompt version
+    if (promptVersion.versionLabel === 'classify_stub_v1') {
+      throw new InvalidInputError(
+        'mode="real" must not use classify_stub_v1 prompt version',
+        { promptVersionId, versionLabel: promptVersion.versionLabel }
+      )
+    }
+
+    // Template must be JSON-constraining (contains category+confidence markers)
+    const t = promptVersion.templateText
+    if (!t.includes('category') || !t.includes('confidence')) {
+      throw new InvalidInputError(
+        'mode="real" requires a JSON-constraining classify prompt (must reference "category" and "confidence")',
+        { promptVersionId, versionLabel: promptVersion.versionLabel }
+      )
+    }
   }
 
   // Count total atoms for this batch
