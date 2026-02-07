@@ -12,6 +12,7 @@ interface LastClassifyResponse {
   stats?: {
     status: 'running' | 'succeeded' | 'failed'
     totalAtoms: number
+    processedAtoms: number
     newlyLabeled: number
     skippedAlreadyLabeled: number
     skippedBadOutput: number
@@ -23,6 +24,7 @@ interface LastClassifyResponse {
       message: string
       details?: Record<string, unknown>
     } | null
+    finishedAt: string | null
   }
 }
 
@@ -150,11 +152,14 @@ describe('ClassifyRun audit trail', () => {
   })
 
   it('persists failed status + partial counters + errorJson when callLlm throws mid-run', async () => {
-    const content = createTestExport([
-      { id: 'msg-audit-fail-1', role: 'user', text: 'first', timestamp: 1705316400, conversationId: 'conv-audit-fail' },
-      { id: 'msg-audit-fail-2', role: 'assistant', text: 'second', timestamp: 1705316401, conversationId: 'conv-audit-fail' },
-      { id: 'msg-audit-fail-3', role: 'user', text: 'third', timestamp: 1705316402, conversationId: 'conv-audit-fail' },
-    ])
+    const messages = Array.from({ length: 130 }, (_, i) => ({
+      id: `msg-audit-fail-${i + 1}`,
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      text: `message ${i + 1}`,
+      timestamp: 1705316400 + i,
+      conversationId: 'conv-audit-fail',
+    }))
+    const content = createTestExport(messages)
 
     const importResult = await importExport({
       content,
@@ -166,7 +171,7 @@ describe('ClassifyRun audit trail', () => {
     let callCount = 0
     vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
       callCount += 1
-      if (callCount === 1) {
+      if (callCount <= 105) {
         return {
           text: '{"category":"WORK","confidence":0.8}',
           tokensIn: 12,
@@ -197,8 +202,12 @@ describe('ClassifyRun audit trail', () => {
     expect(last.hasStats).toBe(true)
     expect(last.stats).toBeDefined()
     expect(last.stats!.status).toBe('failed')
+    expect(last.stats!.processedAtoms).toBeGreaterThan(0)
+    expect(last.stats!.processedAtoms).toBeGreaterThanOrEqual(100)
+    expect(last.stats!.processedAtoms).toBeLessThan(last.stats!.totalAtoms)
     expect(last.stats!.newlyLabeled).toBeGreaterThan(0)
     expect(last.stats!.labeledTotal).toBeGreaterThan(0)
+    expect(last.stats!.finishedAt).toBeTruthy()
     expect(last.stats!.errorJson).toBeTruthy()
     expect(last.stats!.errorJson!.code).toBe('SIM_FAIL')
     expect(last.stats!.errorJson!.message).toContain('simulated mid-run failure')
@@ -228,6 +237,7 @@ describe('ClassifyRun audit trail', () => {
     expect(last.hasStats).toBe(true)
     expect(last.stats).toBeDefined()
     expect(last.stats!.status).toBe('succeeded')
+    expect(last.stats!.processedAtoms).toBe(last.stats!.totalAtoms)
     expect(last.stats!.errorJson).toBeNull()
   })
 

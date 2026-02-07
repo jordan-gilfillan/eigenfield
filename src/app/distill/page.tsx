@@ -49,6 +49,7 @@ interface LastClassifyStats {
   stats?: {
     status: 'running' | 'succeeded' | 'failed'
     totalAtoms: number
+    processedAtoms: number
     newlyLabeled: number
     skippedAlreadyLabeled: number
     skippedBadOutput: number
@@ -63,6 +64,7 @@ interface LastClassifyStats {
       message: string
       details?: Record<string, unknown>
     } | null
+    lastAtomStableIdProcessed: string | null
     startedAt: string
     finishedAt: string | null
     createdAt: string
@@ -89,6 +91,7 @@ function DashboardContent() {
 
   // Last classify stats (persisted, from shared endpoint)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
+  const [refreshingLastClassifyStats, setRefreshingLastClassifyStats] = useState(false)
 
   // Run creation state
   const [filterProfiles, setFilterProfiles] = useState<FilterProfile[]>([])
@@ -214,6 +217,17 @@ function DashboardContent() {
     const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
     fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
   }, [selectedBatchId, classifyMode, activeClassifyPv, fetchLastClassifyStats])
+
+  const handleRefreshLastClassifyStats = useCallback(async () => {
+    if (!selectedBatchId || !activeClassifyPv) return
+    setRefreshingLastClassifyStats(true)
+    try {
+      const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
+      await fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
+    } finally {
+      setRefreshingLastClassifyStats(false)
+    }
+  }, [selectedBatchId, activeClassifyPv, classifyMode, fetchLastClassifyStats])
 
   async function handleClassify() {
     if (!selectedBatchId || !activeClassifyPv) return
@@ -479,14 +493,32 @@ function DashboardContent() {
                 >
                   {lastClassifyStats.stats.status}
                 </span>
+                <button
+                  onClick={handleRefreshLastClassifyStats}
+                  disabled={refreshingLastClassifyStats}
+                  className={`ml-auto px-2 py-1 rounded text-xs font-medium ${
+                    refreshingLastClassifyStats
+                      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                      : 'bg-blue-700 text-white hover:bg-blue-800'
+                  }`}
+                >
+                  {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
+                </button>
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
                 <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
+                <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
                 <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
                 <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
                 <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
                 <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
                 <div>Aliased category count: {lastClassifyStats.stats.aliasedCount}</div>
+                {lastClassifyStats.stats.status === 'running' && (
+                  <div className="col-span-2 font-medium">
+                    Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
+                    ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
+                  </div>
+                )}
                 <div>Mode: {lastClassifyStats.stats.mode}</div>
                 <div>
                   Run at:{' '}
@@ -511,7 +543,20 @@ function DashboardContent() {
             </div>
           )}
           {lastClassifyStats && !lastClassifyStats.hasStats && (
-            <p className="mt-3 text-sm text-gray-500">No classify stats yet for this batch + label spec.</p>
+            <div className="mt-3 flex items-center gap-3">
+              <p className="text-sm text-gray-500">No classify stats yet for this batch + label spec.</p>
+              <button
+                onClick={handleRefreshLastClassifyStats}
+                disabled={refreshingLastClassifyStats}
+                className={`px-2 py-1 rounded text-xs font-medium ${
+                  refreshingLastClassifyStats
+                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-700 text-white hover:bg-gray-800'
+                }`}
+              >
+                {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -706,6 +751,11 @@ function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): str
     default:
       return 'bg-gray-200 text-gray-700'
   }
+}
+
+function formatProgressPercent(processedAtoms: number, totalAtoms: number): number {
+  if (totalAtoms <= 0) return 100
+  return Math.min(100, Math.round((processedAtoms / totalAtoms) * 100))
 }
 
 export default function DashboardPage() {

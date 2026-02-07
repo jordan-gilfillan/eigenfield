@@ -93,6 +93,7 @@ interface LastClassifyStats {
   stats?: {
     status: 'running' | 'succeeded' | 'failed'
     totalAtoms: number
+    processedAtoms: number
     newlyLabeled: number
     skippedAlreadyLabeled: number
     skippedBadOutput: number
@@ -107,6 +108,7 @@ interface LastClassifyStats {
       message: string
       details?: Record<string, unknown>
     } | null
+    lastAtomStableIdProcessed: string | null
     startedAt: string
     finishedAt: string | null
     createdAt: string
@@ -132,6 +134,7 @@ export default function RunDetailPage() {
 
   // Last classify stats (same shared endpoint as dashboard)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
+  const [refreshingClassifyStats, setRefreshingClassifyStats] = useState(false)
 
   const fetchRun = useCallback(async () => {
     try {
@@ -157,28 +160,37 @@ export default function RunDetailPage() {
     fetchRun()
   }, [fetchRun])
 
-  // Fetch last classify stats once run is loaded (page load only, no polling)
-  useEffect(() => {
+  const fetchLastClassifyStats = useCallback(async () => {
     if (!run) return
     const labelSpec = run.config.labelSpec
     if (!labelSpec?.model || !labelSpec?.promptVersionId) return
 
-    async function fetchClassifyStats() {
-      try {
-        const res = await fetch(
-          `/api/distill/import-batches/${run!.importBatchId}/last-classify?model=${encodeURIComponent(run!.config.labelSpec.model)}&promptVersionId=${encodeURIComponent(run!.config.labelSpec.promptVersionId)}`
-        )
-        if (res.ok) {
-          const data: LastClassifyStats = await res.json()
-          setLastClassifyStats(data)
-        }
-      } catch {
-        // Silently fail
+    try {
+      const res = await fetch(
+        `/api/distill/import-batches/${run.importBatchId}/last-classify?model=${encodeURIComponent(labelSpec.model)}&promptVersionId=${encodeURIComponent(labelSpec.promptVersionId)}`
+      )
+      if (res.ok) {
+        const data: LastClassifyStats = await res.json()
+        setLastClassifyStats(data)
       }
+    } catch {
+      // Silently fail
     }
-    fetchClassifyStats()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.id])
+  }, [run])
+
+  // Fetch last classify stats once run is loaded (page load only, no polling)
+  useEffect(() => {
+    fetchLastClassifyStats()
+  }, [fetchLastClassifyStats])
+
+  const handleRefreshLastClassifyStats = useCallback(async () => {
+    setRefreshingClassifyStats(true)
+    try {
+      await fetchLastClassifyStats()
+    } finally {
+      setRefreshingClassifyStats(false)
+    }
+  }, [fetchLastClassifyStats])
 
   const handleResetJob = async (dayDate: string) => {
     setResettingDay(dayDate)
@@ -343,10 +355,24 @@ export default function RunDetailPage() {
             >
               {lastClassifyStats.stats.status}
             </span>
+            <button
+              onClick={handleRefreshLastClassifyStats}
+              disabled={refreshingClassifyStats}
+              className={`ml-auto px-2 py-1 rounded text-xs font-medium ${
+                refreshingClassifyStats
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  : 'bg-blue-700 text-white hover:bg-blue-800'
+              }`}
+            >
+              {refreshingClassifyStats ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
           <div className="grid grid-cols-3 gap-4 text-sm text-blue-700">
             <div>
               <span className="font-medium">Total Atoms:</span> {lastClassifyStats.stats.totalAtoms}
+            </div>
+            <div>
+              <span className="font-medium">Processed Atoms:</span> {lastClassifyStats.stats.processedAtoms}
             </div>
             <div>
               <span className="font-medium">Labeled Total:</span> {lastClassifyStats.stats.labeledTotal}
@@ -363,6 +389,12 @@ export default function RunDetailPage() {
             <div>
               <span className="font-medium">Aliased category count:</span> {lastClassifyStats.stats.aliasedCount}
             </div>
+            {lastClassifyStats.stats.status === 'running' && (
+              <div className="col-span-3 font-medium">
+                Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
+                ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
+              </div>
+            )}
             <div>
               <span className="font-medium">Mode:</span> {lastClassifyStats.stats.mode}
             </div>
@@ -395,7 +427,20 @@ export default function RunDetailPage() {
         </div>
       )}
       {lastClassifyStats && !lastClassifyStats.hasStats && (
-        <p className="mt-4 text-sm text-gray-500">No classify stats available for this run&apos;s label spec.</p>
+        <div className="mt-4 flex items-center gap-3">
+          <p className="text-sm text-gray-500">No classify stats available for this run&apos;s label spec.</p>
+          <button
+            onClick={handleRefreshLastClassifyStats}
+            disabled={refreshingClassifyStats}
+            className={`px-2 py-1 rounded text-xs font-medium ${
+              refreshingClassifyStats
+                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-700 text-white hover:bg-gray-800'
+            }`}
+          >
+            {refreshingClassifyStats ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       )}
 
       {/* Manual Tick Control */}
@@ -480,6 +525,11 @@ function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): str
     default:
       return 'bg-gray-200 text-gray-700'
   }
+}
+
+function formatProgressPercent(processedAtoms: number, totalAtoms: number): number {
+  if (totalAtoms <= 0) return 100
+  return Math.min(100, Math.round((processedAtoms / totalAtoms) * 100))
 }
 
 function FrozenConfigBlock({ config }: { config: RunConfig }) {

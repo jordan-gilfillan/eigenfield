@@ -53,6 +53,7 @@ export async function GET(
       stats: {
         status: classifyRun.status,
         totalAtoms: classifyRun.totalAtoms,
+        processedAtoms: classifyRun.processedAtoms,
         newlyLabeled: classifyRun.newlyLabeled,
         skippedAlreadyLabeled: classifyRun.skippedAlreadyLabeled,
         skippedBadOutput: classifyRun.skippedBadOutput,
@@ -63,6 +64,7 @@ export async function GET(
         costUsd: classifyRun.costUsd,
         mode: classifyRun.mode,
         errorJson: classifyRun.errorJson,
+        lastAtomStableIdProcessed: classifyRun.lastAtomStableIdProcessed,
         startedAt: classifyRun.startedAt.toISOString(),
         finishedAt: classifyRun.finishedAt?.toISOString() ?? null,
         createdAt: classifyRun.createdAt.toISOString(),
