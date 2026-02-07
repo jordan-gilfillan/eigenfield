@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Docs: clarify PromptVersion mode selection rules (isActive is default only; real mode rejects stub prompt) + stats requirements (aggregate tokens/cost, last classify totals)
+
 ### Fixed
 - Fix: classify real mode uses JSON prompt version (`classify_real_v1`); stub unaffected
   - Root cause: UI sent `classify_stub_v1` prompt ID for both modes; the stub template has no JSON formatting instructions, so the LLM returned prose → `LLM_BAD_OUTPUT`

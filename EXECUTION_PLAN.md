@@ -187,6 +187,11 @@ const confidence = 0.5
 - Skip already-labeled atoms (same promptVersionId + model)
 - Return response per 7.9 schema
 
+> **Spec alignment note (SPEC §6.7, §7.2):**
+> - Exactly one active PromptVersion per stage; `isActive` is a **default selector only** — it MUST NOT determine behavior by mode.
+> - `mode="real"` MUST use a JSON-constraining classify PromptVersion; it MUST reject `classify_stub_v1` with 400 `INVALID_INPUT`.
+> - `mode="stub"` MUST remain deterministic and MUST NOT call external LLM providers.
+
 **Step 3: Real Classification (Phase 3b)**
 - Shared LLM plumbing (mode, keys, rate limiting, spend caps, dry-run)
 - Pricing book + cost calculator (compute cost from token usage)
@@ -541,6 +546,33 @@ Prerequisites (set up before writing code):
 
 **Suggested order:** PR-3b0.1 (pricing) → PR-3b.2 (SDKs) → PR-4b (summarization)
 
+> **Spec alignment note (SPEC §6.7, §7.2, §7.5, §11.4):**
+> - `isActive` is a default selector only — it MUST NOT be used to choose prompt behavior by mode (stub vs real).
+> - `mode="real"` MUST use a PromptVersion whose templateText constrains JSON output; it MUST reject `classify_stub_v1` (400 `INVALID_INPUT`).
+> - `mode="stub"` MUST remain deterministic and MUST NOT call external LLM providers.
+> - UI/inspect must surface aggregate tokens/cost and last classify stats (see PR-3b.X/Y below).
+
+##### PR-3b.X: PromptVersion selection guardrails
+- API: `mode="real"` rejects `classify_stub_v1` with 400 `INVALID_INPUT`
+- API: `mode="real"` uses JSON-constraining classify prompt version
+- API: `mode="stub"` never calls external providers
+- UI: sends correct `promptVersionId` per selected mode
+
+Acceptance:
+- [ ] `POST /api/distill/classify` with `mode="real"` + stub promptVersionId → 400 `INVALID_INPUT`
+- [ ] `mode="real"` classify uses `classify_real_v1` (JSON-constraining template)
+- [ ] `mode="stub"` classify completes without any external LLM call
+
+##### PR-3b.Y: Progress/stats visibility
+- Run detail: aggregate `tokensIn`/`tokensOut` + total `costUsd` (sum over processed jobs)
+- Dashboard/run detail: last classify totals (`newlyLabeled`/`skippedAlreadyLabeled`/`labeled`) when available
+- No background polling, no `setInterval`, no overlapping requests
+
+Acceptance:
+- [ ] Run detail page shows aggregate token counts and total cost summed over jobs
+- [ ] Last classify run stats visible when classification has been run for the selected batch
+- [ ] No background polling or timers introduced
+
 ---
 
 ### Phase 7: Additional Parsers
@@ -597,6 +629,8 @@ Prerequisites (set up before writing code):
 - [ ] 11.3: Backend rejects overlapping ticks (409)
 - [ ] 11.3: Resume continues from failed jobs without reprocessing succeeded
 - [ ] 11.4: UI shell shows frozen config exactly as stored; manual tick is sequential; reset increments attempt; per-day view shows output markdown + bundle hashes.
+- [ ] 11.4: Run detail page shows aggregate tokensIn/tokensOut and total costUsd summed over processed jobs.
+- [ ] 11.4: Last classify totals (newlyLabeled/skippedAlreadyLabeled/labeled) visible when available.
 - [ ] 11.5: Search returns results for known strings in MessageAtoms and Outputs; inspector renders markdown and shows pre/post views.
 
 ---

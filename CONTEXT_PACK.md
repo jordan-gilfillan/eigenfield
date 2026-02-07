@@ -52,6 +52,8 @@ The `/distill` dashboard has a Mode selector in the Classification section:
 
 **Prompt version selection**: The UI fetches both classify prompt versions by `versionLabel` on mount (`classify_stub_v1` and `classify_real_v1`) and sends the correct `promptVersionId` based on the selected mode. This ensures real mode always uses the JSON-formatted system prompt.
 
+> **Important:** Active prompt versions (`isActive`) are defaults only — they select which prompt to pre-fill in the UI. They MUST NOT be used to choose prompt behavior by mode. Real mode uses an explicit `promptVersionId` (the JSON-constraining `classify_real_v1`); stub mode ignores prompt versions for execution (deterministic algorithm).
+
 If prerequisites are missing, the API returns a structured error (e.g., `MISSING_API_KEY`) and the UI displays it inline — no crash.
 
 If `classify_real_v1` is not in the database, the "Classify (real)" button is disabled with guidance to run `npx prisma db seed`.
@@ -99,6 +101,28 @@ The `src/lib/llm/` module provides shared infrastructure for LLM calls used by b
 - Tick error handling: `LlmProviderError` → retriable, `BudgetExceededError` / `MissingApiKeyError` → not retriable
 - Partial segment failure: tokens/cost from completed segments are captured even on error
 - `formatDate()` in tick.ts and run.ts now uses UTC methods to prevent timezone-dependent date shifts
+
+## Running real classification safely (checklist)
+
+1. Set `LLM_MODE=real` in `.env.local`
+2. Set the provider API key: `OPENAI_API_KEY=sk-...` or `ANTHROPIC_API_KEY=sk-ant-...`
+3. (Recommended) Set spend caps: `LLM_MAX_USD_PER_RUN`, `LLM_MAX_USD_PER_DAY`
+4. Run `npx prisma db seed` to ensure `classify_real_v1` prompt version exists
+5. Confirm the run's `configJson.pricingSnapshot` is present (created at run creation time)
+6. Select "Real (LLM-backed)" mode in the dashboard — the UI sends the correct `promptVersionId` for `classify_real_v1`
+
+## If you see `LLM_BAD_OUTPUT`
+
+This error (HTTP 502) means the LLM returned text that could not be parsed as valid classify JSON.
+
+Common causes:
+- **Wrong prompt version**: The stub prompt (`classify_stub_v1`) was used in real mode. The stub template has no JSON formatting instructions, so the LLM returns prose instead of `{ "category": "...", "confidence": 0.X }`.
+- **Prompt not constraining JSON**: The prompt version's `templateText` does not instruct the model to output strict JSON matching the classify contract.
+
+Next steps:
+1. Verify `classify_real_v1` prompt version exists in the database (`npx prisma db seed`)
+2. Verify the UI/API is sending the correct `promptVersionId` for real mode (not the stub ID)
+3. Inspect the prompt version's `templateText` — it must instruct the model to return JSON with `category` and `confidence` fields
 
 ## 3) Canonical docs (source of truth)
 - SPEC.md
