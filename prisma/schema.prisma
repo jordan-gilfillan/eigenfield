@@ -266,13 +266,19 @@ model ClassifyRun {
   model                String   // classify model (e.g. "stub_v1", "gpt-4o")
   promptVersionId      String
   mode                 String   // "stub" | "real"
+  status               String   @default("running") // "running" | "succeeded" | "failed"
   totalAtoms           Int
   newlyLabeled         Int
   skippedAlreadyLabeled Int
+  skippedBadOutput     Int      @default(0)
+  aliasedCount         Int      @default(0)
   labeledTotal         Int      // total labeled after this run
   tokensIn             Int?     // null for stub mode
   tokensOut            Int?     // null for stub mode
   costUsd              Float?   // null for stub mode
+  errorJson            Json?
+  startedAt            DateTime @default(now())
+  finishedAt           DateTime?
   createdAt            DateTime @default(now())
 
   // Relations

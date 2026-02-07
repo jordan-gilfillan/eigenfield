@@ -257,20 +257,85 @@ export function parseClassifyOutput(text: string): { category: Category; confide
   }
 }
 
-/**
- * Persists a ClassifyRun stats record for dashboard/run-detail retrieval.
- */
-async function persistClassifyRun(result: ClassifyResult): Promise<void> {
-  await prisma.classifyRun.create({
-    data: {
-      importBatchId: result.importBatchId,
-      model: result.labelSpec.model,
-      promptVersionId: result.labelSpec.promptVersionId,
-      mode: result.mode,
-      totalAtoms: result.totals.messageAtoms,
-      newlyLabeled: result.totals.newlyLabeled,
-      skippedAlreadyLabeled: result.totals.skippedAlreadyLabeled,
-      labeledTotal: result.totals.labeled,
+interface ClassifyProgress {
+  newlyLabeled: number
+  skippedBadOutput: number
+  aliasedCount: number
+  tokensIn: number
+  tokensOut: number
+  costUsd: number
+}
+
+interface PersistedClassifyError {
+  code: string
+  message: string
+  details?: Record<string, unknown>
+}
+
+const ERROR_MESSAGE_MAX_CHARS = 500
+const ERROR_DETAILS_MAX_CHARS = 2000
+
+function capString(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}...`
+}
+
+function capErrorDetails(details: unknown): Record<string, unknown> | undefined {
+  if (details === undefined || details === null) return undefined
+
+  if (typeof details !== 'object') {
+    return { value: capString(String(details), ERROR_DETAILS_MAX_CHARS) }
+  }
+
+  try {
+    const serialized = JSON.stringify(details)
+    if (!serialized) return undefined
+    if (serialized.length <= ERROR_DETAILS_MAX_CHARS) {
+      return details as Record<string, unknown>
+    }
+    return {
+      truncated: true,
+      length: serialized.length,
+      preview: serialized.slice(0, ERROR_DETAILS_MAX_CHARS),
+    }
+  } catch {
+    return { truncated: true, reason: 'details_not_serializable' }
+  }
+}
+
+function toPersistedClassifyError(error: unknown): PersistedClassifyError {
+  const code =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : 'INTERNAL'
+
+  const message = error instanceof Error ? error.message : String(error)
+  const details =
+    typeof error === 'object' &&
+    error !== null &&
+    'details' in error
+      ? capErrorDetails((error as { details?: unknown }).details)
+      : undefined
+
+  return {
+    code,
+    message: capString(message, ERROR_MESSAGE_MAX_CHARS),
+    ...(details ? { details } : {}),
+  }
+}
+
+async function countLabelsForSpec(
+  importBatchId: string,
+  promptVersionId: string,
+  model: string,
+): Promise<number> {
+  return prisma.messageLabel.count({
+    where: {
+      messageAtom: { importBatchId },
+      promptVersionId,
+      model,
     },
   })
 }
@@ -336,63 +401,165 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }
   }
 
-  // Count total atoms for this batch
-  const totalAtoms = await prisma.messageAtom.count({
-    where: { importBatchId },
-  })
+  // Count totals for this batch + labelSpec and create an auditable running row.
+  const totalAtoms = await prisma.messageAtom.count({ where: { importBatchId } })
+  const existingLabelCount = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
-  if (totalAtoms === 0) {
-    const result: ClassifyResult = {
-      importBatchId,
-      labelSpec: { model, promptVersionId },
-      mode,
-      totals: {
-        messageAtoms: 0,
-        labeled: 0,
-        newlyLabeled: 0,
-        skippedAlreadyLabeled: 0,
-      },
-    }
-    await persistClassifyRun(result)
-    return result
+  const progress: ClassifyProgress = {
+    newlyLabeled: 0,
+    skippedBadOutput: 0,
+    aliasedCount: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
   }
 
-  // Count existing labels for this batch + labelSpec using a JOIN (no bind variable limit)
-  const existingLabelCount = await prisma.messageLabel.count({
-    where: {
-      messageAtom: { importBatchId },
-      promptVersionId,
+  const classifyRun = await prisma.classifyRun.create({
+    data: {
+      importBatchId,
       model,
+      promptVersionId,
+      mode,
+      status: 'running',
+      totalAtoms,
+      newlyLabeled: 0,
+      skippedAlreadyLabeled: existingLabelCount,
+      skippedBadOutput: 0,
+      aliasedCount: 0,
+      labeledTotal: existingLabelCount,
+      startedAt: new Date(),
     },
   })
 
-  // If all atoms already labeled, skip processing
-  if (existingLabelCount >= totalAtoms) {
-    const result: ClassifyResult = {
-      importBatchId,
-      labelSpec: { model, promptVersionId },
-      mode,
-      totals: {
-        messageAtoms: totalAtoms,
-        labeled: existingLabelCount,
-        newlyLabeled: 0,
-        skippedAlreadyLabeled: totalAtoms,
-      },
+  try {
+    if (totalAtoms === 0) {
+      const result: ClassifyResult = {
+        importBatchId,
+        labelSpec: { model, promptVersionId },
+        mode,
+        totals: {
+          messageAtoms: 0,
+          labeled: existingLabelCount,
+          newlyLabeled: 0,
+          skippedAlreadyLabeled: 0,
+        },
+      }
+
+      await prisma.classifyRun.update({
+        where: { id: classifyRun.id },
+        data: {
+          status: 'succeeded',
+          finishedAt: new Date(),
+          newlyLabeled: 0,
+          skippedAlreadyLabeled: 0,
+          skippedBadOutput: 0,
+          aliasedCount: 0,
+          labeledTotal: existingLabelCount,
+        },
+      })
+
+      return result
     }
-    await persistClassifyRun(result)
+
+    // If all atoms already labeled, skip processing but still finalize the audit row.
+    if (existingLabelCount >= totalAtoms) {
+      const result: ClassifyResult = {
+        importBatchId,
+        labelSpec: { model, promptVersionId },
+        mode,
+        totals: {
+          messageAtoms: totalAtoms,
+          labeled: existingLabelCount,
+          newlyLabeled: 0,
+          skippedAlreadyLabeled: existingLabelCount,
+        },
+      }
+
+      await prisma.classifyRun.update({
+        where: { id: classifyRun.id },
+        data: {
+          status: 'succeeded',
+          finishedAt: new Date(),
+          newlyLabeled: 0,
+          skippedAlreadyLabeled: existingLabelCount,
+          skippedBadOutput: 0,
+          aliasedCount: 0,
+          labeledTotal: existingLabelCount,
+        },
+      })
+
+      return result
+    }
+
+    // Dispatch to mode-specific implementation
+    let result: ClassifyResult
+    if (mode === 'stub') {
+      result = await classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms, progress)
+    } else {
+      result = await classifyBatchReal(
+        importBatchId,
+        model,
+        promptVersionId,
+        totalAtoms,
+        promptVersion.templateText,
+        progress,
+      )
+    }
+
+    await prisma.classifyRun.update({
+      where: { id: classifyRun.id },
+      data: {
+        status: 'succeeded',
+        finishedAt: new Date(),
+        totalAtoms: result.totals.messageAtoms,
+        newlyLabeled: result.totals.newlyLabeled,
+        skippedAlreadyLabeled: result.totals.skippedAlreadyLabeled,
+        skippedBadOutput: result.warnings?.skippedBadOutput ?? progress.skippedBadOutput,
+        aliasedCount: result.warnings?.aliasedCount ?? progress.aliasedCount,
+        labeledTotal: result.totals.labeled,
+        ...(mode === 'real'
+          ? {
+              tokensIn: progress.tokensIn,
+              tokensOut: progress.tokensOut,
+              costUsd: progress.costUsd,
+            }
+          : {}),
+      },
+    })
+
     return result
-  }
+  } catch (error) {
+    try {
+      const labeledTotal = await countLabelsForSpec(importBatchId, promptVersionId, model)
+      const newlyLabeled = Math.max(labeledTotal - existingLabelCount, 0)
+      const skippedAlreadyLabeled = Math.max(labeledTotal - newlyLabeled, 0)
 
-  // Dispatch to mode-specific implementation
-  let result: ClassifyResult
-  if (mode === 'stub') {
-    result = await classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms)
-  } else {
-    result = await classifyBatchReal(importBatchId, model, promptVersionId, totalAtoms, promptVersion.templateText)
-  }
+      await prisma.classifyRun.update({
+        where: { id: classifyRun.id },
+        data: {
+          status: 'failed',
+          finishedAt: new Date(),
+          newlyLabeled,
+          skippedAlreadyLabeled,
+          skippedBadOutput: progress.skippedBadOutput,
+          aliasedCount: progress.aliasedCount,
+          labeledTotal,
+          ...(mode === 'real'
+            ? {
+                tokensIn: progress.tokensIn,
+                tokensOut: progress.tokensOut,
+                costUsd: progress.costUsd,
+              }
+            : {}),
+          errorJson: toPersistedClassifyError(error),
+        },
+      })
+    } catch (persistError) {
+      console.error('Failed to persist classify failure audit trail:', persistError)
+    }
 
-  await persistClassifyRun(result)
-  return result
+    throw error
+  }
 }
 
 /**
@@ -403,8 +570,8 @@ async function classifyBatchStub(
   model: string,
   promptVersionId: string,
   totalAtoms: number,
+  progress: ClassifyProgress,
 ): Promise<ClassifyResult> {
-  let newlyLabeled = 0
   let cursor: string | undefined
 
   while (true) {
@@ -436,19 +603,13 @@ async function classifyBatchStub(
       skipDuplicates: true,
     })
 
-    newlyLabeled += result.count
+    progress.newlyLabeled += result.count
     cursor = atomsBatch[atomsBatch.length - 1].id
 
     if (atomsBatch.length < BATCH_SIZE) break
   }
 
-  const totalLabeled = await prisma.messageLabel.count({
-    where: {
-      messageAtom: { importBatchId },
-      promptVersionId,
-      model,
-    },
-  })
+  const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   return {
     importBatchId,
@@ -457,8 +618,8 @@ async function classifyBatchStub(
     totals: {
       messageAtoms: totalAtoms,
       labeled: totalLabeled,
-      newlyLabeled,
-      skippedAlreadyLabeled: totalAtoms - newlyLabeled,
+      newlyLabeled: progress.newlyLabeled,
+      skippedAlreadyLabeled: Math.max(totalLabeled - progress.newlyLabeled, 0),
     },
   }
 }
@@ -473,14 +634,12 @@ async function classifyBatchReal(
   promptVersionId: string,
   totalAtoms: number,
   templateText: string,
+  progress: ClassifyProgress,
 ): Promise<ClassifyResult> {
   const provider = inferProvider(model)
   const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
   const budgetPolicy = getSpendCaps()
-  let spentUsdSoFar = 0
-  let newlyLabeled = 0
-  let skippedBadOutput = 0
-  let aliasedCount = 0
+  let spentUsdSoFar = progress.costUsd
   const badCategorySamples: string[] = []
   const aliasedCategorySamples: string[] = []
   let cursor: string | undefined
@@ -544,6 +703,9 @@ async function classifyBatchReal(
         ctx,
       )
 
+      progress.tokensIn += response.tokensIn
+      progress.tokensOut += response.tokensOut
+      progress.costUsd += response.costUsd
       spentUsdSoFar += response.costUsd
 
       let parsed: { category: Category; confidence: number; aliasedFrom?: string }
@@ -552,7 +714,7 @@ async function classifyBatchReal(
         parsed = parseClassifyOutput(response.text)
       } catch (error) {
         if (error instanceof LlmBadOutputError) {
-          skippedBadOutput += 1
+          progress.skippedBadOutput += 1
           if (typeof error.details?.category === 'string') {
             addSample(badCategorySamples, error.details.category)
           }
@@ -562,7 +724,7 @@ async function classifyBatchReal(
       }
 
       if (parsed.aliasedFrom) {
-        aliasedCount += 1
+        progress.aliasedCount += 1
         addSample(aliasedCategorySamples, parsed.aliasedFrom)
       }
 
@@ -578,20 +740,14 @@ async function classifyBatchReal(
         skipDuplicates: true,
       })
 
-      newlyLabeled += result.count
+      progress.newlyLabeled += result.count
     }
 
     cursor = atomsBatch[atomsBatch.length - 1].id
     if (atomsBatch.length < BATCH_SIZE) break
   }
 
-  const totalLabeled = await prisma.messageLabel.count({
-    where: {
-      messageAtom: { importBatchId },
-      promptVersionId,
-      model,
-    },
-  })
+  const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   return {
     importBatchId,
@@ -600,12 +756,12 @@ async function classifyBatchReal(
     totals: {
       messageAtoms: totalAtoms,
       labeled: totalLabeled,
-      newlyLabeled,
-      skippedAlreadyLabeled: Math.max(totalAtoms - newlyLabeled - skippedBadOutput, 0),
+      newlyLabeled: progress.newlyLabeled,
+      skippedAlreadyLabeled: Math.max(totalLabeled - progress.newlyLabeled, 0),
     },
     warnings: {
-      skippedBadOutput,
-      aliasedCount,
+      skippedBadOutput: progress.skippedBadOutput,
+      aliasedCount: progress.aliasedCount,
       badCategorySamples,
       aliasedCategorySamples,
     },
