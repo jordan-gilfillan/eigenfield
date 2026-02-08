@@ -290,7 +290,8 @@ Each entry has:
 - **Planned PR**: `ux/dashboard-create-run-gating`
 - **Acceptance checks**:
   - Create-run gating uses persisted classify status from server
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced ephemeral `classifyResult` gate in the dashboard "Create Run" card with `lastClassifyStats` (persisted server state from `GET /last-classify`). Three gate states: no stats → "Classify the batch first"; status=running → "Classification in progress..."; terminal (succeeded/failed) → show create-run form. Page refresh or navigation no longer hides the form when classification has already been performed. All 605 tests pass.
 
 ### AUD-017 — UI data loads have silent failure handling (need actionable errors)
 - **Source**: Codex (MEDIUM)
