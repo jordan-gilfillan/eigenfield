@@ -157,6 +157,17 @@ export function jobStatusToDb(api: JobStatusApi): JobStatusDb {
 }
 
 // =============================================================================
+// ClassifyRunStatus enum (plain String field, stored lowercase — no DB enum)
+// =============================================================================
+
+export const CLASSIFY_RUN_STATUS_VALUES = ['running', 'succeeded', 'failed'] as const
+export type ClassifyRunStatus = (typeof CLASSIFY_RUN_STATUS_VALUES)[number]
+
+export function isClassifyRunStatus(value: string): value is ClassifyRunStatus {
+  return (CLASSIFY_RUN_STATUS_VALUES as readonly string[]).includes(value)
+}
+
+// =============================================================================
 // Stage enum
 // =============================================================================
 

@@ -428,7 +428,7 @@ Endpoints:
 - `POST /api/distill/classify` returns `classifyRunId`.
 - `GET /api/distill/classify-runs/:id` returns progress/status for that classify run.
 
-`ClassifyRun.status` is: `running|succeeded|failed|cancelled`.
+`ClassifyRun.status` is: `running|succeeded|failed`.
 
 Status endpoint response (normative):
 ```json
@@ -437,7 +437,7 @@ Status endpoint response (normative):
   "importBatchId": "string",
   "labelSpec": {"model": "string", "promptVersionId": "string"},
   "mode": "real|stub",
-  "status": "running|succeeded|failed|cancelled",
+  "status": "running|succeeded|failed",
   "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
   "progress": {"processedAtoms": 0, "totalAtoms": 0, "skippedBadOutput": 0, "aliasedCount": 0},
   "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},

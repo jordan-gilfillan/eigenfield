@@ -14,6 +14,8 @@ import {
   jobStatusToDb,
   stageToApi,
   stageToDb,
+  CLASSIFY_RUN_STATUS_VALUES,
+  isClassifyRunStatus,
 } from '../lib/enums'
 
 describe('Source enum conversion', () => {
@@ -122,5 +124,28 @@ describe('Stage enum conversion', () => {
   it('converts API to DB format', () => {
     expect(stageToDb('classify')).toBe('CLASSIFY')
     expect(stageToDb('summarize')).toBe('SUMMARIZE')
+  })
+})
+
+describe('ClassifyRunStatus', () => {
+  it('has exactly three valid values: running, succeeded, failed', () => {
+    expect(CLASSIFY_RUN_STATUS_VALUES).toEqual(['running', 'succeeded', 'failed'])
+  })
+
+  it('does not include cancelled', () => {
+    expect(CLASSIFY_RUN_STATUS_VALUES).not.toContain('cancelled')
+  })
+
+  it('isClassifyRunStatus accepts valid values', () => {
+    expect(isClassifyRunStatus('running')).toBe(true)
+    expect(isClassifyRunStatus('succeeded')).toBe(true)
+    expect(isClassifyRunStatus('failed')).toBe(true)
+  })
+
+  it('isClassifyRunStatus rejects invalid values', () => {
+    expect(isClassifyRunStatus('cancelled')).toBe(false)
+    expect(isClassifyRunStatus('queued')).toBe(false)
+    expect(isClassifyRunStatus('RUNNING')).toBe(false)
+    expect(isClassifyRunStatus('')).toBe(false)
   })
 })
