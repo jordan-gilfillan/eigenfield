@@ -342,7 +342,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Planned PR**: `docs/spec-consistency-search-polling`
 - **Acceptance checks**:
   - SPEC and UX_SPEC agree; code matches
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Two conflicts resolved. (1) Search scope: removed `both` from SPEC.md `scope=raw|outputs|both` → `scope=raw|outputs` to match code (`SearchScope = 'raw' | 'outputs'` in `search.ts`, `VALID_SCOPES` in route handler). (2) Polling interval: aligned UX_SPEC.md from "Minimum interval: 2s; default 3-5s" to "750–1500 ms (or exponential backoff)" to match SPEC §4.6 and code (`POLL_INTERVAL_MS = 1000`). All 605 tests pass.
 
 ### AUD-021 — Flaky test: run.test.ts "selects default labelSpec when omitted" fails in parallel
 - **Source**: Discovered during AUD-011
