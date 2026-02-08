@@ -63,6 +63,10 @@ describe('run service', () => {
         versionLabel: 'test-v1',
         templateText: 'Test classify prompt',
         isActive: true,
+        // Far-future createdAt ensures this version always wins the
+        // createRun default selection (findFirst orderBy createdAt desc),
+        // preventing race conditions with parallel test files.
+        createdAt: new Date('2099-01-01T00:00:00Z'),
       },
     })
     testClassifyPromptVersionId = classifyVersion.id
@@ -294,21 +298,10 @@ describe('run service', () => {
     })
 
     it('selects default labelSpec when omitted (SPEC §7.3)', async () => {
-      // Determine which active classify version the server will select
-      // (same query as createRun default path)
-      const expectedDefault = await prisma.promptVersion.findFirst({
-        where: { isActive: true, prompt: { stage: 'CLASSIFY' } },
-        orderBy: { createdAt: 'desc' },
-      })
-      expect(expectedDefault).not.toBeNull()
-
-      // Ensure labels exist for the version the server will pick
-      if (expectedDefault!.id !== testClassifyPromptVersionId) {
-        await prisma.messageLabel.updateMany({
-          where: { messageAtom: { importBatchId: testImportBatchId } },
-          data: { promptVersionId: expectedDefault!.id },
-        })
-      }
+      // The test's CLASSIFY PromptVersion has createdAt=2099, ensuring it
+      // always wins createRun's default selection (findFirst orderBy
+      // createdAt desc) even when parallel tests create their own active
+      // CLASSIFY versions. Labels already point at testClassifyPromptVersionId.
 
       // Call createRun without labelSpec — server should pick default
       const result = await createRun({
@@ -325,10 +318,10 @@ describe('run service', () => {
       expect(result.status).toBe('queued')
       expect(result.jobCount).toBe(2)
 
-      // Verify server-selected default labelSpec is persisted
+      // Verify server-selected default labelSpec uses this test's version
       expect(result.config.labelSpec).toEqual({
         model: 'stub_v1',
-        promptVersionId: expectedDefault!.id,
+        promptVersionId: testClassifyPromptVersionId,
       })
     })
 
