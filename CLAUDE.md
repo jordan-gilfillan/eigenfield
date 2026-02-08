@@ -27,6 +27,12 @@ Commits:
 - Commit in small, descriptive commits.
 - Prefer separating code/test changes from doc updates when practical.
 
+Merge requirement:
+- When acceptance checks pass, **commit** all changes on the feature branch.
+- Ensure `master` has not diverged unexpectedly (fetch/pull if needed) before merging.
+- **Merge to `master`** (or open a PR if that is your workflow), then return to `master`.
+- End in a **clean working tree** (`git status` shows nothing to commit).
+
 ## Execution loop for an AUD
 1. Open `REMEDIATION.md` and locate the target entry.
 2. Restate the acceptance checks in your own words.
@@ -40,14 +46,15 @@ Commits:
    - files changed
    - test results
    - any risks/edge cases
-8. Update `REMEDIATION.md`:
-   - set Status to `Done`
-   - add a short “Resolution” note describing what changed and referencing the PR/branch
+8. Update `REMEDIATION.md` (Status=Done + short Resolution note), **commit**, then **merge to `master`** and return to a clean `master` state.
 
 ## Stopping rule
 Stop once acceptance checks pass and `REMEDIATION.md` is updated.
 Do not continue “improving” things beyond the single AUD.
 
-## Notes
-- If tool/UI permission prompts are involved, prefer running commands via terminal.
-- If a command fails due to environment constraints (Node version, etc.), document it and propose the smallest next step.
+## Definition of done
+- Acceptance checks in the AUD entry pass
+- Changes are committed on `fix/AUD-###-short-slug`
+- `REMEDIATION.md` updated (Status=Done + Resolution note)
+- Branch merged to `master`
+- `master` checked out and clean (`git status` clean)
