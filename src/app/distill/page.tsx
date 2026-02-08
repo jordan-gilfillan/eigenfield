@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Suspense, useState, useEffect, useCallback } from 'react'
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react'
 
 interface ClassifyResult {
+  classifyRunId: string
   importBatchId: string
   labelSpec: { model: string; promptVersionId: string }
   mode: 'stub' | 'real'
@@ -15,6 +16,40 @@ interface ClassifyResult {
     skippedAlreadyLabeled: number
   }
 }
+
+interface ClassifyRunStatus {
+  id: string
+  importBatchId: string
+  labelSpec: { model: string; promptVersionId: string }
+  mode: string
+  status: 'running' | 'succeeded' | 'failed'
+  totals: {
+    messageAtoms: number
+    labeled: number
+    newlyLabeled: number
+    skippedAlreadyLabeled: number
+  }
+  progress: {
+    processedAtoms: number
+    totalAtoms: number
+  }
+  usage: {
+    tokensIn: number | null
+    tokensOut: number | null
+    costUsd: number | null
+  }
+  warnings: {
+    skippedBadOutput: number
+    aliasedCount: number
+  }
+  lastError: unknown
+  createdAt: string
+  updatedAt: string
+  startedAt: string
+  finishedAt: string | null
+}
+
+const POLL_INTERVAL_MS = 1000
 
 interface PromptVersion {
   id: string
@@ -88,6 +123,11 @@ function DashboardContent() {
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
+
+  // Foreground polling state for classify progress
+  const [classifyProgress, setClassifyProgress] = useState<ClassifyRunStatus | null>(null)
+  const pollAbortRef = useRef<AbortController | null>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Last classify stats (persisted, from shared endpoint)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
@@ -183,9 +223,11 @@ function DashboardContent() {
 
   // Update URL when batch selection changes (for shareability)
   function handleBatchSelect(batchId: string) {
+    stopPolling()
     setSelectedBatchId(batchId)
     setClassifyResult(null)
     setClassifyError(null)
+    setClassifyProgress(null)
     setLastClassifyStats(null)
     router.push(`/distill?importBatchId=${batchId}`)
   }
@@ -218,6 +260,68 @@ function DashboardContent() {
     fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
   }, [selectedBatchId, classifyMode, activeClassifyPv, fetchLastClassifyStats])
 
+  // Stop any active polling loop
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+    if (pollAbortRef.current) {
+      pollAbortRef.current.abort()
+      pollAbortRef.current = null
+    }
+  }, [])
+
+  // Start foreground polling for a classify run by ID
+  const startPolling = useCallback((classifyRunId: string) => {
+    stopPolling()
+
+    const scheduleNext = () => {
+      const ac = new AbortController()
+      pollAbortRef.current = ac
+
+      pollTimerRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/distill/classify-runs/${classifyRunId}`, {
+            signal: ac.signal,
+          })
+          if (!res.ok || ac.signal.aborted) return
+
+          const data: ClassifyRunStatus = await res.json()
+          setClassifyProgress(data)
+
+          // Continue polling only if still running
+          if (data.status === 'running') {
+            scheduleNext()
+          } else {
+            // Terminal status reached — refresh last-classify stats
+            setClassifyProgress(null)
+            if (data.importBatchId && data.labelSpec) {
+              fetchLastClassifyStats(
+                data.importBatchId,
+                data.labelSpec.model,
+                data.labelSpec.promptVersionId
+              )
+            }
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          // On network error, retry once more after interval
+          scheduleNext()
+        }
+      }, POLL_INTERVAL_MS)
+    }
+
+    scheduleNext()
+  }, [stopPolling, fetchLastClassifyStats])
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling()
+    }
+  }, [stopPolling])
+
   const handleRefreshLastClassifyStats = useCallback(async () => {
     if (!selectedBatchId || !activeClassifyPv) return
     setRefreshingLastClassifyStats(true)
@@ -235,8 +339,39 @@ function DashboardContent() {
     setClassifying(true)
     setClassifyError(null)
     setClassifyResult(null)
+    setClassifyProgress(null)
 
     const classifyModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
+
+    // Start polling via last-classify to pick up the running ClassifyRun.
+    // We poll last-classify first since we don't have classifyRunId yet.
+    const batchId = selectedBatchId
+    const pvId = activeClassifyPv.id
+    const pollForRunId = () => {
+      const ac = new AbortController()
+      pollAbortRef.current = ac
+      pollTimerRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(
+            `/api/distill/import-batches/${batchId}/last-classify?model=${encodeURIComponent(classifyModel)}&promptVersionId=${encodeURIComponent(pvId)}`,
+            { signal: ac.signal }
+          )
+          if (!res.ok || ac.signal.aborted) return
+          const data: LastClassifyStats = await res.json()
+          if (data.hasStats && data.stats?.status === 'running') {
+            // Show progress from last-classify while we wait for POST to return
+            setLastClassifyStats(data)
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+        }
+        // Continue polling via last-classify until POST returns
+        if (pollAbortRef.current && !pollAbortRef.current.signal.aborted) {
+          pollForRunId()
+        }
+      }, POLL_INTERVAL_MS)
+    }
+    pollForRunId()
 
     try {
       const res = await fetch('/api/distill/classify', {
@@ -249,6 +384,9 @@ function DashboardContent() {
           mode: classifyMode,
         }),
       })
+
+      // POST returned — stop the interim polling
+      stopPolling()
 
       const data = await res.json()
 
@@ -268,9 +406,11 @@ function DashboardContent() {
         classifyRes.labelSpec.promptVersionId
       )
     } catch (err) {
+      stopPolling()
       setClassifyError(err instanceof Error ? err.message : 'Classification failed')
     } finally {
       setClassifying(false)
+      setClassifyProgress(null)
     }
   }
 
@@ -482,6 +622,52 @@ function DashboardContent() {
                 : 'Assigns categories using LLM provider (costs apply)'}
             </span>
           </div>
+
+          {/* Live Classify Progress (foreground polling while classify is running) */}
+          {classifying && lastClassifyStats?.hasStats && lastClassifyStats.stats?.status === 'running' && (
+            <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded text-sm">
+              <div className="mb-2 flex items-center gap-2">
+                <p className="font-medium text-indigo-800">Classify Progress</p>
+                <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-200 text-blue-700">
+                  running
+                </span>
+              </div>
+              <div className="mb-2">
+                <div className="flex justify-between text-indigo-700 text-xs mb-1">
+                  <span>
+                    Processed {lastClassifyStats.stats.processedAtoms} / {lastClassifyStats.stats.totalAtoms}
+                  </span>
+                  <span>
+                    {formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%
+                  </span>
+                </div>
+                <div className="w-full bg-indigo-100 rounded-full h-2">
+                  <div
+                    className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-indigo-700">
+                <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
+                <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
+                {lastClassifyStats.stats.skippedBadOutput > 0 && (
+                  <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
+                )}
+                {lastClassifyStats.stats.aliasedCount > 0 && (
+                  <div>Aliased: {lastClassifyStats.stats.aliasedCount}</div>
+                )}
+                {lastClassifyStats.stats.tokensIn !== null && (
+                  <div>Tokens: {lastClassifyStats.stats.tokensIn.toLocaleString()} in / {(lastClassifyStats.stats.tokensOut ?? 0).toLocaleString()} out</div>
+                )}
+                {lastClassifyStats.stats.costUsd !== null && (
+                  <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Last Classify Stats (persisted) */}
           {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (

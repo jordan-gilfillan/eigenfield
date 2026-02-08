@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Classify progress: `POST /api/distill/classify` now returns `classifyRunId` in response
+- New read-only endpoint: `GET /api/distill/classify-runs/:id` for polling classify progress
+- Foreground polling in dashboard UI: live progress bar + "Processed X / Y" while classify runs
+  - Uses setTimeout loop + AbortController (no setInterval, no background polling)
+  - Stops on terminal status (succeeded/failed) or component unmount
+- Stub mode now checkpoints progress during batch processing
+- 10 new tests for classify progress, classify-runs endpoint shape, and read-only verification (582 total)
+
 ### Changed
 - Docs: clarify PromptVersion mode selection rules (isActive is default only; real mode rejects stub prompt) + stats requirements (aggregate tokens/cost, last classify totals)
 

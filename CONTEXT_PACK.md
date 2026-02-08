@@ -17,7 +17,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- Current test count: 554 passing.
+- Current test count: 582 passing (576 excluding pre-existing search FTS column issue).
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -40,6 +40,11 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
   - PR-3b.2 complete: OpenAI + Anthropic provider SDKs — `callLlm()` real mode routes to provider modules, returns actual token counts, computes `costUsd` via pricing book; `LlmProviderError` for SDK errors; 49 new tests
 - Phase 4b Real Summarization:
   - PR-4b complete: Real LLM summarization during tick — non-stub models call `callLlm()` via provider SDKs, LLM error handling (LlmProviderError→retriable, BudgetExceededError→not retriable, MissingApiKeyError→not retriable), partial segment failure captures partial tokens/cost, UTC date formatting fix in formatDate(); 14 new tests
+- Classify Progress + Foreground Polling:
+  - `POST /classify` returns `classifyRunId` in response
+  - `GET /api/distill/classify-runs/:id` — read-only status endpoint for polling
+  - Dashboard foreground polling: setTimeout loop + AbortController, live progress bar
+  - Stub mode checkpointing added; 10 new tests
 
 ## Dashboard: running real classification from UI
 
