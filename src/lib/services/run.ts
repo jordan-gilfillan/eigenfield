@@ -14,6 +14,9 @@ import type { PricingSnapshot } from '../llm'
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
 
+/** Default classifier model per SPEC §7.3 (v0.3 default) */
+const DEFAULT_CLASSIFY_MODEL = 'stub_v1'
+
 export interface CreateRunOptions {
   importBatchId: string
   startDate: string // YYYY-MM-DD
@@ -22,8 +25,8 @@ export interface CreateRunOptions {
   filterProfileId: string
   /** LLM model for summarization */
   model: string
-  /** Label spec used for filtering */
-  labelSpec: {
+  /** Label spec used for filtering (optional; server selects default if omitted) */
+  labelSpec?: {
     model: string
     promptVersionId: string
   }
@@ -71,7 +74,6 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     sources,
     filterProfileId,
     model,
-    labelSpec,
     maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
   } = options
 
@@ -102,12 +104,33 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     throw new Error('No active summarize prompt version found')
   }
 
-  // 4. Verify labelSpec.promptVersionId exists
-  const classifyPromptVersion = await prisma.promptVersion.findUnique({
-    where: { id: labelSpec.promptVersionId },
-  })
-  if (!classifyPromptVersion) {
-    throw new Error(`LabelSpec promptVersionId not found: ${labelSpec.promptVersionId}`)
+  // 4. Resolve labelSpec: use provided or select default per SPEC §7.3
+  let labelSpec: { model: string; promptVersionId: string }
+  if (options.labelSpec) {
+    // Verify provided labelSpec.promptVersionId exists
+    const classifyPromptVersion = await prisma.promptVersion.findUnique({
+      where: { id: options.labelSpec.promptVersionId },
+    })
+    if (!classifyPromptVersion) {
+      throw new Error(`LabelSpec promptVersionId not found: ${options.labelSpec.promptVersionId}`)
+    }
+    labelSpec = options.labelSpec
+  } else {
+    // Default: active classify PromptVersion + default classifier model (stub_v1)
+    const activeClassifyVersion = await prisma.promptVersion.findFirst({
+      where: {
+        isActive: true,
+        prompt: { stage: 'CLASSIFY' },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!activeClassifyVersion) {
+      throw new Error('No active classify prompt version found')
+    }
+    labelSpec = {
+      model: DEFAULT_CLASSIFY_MODEL,
+      promptVersionId: activeClassifyVersion.id,
+    }
   }
 
   // 5. Determine eligible days

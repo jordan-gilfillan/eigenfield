@@ -20,7 +20,7 @@ interface CreateRunRequest {
   sources: string[]
   filterProfileId: string
   model: string
-  labelSpec: {
+  labelSpec?: {
     model: string
     promptVersionId: string
   }
@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
     if (!body.model) {
       return errors.invalidInput('model is required')
     }
-    if (!body.labelSpec || !body.labelSpec.model || !body.labelSpec.promptVersionId) {
-      return errors.invalidInput('labelSpec with model and promptVersionId is required')
+    // If labelSpec is provided, both fields are required
+    if (body.labelSpec && (!body.labelSpec.model || !body.labelSpec.promptVersionId)) {
+      return errors.invalidInput('labelSpec must include both model and promptVersionId')
     }
 
     // Validate date format
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest) {
       sources: body.sources.map((s) => s.toLowerCase()),
       filterProfileId: body.filterProfileId,
       model: body.model,
-      labelSpec: body.labelSpec,
+      ...(body.labelSpec ? { labelSpec: body.labelSpec } : {}),
       maxInputTokens: body.maxInputTokens,
     })
 
@@ -103,6 +104,9 @@ export async function POST(request: NextRequest) {
       }
       if (error.message.includes('No active summarize prompt')) {
         return errors.invalidInput('No active summarize prompt version configured')
+      }
+      if (error.message.includes('No active classify prompt')) {
+        return errors.invalidInput('No active classify prompt version configured')
       }
       if (error.message.includes('NO_ELIGIBLE_DAYS')) {
         return NextResponse.json(

@@ -293,6 +293,45 @@ describe('run service', () => {
       ).rejects.toThrow('LabelSpec promptVersionId not found')
     })
 
+    it('selects default labelSpec when omitted (SPEC §7.3)', async () => {
+      // Determine which active classify version the server will select
+      // (same query as createRun default path)
+      const expectedDefault = await prisma.promptVersion.findFirst({
+        where: { isActive: true, prompt: { stage: 'CLASSIFY' } },
+        orderBy: { createdAt: 'desc' },
+      })
+      expect(expectedDefault).not.toBeNull()
+
+      // Ensure labels exist for the version the server will pick
+      if (expectedDefault!.id !== testClassifyPromptVersionId) {
+        await prisma.messageLabel.updateMany({
+          where: { messageAtom: { importBatchId: testImportBatchId } },
+          data: { promptVersionId: expectedDefault!.id },
+        })
+      }
+
+      // Call createRun without labelSpec — server should pick default
+      const result = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'stub_summarizer_v1',
+        // labelSpec intentionally omitted
+      })
+
+      expect(result.id).toBeDefined()
+      expect(result.status).toBe('queued')
+      expect(result.jobCount).toBe(2)
+
+      // Verify server-selected default labelSpec is persisted
+      expect(result.config.labelSpec).toEqual({
+        model: 'stub_v1',
+        promptVersionId: expectedDefault!.id,
+      })
+    })
+
     it('throws NO_ELIGIBLE_DAYS when filter excludes all days', async () => {
       // Update only labels for this test's atoms to WORK (which is excluded by our filter)
       await prisma.messageLabel.updateMany({
