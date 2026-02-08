@@ -264,7 +264,8 @@ Each entry has:
 - **Planned PR**: `docs/ux-spec-status`
 - **Acceptance checks**:
   - Each UX-8.x item has an explicit status
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added roadmap disclaimer blockquote to Section 8 header ("Roadmap, not commitment") and explicit `**Status**: Not started` marker to each UX-8.x item (UX-8.1 through UX-8.8). Promoted UX-8.x headings from `##` to `###` for consistent hierarchy. All 605 tests pass.
 
 ### AUD-015 — Shared distill shell/nav not implemented (no `src/app/distill/layout.tsx`)
 - **Source**: Claude #10 (LOW); Codex (MEDIUM)

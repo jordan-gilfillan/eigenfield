@@ -241,30 +241,40 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 
 ## 8) Incremental PR Plan
 
-## UX-8.1 Distill Shell + Navigation
+> **Roadmap, not commitment.** The items below are planned UX improvements listed in suggested delivery order. None are binding until work begins. Each item will be updated with a status marker as it progresses.
+
+### UX-8.1 Distill Shell + Navigation
 - Add shared distill layout with persistent nav and active tab state.
 - Independently useful: immediate orientation and consistency.
+- **Status**: Not started
 
-## UX-8.2 Shared State Components
+### UX-8.2 Shared State Components
 - Introduce shared alert/empty/loading/next-action components.
 - Independently useful: consistent error and empty handling everywhere.
+- **Status**: Not started
 
-## UX-8.3 Dashboard IA Pass
+### UX-8.3 Dashboard IA Pass
 - Recompose dashboard into primary flow + status/context column.
 - Fix create-run gating to persisted classify status.
+- **Status**: Not started
 
-## UX-8.4 Dashboard Progress Surface
+### UX-8.4 Dashboard Progress Surface
 - Add standardized progress panel for classify status with manual refresh and percent.
+- **Status**: Not started
 
-## UX-8.5 Search Readability Pass
+### UX-8.5 Search Readability Pass
 - Improve scope-change affordance, metadata hierarchy, and retry UX.
+- **Status**: Not started
 
-## UX-8.6 Import Inspector Orientation Pass
+### UX-8.6 Import Inspector Orientation Pass
 - Add context bar, better filter controls, and stronger empty-state recovery.
+- **Status**: Not started
 
-## UX-8.7 Run Detail Task-Focus Pass
+### UX-8.7 Run Detail Task-Focus Pass
 - Add top status rail and progressive disclosure for heavy job inspectors.
+- **Status**: Not started
 
-## UX-8.8 Foreground Progress Hook
+### UX-8.8 Foreground Progress Hook
 - Add reusable foreground polling hook (read-only status endpoints, abort-safe lifecycle).
 - Wire only where explicitly enabled in UI.
+- **Status**: Not started
