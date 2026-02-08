@@ -268,10 +268,9 @@ Per spec 9.2:
 
 **Step 7: Read Endpoints**
 - `GET /api/distill/runs` — list runs (paginated, filterable by importBatchId)
-- `GET /api/distill/runs/:runId` — get single run with config and progress
-- `GET /api/distill/runs/:runId/jobs` — list jobs for run (paginated)
-- `GET /api/distill/runs/:runId/jobs/:dayDate` — get single job with outputs
-- `GET /api/distill/outputs/:id` — get single output by ID
+- `GET /api/distill/runs/:runId` — get single run with config, progress, and embedded jobs array
+- `GET /api/distill/runs/:runId/jobs/:dayDate/output` — get output for a specific day's job
+- `GET /api/distill/runs/:runId/jobs/:dayDate/input` — get input bundle for a specific day
 
 **Deliverables:**
 - [ ] Run creation endpoint
@@ -295,8 +294,6 @@ Per spec 9.2:
 
 Goal: make the system operable and debuggable end-to-end without adding new backend dependencies.
 
-```
-
 **Status:** ✅ Complete (PR-5.1 through PR-5.5)
 
 Completed PRs:
@@ -308,7 +305,6 @@ Completed PRs:
 
 Notes:
 - UI invariants held throughout: no background polling loops, no setInterval, sequential tick only, buttons map 1:1 to API calls, frozen config displayed exactly as stored.
-```
 
 UI invariants (non-negotiable):
 - No background polling loops. Tick is user-driven.

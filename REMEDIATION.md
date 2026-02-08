@@ -249,7 +249,8 @@ Each entry has:
 - **Acceptance checks**:
   - Markdown renders correctly
   - Endpoint list matches implemented API surface
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Removed stray code fence (` ``` `) wrapping Phase 5 status/PR list so it renders as formatted markdown. Updated Phase 4 Step 7 endpoint list to match implemented API: removed 3 non-existent endpoints (`/runs/:runId/jobs`, `/runs/:runId/jobs/:dayDate`, `/outputs/:id`) and replaced with actual routes (jobs embedded in run detail, `/jobs/:dayDate/output`, `/jobs/:dayDate/input`).
 
 ---
 
