@@ -89,7 +89,8 @@ Each entry has:
 - **Acceptance checks**:
   - Concurrency test: two ticks contend; only one enters critical section
   - Lock released on error paths
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced Prisma `$queryRawUnsafe` with a dedicated `pg.Pool` for advisory lock operations, guaranteeing same-session acquire/release. Added concurrency contention test (two `withLock` callers on same runId; second gets `TICK_IN_PROGRESS`) and error-path release test. Also configured vitest to load `.env` via `loadEnv` so the `pg` Pool can read `DATABASE_URL`. All 592 tests pass.
 
 ### AUD-003 — Run totals exclude partial tokens/cost from failed jobs
 - **Source**: Codex (HIGH)
