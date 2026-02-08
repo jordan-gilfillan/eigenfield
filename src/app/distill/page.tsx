@@ -468,12 +468,6 @@ function DashboardContent() {
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <Link href="/" className="text-blue-600 hover:underline">
-          &larr; Home
-        </Link>
-      </div>
-
       <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
 
       {/* Import Batch Selector */}

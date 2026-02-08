@@ -103,12 +103,6 @@ export default function ImportPage() {
 
   return (
     <main className="min-h-screen p-8 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <Link href="/" className="text-blue-600 hover:underline">
-          &larr; Home
-        </Link>
-      </div>
-
       <h1 className="text-3xl font-bold mb-6">Import Conversations</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">

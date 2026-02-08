@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { OutputViewer } from './components/OutputViewer'
@@ -277,11 +276,6 @@ export default function RunDetailPage() {
   if (loadingState === 'error' || !run) {
     return (
       <main className="min-h-screen p-8 max-w-6xl mx-auto">
-        <div className="mb-8">
-          <Link href="/distill" className="text-blue-600 hover:underline">
-            &larr; Dashboard
-          </Link>
-        </div>
         <div className="p-4 bg-red-50 border border-red-200 rounded-md">
           <p className="text-red-700">{error || 'Run not found'}</p>
         </div>
@@ -291,12 +285,6 @@ export default function RunDetailPage() {
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <Link href="/distill" className="text-blue-600 hover:underline">
-          &larr; Dashboard
-        </Link>
-      </div>
-
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Run Detail</h1>
