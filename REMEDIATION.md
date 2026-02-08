@@ -179,7 +179,8 @@ Each entry has:
 - **Planned PR**: `docs/glossary-grok-format`
 - **Acceptance checks**:
   - GLOSSARY matches parser + MEMORY/CHANGELOG
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Rewrote the Grok Export section in GLOSSARY.md to match the actual parser structure: top-level object with nested `conversations` → `conversation`/`responses` wrappers, MongoDB extended JSON timestamps (`{ $date: { $numberLong } }`), and correct field names (`_id`, `message`, `sender`). Matches parser code, MEMORY.md, and CHANGELOG.md.
 
 ### AUD-009 — GLOSSARY: Claude format description ambiguous
 - **Source**: Claude #2 (MEDIUM)
