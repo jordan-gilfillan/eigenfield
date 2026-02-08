@@ -143,22 +143,28 @@ function DashboardContent() {
   const [creatingRun, setCreatingRun] = useState(false)
   const [createRunError, setCreateRunError] = useState<string | null>(null)
 
+  // Data load error (batches, prompt versions, filter profiles)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   // Fetch import batches on mount
   useEffect(() => {
     async function fetchBatches() {
       try {
         const res = await fetch('/api/distill/import-batches?limit=50')
-        if (res.ok) {
-          const data = await res.json()
-          setImportBatches(data.items || [])
-
-          // Auto-select latest batch if none specified in URL
-          if (!importBatchIdFromUrl && data.items?.length > 0) {
-            setSelectedBatchId(data.items[0].id)
-          }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setLoadError(data.error?.message || `Failed to load import batches (${res.status})`)
+          return
         }
-      } catch {
-        // Silently fail
+        const data = await res.json()
+        setImportBatches(data.items || [])
+
+        // Auto-select latest batch if none specified in URL
+        if (!importBatchIdFromUrl && data.items?.length > 0) {
+          setSelectedBatchId(data.items[0].id)
+        }
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load import batches')
       } finally {
         setLoadingBatches(false)
       }
@@ -174,14 +180,18 @@ function DashboardContent() {
           fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_stub_v1'),
           fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_real_v1'),
         ])
+        if (!stubRes.ok && !realRes.ok) {
+          setLoadError(`Failed to load prompt versions (${stubRes.status})`)
+          return
+        }
         const stubData = stubRes.ok ? await stubRes.json() : {}
         const realData = realRes.ok ? await realRes.json() : {}
         setClassifyPromptVersions({
           stub: stubData.promptVersion ?? null,
           real: realData.promptVersion ?? null,
         })
-      } catch {
-        // Silently fail
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load prompt versions')
       }
     }
     fetchPromptVersions()
@@ -192,19 +202,22 @@ function DashboardContent() {
     async function fetchProfiles() {
       try {
         const res = await fetch('/api/distill/filter-profiles')
-        if (res.ok) {
-          const data = await res.json()
-          setFilterProfiles(data.items || [])
-          // Auto-select professional-only as default
-          const defaultProfile = data.items?.find((p: FilterProfile) => p.name === 'professional-only')
-          if (defaultProfile) {
-            setSelectedFilterProfileId(defaultProfile.id)
-          } else if (data.items?.length > 0) {
-            setSelectedFilterProfileId(data.items[0].id)
-          }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setLoadError(data.error?.message || `Failed to load filter profiles (${res.status})`)
+          return
         }
-      } catch {
-        // Silently fail
+        const data = await res.json()
+        setFilterProfiles(data.items || [])
+        // Auto-select professional-only as default
+        const defaultProfile = data.items?.find((p: FilterProfile) => p.name === 'professional-only')
+        if (defaultProfile) {
+          setSelectedFilterProfileId(defaultProfile.id)
+        } else if (data.items?.length > 0) {
+          setSelectedFilterProfileId(data.items[0].id)
+        }
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load filter profiles')
       }
     }
     fetchProfiles()
@@ -235,18 +248,25 @@ function DashboardContent() {
   // Derive the prompt version for the selected mode
   const activeClassifyPv = classifyPromptVersions[classifyMode]
 
+  // Last classify stats error (contextual, separate from initial load errors)
+  const [lastClassifyStatsError, setLastClassifyStatsError] = useState<string | null>(null)
+
   // Fetch last classify stats for the selected batch + labelSpec
   const fetchLastClassifyStats = useCallback(async (batchId: string, labelModel: string, pvId: string) => {
+    setLastClassifyStatsError(null)
     try {
       const res = await fetch(
         `/api/distill/import-batches/${batchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(pvId)}`
       )
-      if (res.ok) {
-        const data: LastClassifyStats = await res.json()
-        setLastClassifyStats(data)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setLastClassifyStatsError(data.error?.message || `Failed to load classify stats (${res.status})`)
+        return
       }
-    } catch {
-      // Silently fail
+      const data: LastClassifyStats = await res.json()
+      setLastClassifyStats(data)
+    } catch (err) {
+      setLastClassifyStatsError(err instanceof Error ? err.message : 'Failed to load classify stats')
     }
   }, [])
 
@@ -469,6 +489,13 @@ function DashboardContent() {
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+
+      {loadError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-700 font-medium">Failed to load data</p>
+          <p className="text-red-600 text-sm mt-1">{loadError}</p>
+        </div>
+      )}
 
       {/* Import Batch Selector */}
       <div className="mb-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
@@ -720,6 +747,11 @@ function DashboardContent() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {lastClassifyStatsError && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+              <p className="text-red-700 text-sm">{lastClassifyStatsError}</p>
             </div>
           )}
           {lastClassifyStats && !lastClassifyStats.hasStats && (

@@ -134,6 +134,7 @@ export default function RunDetailPage() {
   // Last classify stats (same shared endpoint as dashboard)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
   const [refreshingClassifyStats, setRefreshingClassifyStats] = useState(false)
+  const [classifyStatsError, setClassifyStatsError] = useState<string | null>(null)
 
   const fetchRun = useCallback(async () => {
     try {
@@ -164,16 +165,20 @@ export default function RunDetailPage() {
     const labelSpec = run.config.labelSpec
     if (!labelSpec?.model || !labelSpec?.promptVersionId) return
 
+    setClassifyStatsError(null)
     try {
       const res = await fetch(
         `/api/distill/import-batches/${run.importBatchId}/last-classify?model=${encodeURIComponent(labelSpec.model)}&promptVersionId=${encodeURIComponent(labelSpec.promptVersionId)}`
       )
-      if (res.ok) {
-        const data: LastClassifyStats = await res.json()
-        setLastClassifyStats(data)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setClassifyStatsError(data.error?.message || `Failed to load classify stats (${res.status})`)
+        return
       }
-    } catch {
-      // Silently fail
+      const data: LastClassifyStats = await res.json()
+      setLastClassifyStats(data)
+    } catch (err) {
+      setClassifyStatsError(err instanceof Error ? err.message : 'Failed to load classify stats')
     }
   }, [run])
 
@@ -412,6 +417,11 @@ export default function RunDetailPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+      {classifyStatsError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-700 text-sm">{classifyStatsError}</p>
         </div>
       )}
       {lastClassifyStats && !lastClassifyStats.hasStats && (
