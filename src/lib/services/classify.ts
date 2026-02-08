@@ -85,6 +85,7 @@ export interface ClassifyOptions {
 }
 
 export interface ClassifyResult {
+  classifyRunId: string
   importBatchId: string
   labelSpec: {
     model: string
@@ -523,6 +524,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   try {
     if (totalAtoms === 0) {
       const result: ClassifyResult = {
+        classifyRunId: classifyRun.id,
         importBatchId,
         labelSpec: { model, promptVersionId },
         mode,
@@ -555,6 +557,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     // If all atoms already labeled, skip processing but still finalize the audit row.
     if (existingLabelCount >= totalAtoms) {
       const result: ClassifyResult = {
+        classifyRunId: classifyRun.id,
         importBatchId,
         labelSpec: { model, promptVersionId },
         mode,
@@ -587,7 +590,16 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     // Dispatch to mode-specific implementation
     let result: ClassifyResult
     if (mode === 'stub') {
-      result = await classifyBatchStub(importBatchId, model, promptVersionId, totalAtoms, progress)
+      result = await classifyBatchStub(
+        classifyRun.id,
+        importBatchId,
+        model,
+        promptVersionId,
+        totalAtoms,
+        existingLabelCount,
+        progress,
+        checkpointState,
+      )
     } else {
       result = await classifyBatchReal(
         classifyRun.id,
@@ -664,11 +676,14 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
  * Stub classification: deterministic categories based on atomStableId hash.
  */
 async function classifyBatchStub(
+  classifyRunId: string,
   importBatchId: string,
   model: string,
   promptVersionId: string,
   totalAtoms: number,
+  existingLabelCount: number,
   progress: ClassifyProgress,
+  checkpointState: CheckpointState,
 ): Promise<ClassifyResult> {
   let cursor: string | undefined
 
@@ -706,12 +721,22 @@ async function classifyBatchStub(
     progress.lastAtomStableIdProcessed = atomsBatch[atomsBatch.length - 1].atomStableId
     cursor = atomsBatch[atomsBatch.length - 1].id
 
+    await maybeCheckpointClassifyRun(
+      classifyRunId,
+      'stub',
+      totalAtoms,
+      existingLabelCount,
+      progress,
+      checkpointState,
+    )
+
     if (atomsBatch.length < BATCH_SIZE) break
   }
 
   const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   return {
+    classifyRunId,
     importBatchId,
     labelSpec: { model, promptVersionId },
     mode: 'stub',
@@ -873,6 +898,7 @@ async function classifyBatchReal(
   const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   return {
+    classifyRunId,
     importBatchId,
     labelSpec: { model, promptVersionId },
     mode: 'real',
