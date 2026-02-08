@@ -185,6 +185,24 @@ afterAll(async () => {
 })
 
 describe('Search Service', () => {
+  it('database has required FTS columns', async () => {
+    const rows = await prisma.$queryRaw<Array<{ table_name: string; column_name: string }>>`
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND (
+          (table_name = 'message_atoms' AND column_name = 'text_search')
+          OR (table_name = 'outputs' AND column_name = 'output_text_search')
+        )
+      ORDER BY table_name, column_name
+    `
+
+    expect(rows).toEqual([
+      { table_name: 'message_atoms', column_name: 'text_search' },
+      { table_name: 'outputs', column_name: 'output_text_search' },
+    ])
+  })
+
   describe('raw scope (MessageAtoms)', () => {
     it('finds atoms matching search query', async () => {
       const result = await search({
