@@ -826,7 +826,7 @@ Implementation:
   - MessageAtom.text
   - Output.outputText
 
-- GET `/api/distill/search?q=...&scope=raw|outputs|both&importBatchId=...&runId=...&startDate=...&endDate=...&sources=...&categories=...&limit=...&cursor=...`
+- GET `/api/distill/search?q=...&scope=raw|outputs&importBatchId=...&runId=...&startDate=...&endDate=...&sources=...&categories=...&limit=...&cursor=...`
 - Returns:
   - resultType (atom|output)
   - stable reference (atomStableId or {runId, dayDate, stage})

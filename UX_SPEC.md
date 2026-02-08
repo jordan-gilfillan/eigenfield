@@ -205,7 +205,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Start polling only when page is visible and operation is non-terminal.
 - [ ] Use `setTimeout` + `AbortController`, abort previous request before next tick.
 - [ ] Stop on unmount, on terminal status, or when user disables auto-refresh.
-- [ ] Minimum interval: 2s; default 3-5s; no concurrent requests.
+- [ ] Interval: 750–1500 ms (or exponential backoff); no concurrent requests. *(Aligned with SPEC §4.6; code uses 1 000 ms.)*
 
 ---
 
