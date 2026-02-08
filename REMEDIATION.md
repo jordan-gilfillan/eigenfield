@@ -117,7 +117,8 @@ Each entry has:
 - **Planned PR**: `fix/search-atom-metadata`
 - **Acceptance checks**:
   - Integration test: classify fixture → search → atoms include `category` + `confidence` as specified
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added label context resolution to `searchRaw()` via LEFT JOIN to `message_labels`. Label context is derived from explicit `labelModel`+`labelPromptVersionId` query params (precedence) or from the Run's `config.labelSpec` when `runId` is provided, per SPEC §7.9 rules. Route handler passes new params through. Added 4 integration tests covering: label context via explicit params, null without context, resolution from runId, and explicit-params-take-precedence. All 596 tests pass.
 
 ### AUD-005 — Run creation incorrectly requires labelSpec
 - **Source**: Codex (HIGH)
