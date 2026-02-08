@@ -53,9 +53,9 @@ export async function GET(
       progress[key] = count._count
     }
 
-    // Get token/cost totals from completed jobs
+    // Get token/cost totals from all jobs (includes partial usage from failed jobs per SPEC §11.4)
     const totals = await prisma.job.aggregate({
-      where: { runId, status: 'SUCCEEDED' },
+      where: { runId },
       _sum: {
         tokensIn: true,
         tokensOut: true,
