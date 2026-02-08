@@ -148,7 +148,8 @@ Each entry has:
 - **Acceptance checks**:
   - SPEC + schema + validators agree
   - If implemented: tests cover cancellation transitions
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Aligned spec to code by removing `cancelled` from ClassifyRun.status in SPEC.md (now `running|succeeded|failed`). Schema comment already listed only 3 values. Added `CLASSIFY_RUN_STATUS_VALUES` type array and `isClassifyRunStatus()` type guard to `enums.ts`. Added 4 unit tests verifying the valid values, exclusion of `cancelled`, and type guard behavior. All 601 tests pass.
 
 ### AUD-007 — Seed violates “exactly one active PromptVersion per stage (classify)”
 - **Source**: Codex (MEDIUM)
