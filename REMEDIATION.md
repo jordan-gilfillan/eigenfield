@@ -131,7 +131,8 @@ Each entry has:
 - **Planned PR**: `fix/run-create-default-labelspec`
 - **Acceptance checks**:
   - API test: create run without labelSpec succeeds and persists selected default
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Made `labelSpec` optional in both the route handler (`CreateRunRequest`) and the service (`CreateRunOptions`). When omitted, `createRun()` selects the default per SPEC §7.3: active CLASSIFY PromptVersion (most recently created) + default classifier model `stub_v1`. Route handler validates partial labelSpec (must include both fields if provided). Added integration test confirming run creation without labelSpec succeeds and persists the server-selected default. All 597 tests pass.
 
 ### AUD-006 — Prisma vs SPEC mismatch: `ClassifyRun.status` includes `cancelled`
 - **Source**: Claude #4 (HIGH)
