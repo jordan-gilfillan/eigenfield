@@ -193,7 +193,8 @@ Each entry has:
 - **Planned PR**: `docs/glossary-claude-format`
 - **Acceptance checks**:
   - GLOSSARY explicitly states “top-level JSON array of conversation objects”
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Rewrote the Claude Export section in GLOSSARY.md to explicitly state "top-level JSON array of conversation objects (not wrapped in `{ conversations: [...] }`)" with a full JSON example showing the structure, matching the parser code (`claude.ts` checks `Array.isArray(data)`), MEMORY.md, and CHANGELOG.md.
 
 ### AUD-010 — GLOSSARY: Error codes table incomplete
 - **Source**: Claude #3 (MEDIUM)
