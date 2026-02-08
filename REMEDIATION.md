@@ -235,7 +235,8 @@ Each entry has:
 - **Planned PR**: `docs/context-pack-fts-note`
 - **Acceptance checks**:
   - Note references AUD-001 and is numerically consistent
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added historical note to CONTEXT_PACK.md (line 22) explaining the "576 excluding FTS" caveat: 16 search tests failed due to missing tsvector columns, resolved by AUD-001's repair migration. Note references AUD-001 by ID and is numerically consistent (576 + 16 failures = 592 at the time; now 605 with all search tests passing).
 
 ### AUD-013 — EXECUTION_PLAN: broken markdown fence; and read endpoints drift
 - **Source**: Claude #7 (LOW), #8 (INFO); Codex (LOW)
