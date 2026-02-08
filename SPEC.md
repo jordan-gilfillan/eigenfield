@@ -35,7 +35,7 @@ This stays aligned with the original motivation: multi-source ingestion, prompt 
 Explicitly out of scope:
 - Authentication / multi-user tenancy
 - Background job queues (BullMQ/Redis), cron, or serverless scheduling (tick loop only)
-- WebSockets / SSE (polling/streaming upgrades). v0.3 uses request/response + optional foreground polling only.
+- WebSockets / SSE (polling only)
 - Mirror QA retrieval UI, embeddings visualization, vector search
 - Cloud storage (S3/GCS). Local upload → DB only
 - Full export-format compatibility guarantees for every version of every product
@@ -137,16 +137,6 @@ These are the “physics laws.” Breaking them requires a spec change + explici
 ### 4.5 Bounded concurrency
 - Default processing: **1 job per tick**.
 - UI polling must be sequential (wait for tick response before next tick).
-
-### 4.6 Foreground polling (allowed) vs background polling (forbidden)
-- **Background polling is forbidden**: no always-on refresh loops, no hidden timers that run when the user is not actively viewing an in-progress operation.
-- **Foreground polling is allowed** only for user-initiated, long-running operations (e.g., classify/run progress) **while the relevant page is open**.
-- Foreground polling MUST:
-  - use `setTimeout` (NOT `setInterval`)
-  - cancel in-flight requests via `AbortController`
-  - stop immediately on terminal status (succeeded/failed/cancelled) or on navigation/unmount
-  - poll **read-only status endpoints** that do not trigger work
-  - use an interval in the 750–1500ms range (or exponential backoff)
 
 ---
 
@@ -407,7 +397,7 @@ UI must include a **“Use this import”** CTA that routes to `/distill` with t
 ### 7.2 Classify (if not auto-run)
 POST `/api/distill/classify`
 - Input: `{ importBatchId, model, promptVersionId, mode: real|stub }`
-- Output: classifyRunId + counts (and optional progress when available; see 7.2.1).
+- Output: progress + counts
 
 **PromptVersion selection (normative):**
 - `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
@@ -415,40 +405,6 @@ POST `/api/distill/classify`
 - `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server MAY ignore `promptVersionId` in stub mode, but if it is recorded in labels it MUST reference the seeded `classify_stub_v1` PromptVersion.
 
 Stub mode must be deterministic for tests.
-
-### 7.2.1 Classify progress + stats (v0.3)
-Classification may be long-running in real mode. v0.3 supports progress visibility without background polling.
-
-Normative behavior:
-- The server MUST create a durable `ClassifyRun` record for each successful classify request.
-- The server SHOULD update progress fields during execution (batching DB writes every N atoms to avoid write amplification).
-- The UI MAY use **foreground polling** (per 4.6) to fetch status while the user is viewing the page.
-
-Endpoints:
-- `POST /api/distill/classify` returns `classifyRunId`.
-- `GET /api/distill/classify-runs/:id` returns progress/status for that classify run.
-
-`ClassifyRun.status` is: `running|succeeded|failed|cancelled`.
-
-Status endpoint response (normative):
-```json
-{
-  "id": "string",
-  "importBatchId": "string",
-  "labelSpec": {"model": "string", "promptVersionId": "string"},
-  "mode": "real|stub",
-  "status": "running|succeeded|failed|cancelled",
-  "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
-  "progress": {"processedAtoms": 0, "totalAtoms": 0, "skippedBadOutput": 0, "aliasedCount": 0},
-  "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},
-  "createdAt": "RFC3339",
-  "updatedAt": "RFC3339",
-  "lastError": null
-}
-```
-Notes:
-- `progress` and `usage` MAY be partial while `status="running"`.
-- The status endpoint MUST be read-only and MUST NOT trigger classification work.
 
 **Deterministic stub algorithm (stub_v1):**
 - For each MessageAtom, compute `h = sha256(atomStableId)`.
@@ -525,7 +481,7 @@ Must show:
 Goal: make the system operable and debuggable end-to-end without adding new backend dependencies.
 
 UI invariants (non-negotiable):
-- No background polling loops. Tick is user-driven. Foreground polling is allowed only for progress/status visibility (see 4.6).
+- No background polling loops. Tick is user-driven.
 - No overlapping tick requests. The UI MUST await each tick response before sending the next.
 - No “magic” side effects: buttons map 1:1 to API calls (import, classify, create run, tick, cancel, resume, reset).
 - The UI must surface the frozen run config snapshot exactly as stored (no recomputation).
@@ -638,7 +594,6 @@ Returns:
 
 ```json
 {
-  "classifyRunId": "string",
   "importBatchId": "string",
   "labelSpec": {"model": "string", "promptVersionId": "string"},
   "mode": "real|stub",
