@@ -207,7 +207,8 @@ Each entry has:
 - **Planned PR**: `docs/error-codes-table`
 - **Acceptance checks**:
   - Table includes all codes and maps to HTTP status + layer
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Expanded GLOSSARY.md error codes table from 5 entries to 17, organized by layer (API, Run/domain, LLM). Each code maps to its HTTP status and meaning. Covers all codes from `api-utils.ts`, route handlers, and `llm/errors.ts`.
 
 ### AUD-011 — Test count mismatch across docs (582 vs actual 592)
 - **Source**: Claude #5 (HIGH)

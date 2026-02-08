@@ -241,10 +241,36 @@ Sender is case-insensitive (`"ASSISTANT"` treated as `"assistant"`). Timestamps 
 
 ## Error Codes
 
+All API errors follow the shape `{ error: { code, message, details? } }`.
+
+### API layer (`api-utils.ts`)
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `INVALID_INPUT` | 400 | Request validation failed |
+| `NOT_FOUND` | 404 | Resource doesn't exist |
+| `UNSUPPORTED_FORMAT` | 400 | No parser matches the input format |
+| `AMBIGUOUS_FORMAT` | 400 | Multiple parsers match the input format |
+| `NOT_IMPLEMENTED` | 501 | Feature not yet implemented |
+| `INTERNAL` | 500 | Unexpected server error |
+
+### Run / domain layer (route handlers)
+
 | Code | HTTP | Meaning |
 |------|------|---------|
 | `NO_ELIGIBLE_DAYS` | 400 | Filter/date range matched zero days |
-| `INVALID_INPUT` | 400 | Request validation failed |
-| `NOT_FOUND` | 404 | Resource doesn't exist |
-| `TICK_IN_PROGRESS` | 409 | Another tick is already running |
-| `INTERNAL` | 500 | Unexpected server error |
+| `TICK_IN_PROGRESS` | 409 | Another tick is already running for this run |
+| `ALREADY_COMPLETED` | 400 | Cannot cancel a completed run |
+| `CANNOT_RESUME_CANCELLED` | 400 | Cancelled runs cannot be resumed |
+| `CANNOT_RESET_CANCELLED` | 400 | Cannot reset jobs in a cancelled run |
+
+### LLM layer (`llm/errors.ts`)
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `BUDGET_EXCEEDED` | 402 | Budget limit exceeded |
+| `LLM_BAD_OUTPUT` | 502 | Model returned unparseable/invalid output |
+| `UNKNOWN_MODEL_PRICING` | 400 | No pricing data for provider+model |
+| `MISSING_API_KEY` | 500 | API key not configured for provider |
+| `PROVIDER_NOT_IMPLEMENTED` | 500 | Provider not yet implemented |
+| `LLM_PROVIDER_ERROR` | 500 | SDK/API error from upstream provider |
