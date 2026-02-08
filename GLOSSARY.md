@@ -195,7 +195,26 @@ List endpoints use cursor-based pagination:
 JSON with `conversations` array, each containing `mapping` with message nodes.
 
 ### Claude Export
-JSON with `conversations` array, each containing `chat_messages` with sender/text.
+Top-level JSON array of conversation objects (not wrapped in `{ conversations: [...] }`). Each object has `uuid`, `name`, `created_at`, `updated_at`, and a `chat_messages` array of messages with `uuid`, `text`, `sender` (`"human"` or `"assistant"`), and `created_at`:
+```json
+[
+  {
+    "uuid": "conv-id",
+    "name": "Title",
+    "created_at": "ISO 8601",
+    "updated_at": "ISO 8601",
+    "chat_messages": [
+      {
+        "uuid": "msg-id",
+        "text": "content",
+        "sender": "human" | "assistant",
+        "created_at": "ISO 8601"
+      }
+    ]
+  }
+]
+```
+Sender `"human"` maps to role `"user"`. Timestamps may include microsecond precision or timezone offsets.
 
 ### Grok Export
 Top-level JSON object (not an array) with a `conversations` array. Each element wraps a `conversation` metadata object and a `responses` array of message wrappers:
