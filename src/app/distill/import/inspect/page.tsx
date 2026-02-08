@@ -325,10 +325,6 @@ function InspectorContent() {
   if (!batchId) {
     return (
       <main className="min-h-screen p-8 max-w-6xl mx-auto">
-        <div className="mb-8 flex items-center gap-4">
-          <Link href="/distill" className="text-blue-600 hover:underline">&larr; Dashboard</Link>
-          <Link href="/distill/search" className="text-blue-600 hover:underline">Search</Link>
-        </div>
         <h1 className="text-3xl font-bold mb-6">Import Inspector</h1>
         <BatchSelector onSelect={handleBatchSelect} />
       </main>
@@ -337,12 +333,6 @@ function InspectorContent() {
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-6 flex items-center gap-4">
-        <Link href="/distill" className="text-blue-600 hover:underline">&larr; Dashboard</Link>
-        <Link href="/distill/search" className="text-blue-600 hover:underline">Search</Link>
-      </div>
-
       <h1 className="text-3xl font-bold mb-2">Import Inspector</h1>
       {batchInfo && (
         <div className="text-sm text-gray-500 mb-6">

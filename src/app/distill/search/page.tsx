@@ -271,12 +271,6 @@ function SearchContent() {
 
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <Link href="/distill" className="text-blue-600 hover:underline">
-          &larr; Dashboard
-        </Link>
-      </div>
-
       <h1 className="text-3xl font-bold mb-6">Search</h1>
 
       {/* Search form */}
