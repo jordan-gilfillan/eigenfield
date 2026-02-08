@@ -163,7 +163,8 @@ Each entry has:
 - **Acceptance checks**:
   - Seed idempotency preserved
   - After seed, invariants hold (exactly one active per stage)
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Fixed seed to set `classify_stub_v1` as `isActive: false` (stub mode ignores promptVersionId per CONTEXT_PACK.md), keeping only `classify_real_v1` as the sole active CLASSIFY version. Added post-seed invariant check that fails loudly if any stage has >1 active PromptVersion. Added 4 integration tests verifying: correct active count, violation detection, cross-stage independence, and `findFirst` default selection. All 605 tests pass.
 
 ---
 
