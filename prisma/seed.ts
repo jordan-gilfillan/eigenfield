@@ -7,7 +7,9 @@
  * Seeds:
  * - FilterProfiles: professional-only, professional-plus-creative, safety-exclude
  * - Prompts: classify, summarize, redact
- * - PromptVersions: classify_stub_v1 (active), classify_real_v1 (active), summarize_v1 (active), redact_v1 (inactive)
+ * - PromptVersions: classify_stub_v1 (inactive), classify_real_v1 (active), summarize_v1 (active), redact_v1 (inactive)
+ *
+ * Invariant: exactly one active PromptVersion per stage (SPEC §6.7).
  */
 
 import { PrismaClient } from '@prisma/client'
@@ -85,15 +87,15 @@ async function main() {
         versionLabel: 'classify_stub_v1',
       },
     },
-    update: { isActive: true },
+    update: { isActive: false },
     create: {
       promptId: classifyPrompt.id,
       versionLabel: 'classify_stub_v1',
       templateText: 'STUB: Deterministic classification based on atomStableId hash. See spec 7.2.',
-      isActive: true,
+      isActive: false,
     },
   })
-  console.log(`    PromptVersion: classify_stub_v1 (active)`)
+  console.log(`    PromptVersion: classify_stub_v1 (inactive)`)
 
   await prisma.promptVersion.upsert({
     where: {
@@ -190,6 +192,26 @@ Output as markdown with clear headings.`,
     },
   })
   console.log(`    PromptVersion: v1 (inactive)`)
+
+  // ==========================================================================
+  // Invariant check: exactly one active PromptVersion per stage (SPEC §6.7)
+  // ==========================================================================
+
+  const stages = ['CLASSIFY', 'SUMMARIZE', 'REDACT'] as const
+  for (const stage of stages) {
+    const activeCount = await prisma.promptVersion.count({
+      where: {
+        isActive: true,
+        prompt: { stage },
+      },
+    })
+    if (activeCount > 1) {
+      throw new Error(
+        `Invariant violated: stage ${stage} has ${activeCount} active PromptVersions (expected at most 1)`
+      )
+    }
+    console.log(`  Invariant OK: ${stage} has ${activeCount} active PromptVersion(s)`)
+  }
 
   console.log('Seed complete.')
 }
