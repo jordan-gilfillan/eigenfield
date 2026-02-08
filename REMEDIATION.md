@@ -303,7 +303,8 @@ Each entry has:
 - **Planned PR**: `ux/actionable-errors`
 - **Acceptance checks**:
   - Simulated 500/404 yields visible actionable UI error
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced 5 silent `catch {}` blocks across 2 pages with visible inline error UI. Dashboard (`page.tsx`): added `loadError` state for batch/prompt-version/filter-profile fetch failures (shown as red banner below heading), and `lastClassifyStatsError` for classify-stats fetch failures (shown inline near stats section). Run Detail (`runs/[runId]/page.tsx`): added `classifyStatsError` state for classify-stats fetch failures (shown inline). All error handlers extract API error messages from response bodies when available, falling back to HTTP status codes or generic messages. Non-ok responses (`!res.ok`) now surface errors instead of being silently ignored. All 605 tests pass.
 
 ### AUD-018 — Run detail missing grouped tick/reset/resume/cancel controls
 - **Source**: Codex (MEDIUM)
