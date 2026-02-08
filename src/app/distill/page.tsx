@@ -782,9 +782,13 @@ function DashboardContent() {
             <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
               Select an import batch first
             </span>
-          ) : !classifyResult ? (
+          ) : !lastClassifyStats || !lastClassifyStats.hasStats ? (
             <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
               Classify the batch first (section above)
+            </span>
+          ) : lastClassifyStats.stats?.status === 'running' ? (
+            <span className="inline-block px-4 py-2 bg-blue-100 text-blue-700 rounded">
+              Classification in progress&hellip;
             </span>
           ) : (
             <div className="space-y-4">
