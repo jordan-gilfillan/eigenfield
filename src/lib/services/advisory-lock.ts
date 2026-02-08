@@ -6,14 +6,35 @@
  * Spec reference: 7.4 (Concurrency guard)
  *
  * Advisory locks are session-scoped in Postgres. This implementation uses
- * Prisma's $queryRawUnsafe to acquire and release locks on the same connection.
- *
- * Note: For production with connection pooling, a dedicated pg Pool should be
- * used for lock operations. This implementation works for single-connection
- * scenarios and Prisma's default behavior.
+ * a dedicated pg Pool (separate from Prisma's pool) to guarantee that lock
+ * acquire and release happen on the same database connection.
  */
 
-import { prisma } from '../db'
+import { Pool } from 'pg'
+
+/**
+ * Dedicated pool for advisory lock operations.
+ * Lazy singleton — created on first use.
+ */
+let lockPool: Pool | null = null
+
+function getLockPool(): Pool {
+  if (!lockPool) {
+    lockPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 5,
+    })
+  }
+  return lockPool
+}
+
+/** Shuts down the lock pool. Exported for test cleanup. */
+export async function closeLockPool(): Promise<void> {
+  if (lockPool) {
+    await lockPool.end()
+    lockPool = null
+  }
+}
 
 /**
  * Computes a stable int64 lock key from a run ID.
@@ -29,55 +50,41 @@ export function computeLockKey(runId: string): bigint {
 }
 
 /**
- * Tries to acquire an advisory lock for a run.
- * Returns true if acquired, false if already held by another session.
- *
- * Uses pg_try_advisory_lock which is non-blocking.
- */
-export async function tryAcquireLock(runId: string): Promise<boolean> {
-  const lockKey = computeLockKey(runId)
-
-  const result = await prisma.$queryRawUnsafe<[{ pg_try_advisory_lock: boolean }]>(
-    `SELECT pg_try_advisory_lock($1)`,
-    lockKey
-  )
-
-  return result[0].pg_try_advisory_lock
-}
-
-/**
- * Releases an advisory lock for a run.
- * Returns true if released, false if not held.
- */
-export async function releaseLock(runId: string): Promise<boolean> {
-  const lockKey = computeLockKey(runId)
-
-  const result = await prisma.$queryRawUnsafe<[{ pg_advisory_unlock: boolean }]>(
-    `SELECT pg_advisory_unlock($1)`,
-    lockKey
-  )
-
-  return result[0].pg_advisory_unlock
-}
-
-/**
  * Executes a function while holding an advisory lock.
- * Automatically releases the lock when done (success or error).
+ *
+ * Uses a dedicated pg connection (not Prisma's pool) to guarantee the
+ * lock is acquired and released on the same database session.
  *
  * @throws Error with code TICK_IN_PROGRESS if lock cannot be acquired
  */
 export async function withLock<T>(runId: string, fn: () => Promise<T>): Promise<T> {
-  const acquired = await tryAcquireLock(runId)
-
-  if (!acquired) {
-    const error = new Error('Tick already in progress')
-    ;(error as Error & { code: string }).code = 'TICK_IN_PROGRESS'
-    throw error
-  }
+  const lockKey = computeLockKey(runId)
+  const pool = getLockPool()
+  const client = await pool.connect()
 
   try {
-    return await fn()
+    const { rows } = await client.query<{ pg_try_advisory_lock: boolean }>(
+      'SELECT pg_try_advisory_lock($1::bigint)',
+      [lockKey.toString()]
+    )
+
+    if (!rows[0].pg_try_advisory_lock) {
+      const error = new Error('Tick already in progress')
+      ;(error as Error & { code: string }).code = 'TICK_IN_PROGRESS'
+      throw error
+    }
+
+    try {
+      return await fn()
+    } finally {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1::bigint)', [lockKey.toString()])
+      } catch {
+        // If unlock fails (e.g., connection broken), the lock will be
+        // released when the connection is cleaned up by Postgres.
+      }
+    }
   } finally {
-    await releaseLock(runId)
+    client.release()
   }
 }

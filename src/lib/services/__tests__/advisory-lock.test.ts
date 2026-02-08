@@ -4,8 +4,12 @@
  * Spec reference: 7.4 (Concurrency guard)
  */
 
-import { describe, it, expect } from 'vitest'
-import { computeLockKey, tryAcquireLock, releaseLock, withLock } from '../advisory-lock'
+import { describe, it, expect, afterAll } from 'vitest'
+import { computeLockKey, withLock, closeLockPool } from '../advisory-lock'
+
+afterAll(async () => {
+  await closeLockPool()
+})
 
 describe('advisory lock service', () => {
   describe('computeLockKey', () => {
@@ -24,36 +28,6 @@ describe('advisory lock service', () => {
     it('returns a bigint', () => {
       const key = computeLockKey('test')
       expect(typeof key).toBe('bigint')
-    })
-  })
-
-  describe('tryAcquireLock and releaseLock', () => {
-    it('acquires and releases lock successfully', async () => {
-      const runId = `test-lock-${Date.now()}`
-
-      // Should acquire successfully
-      const acquired = await tryAcquireLock(runId)
-      expect(acquired).toBe(true)
-
-      // Should release successfully
-      const released = await releaseLock(runId)
-      expect(released).toBe(true)
-    })
-
-    it('prevents double acquisition of same lock', async () => {
-      const runId = `test-double-lock-${Date.now()}`
-
-      // First acquisition should succeed
-      const acquired1 = await tryAcquireLock(runId)
-      expect(acquired1).toBe(true)
-
-      // Note: In the same session, Postgres advisory locks ARE re-entrant
-      // So this will also return true. The test should verify the lock works
-      // across different sessions, but that's harder to test in unit tests.
-      // For now, just verify the basic flow works.
-
-      // Clean up
-      await releaseLock(runId)
     })
   })
 
@@ -80,21 +54,49 @@ describe('advisory lock service', () => {
       expect(result).toEqual({ value: 42 })
     })
 
-    it('releases lock after function completes', async () => {
-      const runId = `test-with-lock-release-${Date.now()}`
+    it('two ticks contend; only one enters critical section', async () => {
+      const runId = `test-contend-${Date.now()}`
+      const entered: string[] = []
 
-      await withLock(runId, async () => {
-        return 'done'
+      let resolveHold!: () => void
+      const holdPromise = new Promise<void>((r) => {
+        resolveHold = r
+      })
+      let resolveAcquired!: () => void
+      const acquiredPromise = new Promise<void>((r) => {
+        resolveAcquired = r
       })
 
-      // Lock should be released, so we can acquire it again
-      const acquired = await tryAcquireLock(runId)
-      expect(acquired).toBe(true)
-      await releaseLock(runId)
+      // First: acquire lock and hold it
+      const first = withLock(runId, async () => {
+        entered.push('first')
+        resolveAcquired()
+        await holdPromise
+        return 'first-done'
+      })
+
+      // Wait for first to signal it has the lock
+      await acquiredPromise
+
+      // Second: should fail because lock is held by a different connection
+      const secondResult = await withLock(runId, async () => {
+        entered.push('second')
+        return 'second-done'
+      }).catch((err) => err)
+
+      expect(secondResult).toBeInstanceOf(Error)
+      expect((secondResult as Error & { code: string }).code).toBe('TICK_IN_PROGRESS')
+
+      // Release first
+      resolveHold()
+      const firstResult = await first
+      expect(firstResult).toBe('first-done')
+
+      expect(entered).toEqual(['first'])
     })
 
     it('releases lock even if function throws', async () => {
-      const runId = `test-with-lock-error-${Date.now()}`
+      const runId = `test-error-release-${Date.now()}`
 
       await expect(
         withLock(runId, async () => {
@@ -102,10 +104,19 @@ describe('advisory lock service', () => {
         })
       ).rejects.toThrow('Test error')
 
-      // Lock should still be released
-      const acquired = await tryAcquireLock(runId)
-      expect(acquired).toBe(true)
-      await releaseLock(runId)
+      // Lock should be released — re-acquire should succeed
+      const result = await withLock(runId, async () => 'recovered')
+      expect(result).toBe('recovered')
+    })
+
+    it('releases lock after normal completion', async () => {
+      const runId = `test-normal-release-${Date.now()}`
+
+      await withLock(runId, async () => 'done')
+
+      // Lock should be released — re-acquire should succeed
+      const result = await withLock(runId, async () => 'again')
+      expect(result).toBe('again')
     })
   })
 })
