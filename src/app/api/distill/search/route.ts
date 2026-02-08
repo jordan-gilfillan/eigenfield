@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
     const runId = params.get('runId') ?? undefined
     const startDate = params.get('startDate') ?? undefined
     const endDate = params.get('endDate') ?? undefined
+    const labelModel = params.get('labelModel') ?? undefined
+    const labelPromptVersionId = params.get('labelPromptVersionId') ?? undefined
 
     // Validate required params
     if (!q || q.trim().length === 0) {
@@ -65,6 +67,8 @@ export async function GET(request: NextRequest) {
       runId,
       startDate,
       endDate,
+      labelModel,
+      labelPromptVersionId,
     })
 
     return NextResponse.json(result)
