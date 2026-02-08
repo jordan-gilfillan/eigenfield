@@ -198,7 +198,25 @@ JSON with `conversations` array, each containing `mapping` with message nodes.
 JSON with `conversations` array, each containing `chat_messages` with sender/text.
 
 ### Grok Export
-JSON array of objects with `id`, `timestamp`, `role`, `content`.
+Top-level JSON object (not an array) with a `conversations` array. Each element wraps a `conversation` metadata object and a `responses` array of message wrappers:
+```json
+{
+  "conversations": [{
+    "conversation": { "id": "uuid", "title": "...", "create_time": "ISO 8601" },
+    "responses": [{
+      "response": {
+        "_id": "uuid",
+        "message": "content",
+        "sender": "human" | "assistant",
+        "create_time": { "$date": { "$numberLong": "epoch_ms_string" } }
+      }
+    }]
+  }],
+  "projects": [],
+  "tasks": []
+}
+```
+Sender is case-insensitive (`"ASSISTANT"` treated as `"assistant"`). Timestamps use MongoDB extended JSON (epoch milliseconds as a string).
 
 ---
 
