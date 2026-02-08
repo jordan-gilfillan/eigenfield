@@ -27,6 +27,8 @@ export interface SearchParams {
   runId?: string
   startDate?: string // YYYY-MM-DD
   endDate?: string   // YYYY-MM-DD
+  labelModel?: string
+  labelPromptVersionId?: string
 }
 
 interface CursorPayload {
@@ -93,8 +95,33 @@ function decodeCursor(cursor: string): CursorPayload {
 // Search: raw scope (MessageAtoms)
 // ---------------------------------------------------------------------------
 
+async function resolveLabelContext(
+  params: SearchParams
+): Promise<{ model: string; promptVersionId: string } | null> {
+  // Explicit label params take precedence
+  if (params.labelModel && params.labelPromptVersionId) {
+    return { model: params.labelModel, promptVersionId: params.labelPromptVersionId }
+  }
+  // If runId provided, look up the Run's config.labelSpec
+  if (params.runId) {
+    const run = await prisma.run.findUnique({
+      where: { id: params.runId },
+      select: { configJson: true },
+    })
+    if (run?.configJson) {
+      const config = run.configJson as { labelSpec?: { model?: string; promptVersionId?: string } }
+      if (config.labelSpec?.model && config.labelSpec?.promptVersionId) {
+        return { model: config.labelSpec.model, promptVersionId: config.labelSpec.promptVersionId }
+      }
+    }
+  }
+  return null
+}
+
 async function searchRaw(params: SearchParams): Promise<SearchResponse> {
   const { q, limit, cursor, importBatchId, startDate, endDate } = params
+
+  const labelCtx = await resolveLabelContext(params)
 
   // Build WHERE conditions
   const conditions: string[] = [
@@ -132,6 +159,16 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
 
   const whereClause = conditions.join(' AND ')
 
+  // Build label JOIN clause when label context is available
+  let labelJoin = ''
+  let labelSelect = 'NULL::text AS label_category, NULL::float AS label_confidence'
+  if (labelCtx) {
+    labelJoin = `LEFT JOIN "message_labels" ml ON ml."messageAtomId" = ma."id" AND ml."model" = $${paramIndex} AND ml."promptVersionId" = $${paramIndex + 1}`
+    labelSelect = 'ml."category" AS label_category, ml."confidence" AS label_confidence'
+    values.push(labelCtx.model, labelCtx.promptVersionId)
+    paramIndex += 2
+  }
+
   // Fetch limit + 1 to detect next page
   const sql = `
     SELECT
@@ -142,10 +179,12 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
       ma."dayDate",
       ma."timestampUtc",
       ma."role",
+      ${labelSelect},
       ts_rank(ma."text_search", plainto_tsquery('english', $1)) AS rank,
       ts_headline('english', ma."text", plainto_tsquery('english', $1),
         'StartSel=<<, StopSel=>>, MaxWords=35, MinWords=15, MaxFragments=1') AS snippet
     FROM "message_atoms" ma
+    ${labelJoin}
     WHERE ${whereClause}
     ORDER BY rank DESC, ma."id" ASC
     LIMIT ${limit + 1}
@@ -159,6 +198,8 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
     dayDate: Date
     timestampUtc: Date
     role: string
+    label_category: string | null
+    label_confidence: number | null
     rank: number
     snippet: string
   }> = await prisma.$queryRawUnsafe(sql, ...values)
@@ -179,8 +220,8 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
         ? row.timestampUtc.toISOString()
         : String(row.timestampUtc),
       role: row.role.toLowerCase(),
-      category: null,
-      confidence: null,
+      category: row.label_category?.toLowerCase() ?? null,
+      confidence: row.label_confidence,
     },
   }))
 

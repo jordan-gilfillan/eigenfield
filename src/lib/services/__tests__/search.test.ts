@@ -17,7 +17,10 @@ let outputId: string
 let promptVersionId: string
 let promptId: string
 let filterProfileId: string
+let classifyPromptId: string
+let classifyPromptVersionId: string
 const atomIds: string[] = []
+const labelIds: string[] = []
 
 beforeAll(async () => {
   // Create prerequisite records: prompt, promptVersion, filterProfile, importBatch
@@ -170,18 +173,65 @@ beforeAll(async () => {
     },
   })
   outputId = output.id
+
+  // Create classify prompt + version for label context testing
+  const classifyPrompt = await prisma.prompt.create({
+    data: {
+      id: 'search-test-classify-prompt',
+      stage: 'CLASSIFY',
+      name: 'search-test-classify',
+    },
+  })
+  classifyPromptId = classifyPrompt.id
+
+  const classifyPv = await prisma.promptVersion.create({
+    data: {
+      id: 'search-test-classify-pv',
+      promptId: classifyPrompt.id,
+      versionLabel: 'v1',
+      templateText: '{"category":"{{category}}","confidence":{{confidence}}}',
+      isActive: true,
+    },
+  })
+  classifyPromptVersionId = classifyPv.id
+
+  // Create MessageLabel records for atom-1 and atom-3
+  const label1 = await prisma.messageLabel.create({
+    data: {
+      id: 'search-test-label-1',
+      messageAtomId: 'search-atom-1',
+      category: 'LEARNING',
+      confidence: 0.85,
+      model: 'stub_v1',
+      promptVersionId: classifyPromptVersionId,
+    },
+  })
+  labelIds.push(label1.id)
+
+  const label2 = await prisma.messageLabel.create({
+    data: {
+      id: 'search-test-label-2',
+      messageAtomId: 'search-atom-3',
+      category: 'WORK',
+      confidence: 0.92,
+      model: 'stub_v1',
+      promptVersionId: classifyPromptVersionId,
+    },
+  })
+  labelIds.push(label2.id)
 })
 
 afterAll(async () => {
   // Clean up in reverse dependency order
+  await prisma.messageLabel.deleteMany({ where: { id: { in: labelIds } } })
   await prisma.output.deleteMany({ where: { id: outputId } })
   await prisma.job.deleteMany({ where: { id: jobId } })
   await prisma.run.deleteMany({ where: { id: runId } })
   await prisma.messageAtom.deleteMany({ where: { id: { in: atomIds } } })
   await prisma.importBatch.deleteMany({ where: { id: importBatchId } })
   await prisma.filterProfile.deleteMany({ where: { id: filterProfileId } })
-  await prisma.promptVersion.deleteMany({ where: { id: promptVersionId } })
-  await prisma.prompt.deleteMany({ where: { id: promptId } })
+  await prisma.promptVersion.deleteMany({ where: { id: { in: [promptVersionId, classifyPromptVersionId] } } })
+  await prisma.prompt.deleteMany({ where: { id: { in: [promptId, classifyPromptId] } } })
 })
 
 describe('Search Service', () => {
@@ -467,6 +517,105 @@ describe('Search Service', () => {
           cursor: 'not-a-valid-cursor',
         })
       ).rejects.toThrow('Invalid cursor')
+    })
+  })
+
+  describe('label context (category + confidence)', () => {
+    it('returns category/confidence when labelModel + labelPromptVersionId provided', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(2)
+
+      // atom-1 has a label (LEARNING, 0.85)
+      const atom1 = result.items.find(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId === 'search-stable-1'
+      ) as { atom: { category: string | null; confidence: number | null } } | undefined
+      expect(atom1).toBeDefined()
+      expect(atom1!.atom.category).toBe('learning')
+      expect(atom1!.atom.confidence).toBeCloseTo(0.85)
+
+      // atom-2 has no label — should be null
+      const atom2 = result.items.find(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId === 'search-stable-2'
+      ) as { atom: { category: string | null; confidence: number | null } } | undefined
+      expect(atom2).toBeDefined()
+      expect(atom2!.atom.category).toBeNull()
+      expect(atom2!.atom.confidence).toBeNull()
+    })
+
+    it('returns null category/confidence without label context', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(1)
+      result.items.forEach((item) => {
+        const atom = (item as { atom: { category: string | null; confidence: number | null } }).atom
+        expect(atom.category).toBeNull()
+        expect(atom.confidence).toBeNull()
+      })
+    })
+
+    it('resolves label context from runId config.labelSpec', async () => {
+      // Update the test run's labelSpec to point to our classify promptVersion + model
+      await prisma.run.update({
+        where: { id: runId },
+        data: {
+          configJson: {
+            promptVersionIds: { summarize: promptVersionId },
+            labelSpec: { model: 'stub_v1', promptVersionId: classifyPromptVersionId },
+            filterProfile: { name: 'search-test', mode: 'include', categories: ['WORK'] },
+            timezone: 'UTC',
+            maxInputTokens: 12000,
+          },
+        },
+      })
+
+      const result = await search({
+        q: 'PostgreSQL',
+        scope: 'raw',
+        limit: 50,
+        importBatchId,
+        runId,
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(1)
+
+      // atom-3 has label (WORK, 0.92) and matches "PostgreSQL"
+      const atom3 = result.items.find(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId === 'search-stable-3'
+      ) as { atom: { category: string | null; confidence: number | null } } | undefined
+      expect(atom3).toBeDefined()
+      expect(atom3!.atom.category).toBe('work')
+      expect(atom3!.atom.confidence).toBeCloseTo(0.92)
+    })
+
+    it('explicit labelModel/labelPromptVersionId takes precedence over runId', async () => {
+      // runId points to classifyPromptVersionId; explicit params use a non-matching PV
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        runId,
+        labelModel: 'nonexistent_model',
+        labelPromptVersionId: 'nonexistent-pv',
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(1)
+      // No labels match nonexistent model+pv, so all should be null
+      result.items.forEach((item) => {
+        const atom = (item as { atom: { category: string | null; confidence: number | null } }).atom
+        expect(atom.category).toBeNull()
+        expect(atom.confidence).toBeNull()
+      })
     })
   })
 })
