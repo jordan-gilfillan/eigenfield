@@ -116,7 +116,9 @@ describe('Seed invariant: one active PromptVersion per stage', () => {
   })
 
   it('findFirst with orderBy desc selects most recently created active version', async () => {
-    // Mirrors the default labelSpec selection in createRun (SPEC §7.3)
+    // Mirrors the default labelSpec selection in createRun (SPEC §7.3).
+    // Query is scoped to this test's own Prompt to avoid interference
+    // from parallel test files that also create active CLASSIFY versions.
     const stubVersion = await prisma.promptVersion.create({
       data: {
         promptId: classifyPromptId,
@@ -135,7 +137,7 @@ describe('Seed invariant: one active PromptVersion per stage', () => {
     })
 
     const selected = await prisma.promptVersion.findFirst({
-      where: { isActive: true, prompt: { stage: 'CLASSIFY' } },
+      where: { isActive: true, promptId: classifyPromptId },
       orderBy: { createdAt: 'desc' },
     })
 
