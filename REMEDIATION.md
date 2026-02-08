@@ -277,7 +277,8 @@ Each entry has:
 - **Planned PR**: `ux/8.1-distill-shell`
 - **Acceptance checks**:
   - Shared layout exists; pages use it
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `src/app/distill/layout.tsx` — a shared client layout with persistent top nav bar and active tab state (derived from `usePathname()`). Nav links: Home, Dashboard, Import, Inspector, Search. Active state uses most-specific-path-first matching (Inspector before Import; Run Detail falls back to Dashboard). Removed hand-rolled breadcrumb/link divs from all 5 distill pages (Dashboard, Search, Import, Inspector, Run Detail). Removed unused `Link` import from Run Detail. All 605 tests pass.
 
 ### AUD-016 — Dashboard “Create Run” gated by local classifyResult instead of persisted classify status
 - **Source**: Codex (MEDIUM)
