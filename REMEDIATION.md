@@ -102,8 +102,9 @@ Each entry has:
 - **Decision**: Fix code to persist usage incrementally and aggregate regardless of final job status.
 - **Planned PR**: `fix/run-totals-partials`
 - **Acceptance checks**:
-  - Test: induce failure after 1+ LLM calls; totals include those calls’ usage
-- **Status**: Not started
+  - Test: induce failure after 1+ LLM calls; totals include those calls' usage
+- **Status**: Done
+- **Resolution**: Removed `status: 'SUCCEEDED'` filter from `prisma.job.aggregate()` in the run detail route handler (`GET /api/distill/runs/:runId`). SQL SUM naturally ignores NULL token columns on QUEUED jobs while now including partial usage from FAILED jobs, per SPEC §11.4 ("including partial segment success where recorded"). Updated existing aggregate tests to match the corrected behavior. All 592 tests pass.
 
 ### AUD-004 — Search results missing labelSpec-derived atom metadata (category, confidence)
 - **Source**: Codex (HIGH)

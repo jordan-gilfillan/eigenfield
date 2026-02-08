@@ -8,9 +8,9 @@ import { classifyBatch } from '../../lib/services/classify'
  * Integration tests for run aggregate computations (tokensIn, tokensOut, costUsd).
  *
  * These tests verify:
- * - Run aggregate sums correctly from SUCCEEDED job rows
+ * - Run aggregate sums correctly across all jobs (SPEC §11.4)
  * - Null token/cost values on unprocessed jobs are treated as 0
- * - Failed jobs are excluded from aggregates
+ * - Failed jobs with partial usage ARE included in aggregates
  * - Mixed job states produce correct totals
  */
 
@@ -162,7 +162,7 @@ describe('Run aggregate computations', () => {
     await prisma.importBatch.delete({ where: { id: importBatchId } }).catch(() => {})
   })
 
-  it('aggregates tokensIn/tokensOut/costUsd from SUCCEEDED jobs', async () => {
+  it('aggregates tokensIn/tokensOut/costUsd from all jobs', async () => {
     // Create a run with jobs
     const run = await createRun({
       importBatchId,
@@ -197,9 +197,9 @@ describe('Run aggregate computations', () => {
       })
     }
 
-    // Query aggregates via Prisma (same logic as API route)
+    // Query aggregates via Prisma (same logic as API route — no status filter per SPEC §11.4)
     const totals = await prisma.job.aggregate({
-      where: { runId: run.id, status: 'SUCCEEDED' },
+      where: { runId: run.id },
       _sum: {
         tokensIn: true,
         tokensOut: true,
@@ -230,9 +230,9 @@ describe('Run aggregate computations', () => {
       },
     })
 
-    // Jobs remain QUEUED with null tokens
+    // Jobs remain QUEUED with null tokens — SUM of nulls is null
     const totals = await prisma.job.aggregate({
-      where: { runId: run.id, status: 'SUCCEEDED' },
+      where: { runId: run.id },
       _sum: {
         tokensIn: true,
         tokensOut: true,
@@ -240,13 +240,13 @@ describe('Run aggregate computations', () => {
       },
     })
 
-    // No SUCCEEDED jobs → null sums (|| 0 in API layer)
+    // All jobs QUEUED with null tokens → null sums (|| 0 in API layer)
     expect(totals._sum.tokensIn ?? 0).toBe(0)
     expect(totals._sum.tokensOut ?? 0).toBe(0)
     expect(totals._sum.costUsd ?? 0).toBe(0)
   })
 
-  it('failed jobs excluded from aggregates', async () => {
+  it('failed jobs with partial usage included in aggregates (SPEC §11.4)', async () => {
     const run = await createRun({
       importBatchId,
       startDate: '2024-01-15',
@@ -280,7 +280,7 @@ describe('Run aggregate computations', () => {
     }
 
     const totals = await prisma.job.aggregate({
-      where: { runId: run.id, status: 'SUCCEEDED' },
+      where: { runId: run.id },
       _sum: {
         tokensIn: true,
         tokensOut: true,
@@ -288,10 +288,14 @@ describe('Run aggregate computations', () => {
       },
     })
 
-    // Only the first SUCCEEDED job should count
-    expect(totals._sum.tokensIn).toBe(100)
-    expect(totals._sum.tokensOut).toBe(50)
-    expect(totals._sum.costUsd).toBeCloseTo(0.005, 4)
+    // Both SUCCEEDED and FAILED jobs with partial usage contribute to totals
+    const expectedIn = jobs.length >= 2 ? 180 : 100
+    const expectedOut = jobs.length >= 2 ? 80 : 50
+    const expectedCost = jobs.length >= 2 ? 0.008 : 0.005
+
+    expect(totals._sum.tokensIn).toBe(expectedIn)
+    expect(totals._sum.tokensOut).toBe(expectedOut)
+    expect(totals._sum.costUsd).toBeCloseTo(expectedCost, 4)
   })
 
   it('mixed job states produce correct totals', async () => {
@@ -313,45 +317,24 @@ describe('Run aggregate computations', () => {
       orderBy: { dayDate: 'asc' },
     })
 
-    if (jobs.length >= 2) {
-      // One SUCCEEDED, one still QUEUED
-      await prisma.job.update({
-        where: { id: jobs[0].id },
-        data: { status: 'SUCCEEDED', tokensIn: 150, tokensOut: 60, costUsd: 0.008 },
-      })
+    // One SUCCEEDED, rest still QUEUED (null tokens — ignored by SUM)
+    await prisma.job.update({
+      where: { id: jobs[0].id },
+      data: { status: 'SUCCEEDED', tokensIn: 150, tokensOut: 60, costUsd: 0.008 },
+    })
 
-      // Second job still QUEUED (null tokens)
-      const totals = await prisma.job.aggregate({
-        where: { runId: run.id, status: 'SUCCEEDED' },
-        _sum: {
-          tokensIn: true,
-          tokensOut: true,
-          costUsd: true,
-        },
-      })
+    const totals = await prisma.job.aggregate({
+      where: { runId: run.id },
+      _sum: {
+        tokensIn: true,
+        tokensOut: true,
+        costUsd: true,
+      },
+    })
 
-      expect(totals._sum.tokensIn).toBe(150)
-      expect(totals._sum.tokensOut).toBe(60)
-      expect(totals._sum.costUsd).toBeCloseTo(0.008, 4)
-    } else {
-      // Only 1 job — succeed it
-      await prisma.job.update({
-        where: { id: jobs[0].id },
-        data: { status: 'SUCCEEDED', tokensIn: 150, tokensOut: 60, costUsd: 0.008 },
-      })
-
-      const totals = await prisma.job.aggregate({
-        where: { runId: run.id, status: 'SUCCEEDED' },
-        _sum: {
-          tokensIn: true,
-          tokensOut: true,
-          costUsd: true,
-        },
-      })
-
-      expect(totals._sum.tokensIn).toBe(150)
-      expect(totals._sum.tokensOut).toBe(60)
-      expect(totals._sum.costUsd).toBeCloseTo(0.008, 4)
-    }
+    // QUEUED jobs have null tokens — SQL SUM ignores nulls, only SUCCEEDED job contributes
+    expect(totals._sum.tokensIn).toBe(150)
+    expect(totals._sum.tokensOut).toBe(60)
+    expect(totals._sum.costUsd).toBeCloseTo(0.008, 4)
   })
 })
