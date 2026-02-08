@@ -353,7 +353,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Decision**: Fix test isolation (e.g., dedicated test setup/teardown, or per-file DB transactions).
 - **Acceptance checks**:
   - `npx vitest run` passes reliably (10 consecutive runs with no flakes in this test)
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Fixed two sources of parallel-test interference in the default labelSpec selection path. In `run.test.ts`, pinned the test's CLASSIFY PromptVersion with `createdAt: 2099-01-01` so it deterministically wins `createRun`'s `findFirst orderBy createdAt desc` selection regardless of competing versions from parallel test files. In `seed-invariants.test.ts`, scoped the "findFirst with orderBy desc" test query from global (`prompt: { stage: 'CLASSIFY' }`) to per-Prompt (`promptId: classifyPromptId`) to prevent cross-test interference. Both changes eliminate the race condition where labels pointed at a foreign version that could be deleted before `createRun` executed. 10 consecutive `npx vitest run` executions passed (605 tests each).
 
 ---
 
