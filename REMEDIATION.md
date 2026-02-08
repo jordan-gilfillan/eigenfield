@@ -222,9 +222,10 @@ Each entry has:
 - **Acceptance checks**:
   - Grep shows no stale “582” claims
   - Canonical source defined
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Designated CONTEXT_PACK.md line 21 as the canonical test count location (bold, with "(Canonical)" marker). Updated from stale "582 passing (576 excluding pre-existing search FTS column issue)" to "605 passing" — the FTS caveat was removed since AUD-001 fixed it. Removed the inline "(582 total)" from the CHANGELOG.md [Unreleased] entry to eliminate the other stale claim. Remaining "582" references in REMEDIATION.md are historical descriptions of the AUD-011 problem itself, not current claims.
 
-### AUD-012 — CONTEXT_PACK: “576 excluding pre-existing search FTS column issue” is unexplained
+### AUD-012 — CONTEXT_PACK: "576 excluding pre-existing search FTS column issue" is unexplained
 - **Source**: Claude #6 (MEDIUM)
 - **Severity**: MEDIUM
 - **Type**: Doc drift
@@ -338,6 +339,17 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Planned PR**: `docs/spec-consistency-search-polling`
 - **Acceptance checks**:
   - SPEC and UX_SPEC agree; code matches
+- **Status**: Not started
+
+### AUD-021 — Flaky test: run.test.ts "selects default labelSpec when omitted" fails in parallel
+- **Source**: Discovered during AUD-011
+- **Severity**: MEDIUM
+- **Type**: Test/infra
+- **Code refs**: `src/lib/services/__tests__/run.test.ts` line ~314
+- **Problem**: Test passes in isolation but intermittently fails when run with the full suite. Likely DB state contamination from parallel test files that modify PromptVersion active status (e.g., seed invariant tests from AUD-007). Same class of issue as the known `listImportBatches` pagination flakiness.
+- **Decision**: Fix test isolation (e.g., dedicated test setup/teardown, or per-file DB transactions).
+- **Acceptance checks**:
+  - `npx vitest run` passes reliably (10 consecutive runs with no flakes in this test)
 - **Status**: Not started
 
 ---
