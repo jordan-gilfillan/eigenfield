@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { search, type SearchScope } from '@/lib/services/search'
 import { errors } from '@/lib/api-utils'
+import { SOURCE_VALUES, CATEGORY_VALUES } from '@/lib/enums'
 
 const VALID_SCOPES: SearchScope[] = ['raw', 'outputs']
 
@@ -25,6 +26,8 @@ export async function GET(request: NextRequest) {
     const endDate = params.get('endDate') ?? undefined
     const labelModel = params.get('labelModel') ?? undefined
     const labelPromptVersionId = params.get('labelPromptVersionId') ?? undefined
+    const sourcesParam = params.get('sources') ?? undefined
+    const categoriesParam = params.get('categories') ?? undefined
 
     // Validate required params
     if (!q || q.trim().length === 0) {
@@ -58,6 +61,30 @@ export async function GET(request: NextRequest) {
       return errors.invalidInput('endDate must be in YYYY-MM-DD format')
     }
 
+    // Parse and validate sources (comma-separated, lowercase)
+    let sources: string[] | undefined
+    if (sourcesParam) {
+      sources = sourcesParam.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+      const invalid = sources.filter((s) => !(SOURCE_VALUES as readonly string[]).includes(s))
+      if (invalid.length > 0) {
+        return errors.invalidInput(`Invalid source(s): ${invalid.join(', ')}`, {
+          validSources: SOURCE_VALUES,
+        })
+      }
+    }
+
+    // Parse and validate categories (comma-separated, lowercase)
+    let categories: string[] | undefined
+    if (categoriesParam) {
+      categories = categoriesParam.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
+      const invalid = categories.filter((c) => !(CATEGORY_VALUES as readonly string[]).includes(c))
+      if (invalid.length > 0) {
+        return errors.invalidInput(`Invalid category(ies): ${invalid.join(', ')}`, {
+          validCategories: CATEGORY_VALUES,
+        })
+      }
+    }
+
     const result = await search({
       q: q.trim(),
       scope,
@@ -67,6 +94,8 @@ export async function GET(request: NextRequest) {
       runId,
       startDate,
       endDate,
+      sources,
+      categories,
       labelModel,
       labelPromptVersionId,
     })

@@ -21,11 +21,12 @@ Each entry has:
 
 ## Current top priorities
 
-1. **AUD-001** — Make tests green by resolving missing FTS columns (blocks signal from CI).
-2. **AUD-002** — Fix advisory lock to guarantee acquire/release on the same DB session.
-3. **AUD-003** — Include partial tokens/cost totals from failed jobs per SPEC.
-4. **AUD-004** — Search results must include label-spec-derived atom metadata (category, confidence).
-5. **AUD-005** — Run creation must allow optional labelSpec with server default selection.
+1. **AUD-022** — Search endpoint missing `sources` and `categories` filter params (SPEC §10.1 contract).
+2. **AUD-023** — Classify-runs `progress` response shape differs from SPEC §7.2.1 normative schema.
+3. **AUD-024** — ACCEPTANCE.md test coverage table stale (13 listed, 41 actual; wrong paths).
+4. **AUD-025** — EXECUTION_PLAN references non-existent E2E tests (Playwright/Cypress).
+
+> All previous priorities (AUD-001 through AUD-021) are Done.
 
 ---
 
@@ -49,6 +50,12 @@ Each entry has:
 - AUD-011
 - AUD-012
 - AUD-013
+- AUD-024
+- AUD-025
+
+### Bucket B+ — Contract alignment (P1)
+- AUD-022
+- AUD-023
 
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
 - AUD-014
@@ -362,9 +369,66 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Fixed two sources of parallel-test interference in the default labelSpec selection path. In `run.test.ts`, pinned the test's CLASSIFY PromptVersion with `createdAt: 2099-01-01` so it deterministically wins `createRun`'s `findFirst orderBy createdAt desc` selection regardless of competing versions from parallel test files. In `seed-invariants.test.ts`, scoped the "findFirst with orderBy desc" test query from global (`prompt: { stage: 'CLASSIFY' }`) to per-Prompt (`promptId: classifyPromptId`) to prevent cross-test interference. Both changes eliminate the race condition where labels pointed at a foreign version that could be deleted before `createRun` executed. 10 consecutive `npx vitest run` executions passed (605 tests each).
 
+### AUD-022 — Search endpoint missing `sources` and `categories` filter params
+- **Source**: Audit 2026-02-08
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: SPEC §10.1 (line 829): `GET /api/distill/search?q=...&scope=raw|outputs&importBatchId=...&runId=...&startDate=...&endDate=...&sources=...&categories=...&limit=...&cursor=...`
+- **Code refs**: `src/app/api/distill/search/route.ts` (lines 17-27), `src/lib/services/search.ts`
+- **Problem**: SPEC lists `sources` and `categories` as query params for the search endpoint. Neither the route handler nor the service accepts or uses them. A client passing `sources=chatgpt` or `categories=WORK` gets unfiltered results with no error — params are silently ignored.
+- **Decision**: Fix code (add filter support) OR fix spec (remove params if intentionally deferred to a future version).
+- **Planned PR**: `fix/AUD-022-search-filters`
+- **Acceptance checks**:
+  - `GET /api/distill/search?q=test&scope=raw&sources=chatgpt` returns only chatgpt atoms
+  - `GET /api/distill/search?q=test&scope=raw&categories=WORK` returns only atoms labeled WORK (requires label context)
+  - OR: SPEC §10.1 no longer lists `sources`/`categories` if deferred
+- **Status**: Done
+- **Resolution**: Implemented `sources` and `categories` query params for `GET /api/distill/search` per SPEC §10.1. Route handler parses comma-separated values and validates against `SOURCE_VALUES`/`CATEGORY_VALUES` enums (400 on invalid). Service `searchRaw()` adds `ma."source" IN (...)` WHERE clause for sources (cast to `"Source"` enum). For categories: when label context is available, filters via `ml."category" IN (...)` on the existing label JOIN; when no label context, uses `EXISTS` subquery against any `message_labels` row. Both filters only apply to raw scope (atoms). Added 10 integration tests covering: single/multi/empty source filtering, category filtering with and without label context, and combined sources+categories. All 615 tests pass.
+
+### AUD-023 — Classify-runs `progress` field shape differs from SPEC §7.2.1
+- **Source**: Audit 2026-02-08
+- **Severity**: LOW
+- **Type**: Contract break
+- **Docs cited**: SPEC §7.2.1 (lines 434-448) normative response schema for `GET /api/distill/classify-runs/:id`
+- **Code refs**: `src/app/api/distill/classify-runs/[id]/route.ts` (lines 45-57)
+- **Problem**: SPEC defines `progress` as `{"processedAtoms": 0, "totalAtoms": 0, "skippedBadOutput": 0, "aliasedCount": 0}`. Code returns `progress: {"processedAtoms", "totalAtoms"}` plus a separate `warnings: {"skippedBadOutput", "aliasedCount"}` key. Data is present but shape differs. A client following the spec would get `undefined` from `response.progress.skippedBadOutput`.
+- **Decision**: Fix spec (update §7.2.1 to reflect the `progress` + `warnings` split) since the code design is semantically cleaner.
+- **Planned PR**: `docs/AUD-023-classify-runs-schema`
+- **Acceptance checks**:
+  - SPEC §7.2.1 normative JSON schema matches code response shape
+  - `progress` contains only progress fields; `warnings` contains warning fields
+- **Status**: Not started
+
+### AUD-024 — ACCEPTANCE.md test coverage table stale
+- **Source**: Audit 2026-02-08
+- **Severity**: LOW
+- **Type**: Doc drift
+- **Docs cited**: ACCEPTANCE.md (lines 49-63)
+- **Code refs**: 41 test files under `src/__tests__/` and `src/lib/services/__tests__/`
+- **Problem**: Table lists 13 test files with stale paths. Specific issues: `__tests__/hash.test.ts` does not exist; `__tests__/stable-id.test.ts` should be `stableId.test.ts`; `services/__tests__/classifier.test.ts` should be `classify.test.ts`. 28 test suites added since table was written are not listed (LLM, pricing, providers, classify variants, import-claude/grok, seed-invariants, etc.).
+- **Decision**: Fix docs — update table with all 41 test files and correct paths.
+- **Planned PR**: `docs/AUD-024-acceptance-test-table`
+- **Acceptance checks**:
+  - Every test file in the repo appears in the table with correct path
+  - No table entry references a non-existent file
+- **Status**: Not started
+
+### AUD-025 — EXECUTION_PLAN references non-existent E2E tests
+- **Source**: Audit 2026-02-08
+- **Severity**: INFO
+- **Type**: Doc drift
+- **Docs cited**: EXECUTION_PLAN.md (lines 612-616)
+- **Code refs**: `package.json` (no Playwright/Cypress dependency)
+- **Problem**: Testing Strategy section lists "E2E Tests (Playwright/Cypress)" with 4 bullet items. Neither framework is installed and no E2E test files exist. SPEC §2 non-goals exclude UI polish. The section is aspirational but reads as implemented.
+- **Decision**: Fix docs — add "Not implemented in v0.3" annotation or move to future-work section.
+- **Planned PR**: `docs/AUD-025-e2e-caveat`
+- **Acceptance checks**:
+  - EXECUTION_PLAN E2E section clearly marked as not yet implemented
+- **Status**: Not started
+
 ---
 
 ## Notes
 
-- When closing an entry, add a short “Resolution” bullet linking to the PR and stating what changed.
+- When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.
 - If an entry is resolved by changing the spec (instead of code), record the rationale explicitly.

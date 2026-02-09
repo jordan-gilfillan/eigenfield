@@ -27,6 +27,8 @@ export interface SearchParams {
   runId?: string
   startDate?: string // YYYY-MM-DD
   endDate?: string   // YYYY-MM-DD
+  sources?: string[]     // API-cased (lowercase), e.g. ['chatgpt', 'claude']
+  categories?: string[]  // API-cased (lowercase), e.g. ['work', 'learning']
   labelModel?: string
   labelPromptVersionId?: string
 }
@@ -119,7 +121,7 @@ async function resolveLabelContext(
 }
 
 async function searchRaw(params: SearchParams): Promise<SearchResponse> {
-  const { q, limit, cursor, importBatchId, startDate, endDate } = params
+  const { q, limit, cursor, importBatchId, startDate, endDate, sources, categories } = params
 
   const labelCtx = await resolveLabelContext(params)
 
@@ -144,6 +146,33 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
     conditions.push(`ma."dayDate" <= $${paramIndex}::date`)
     values.push(endDate)
     paramIndex++
+  }
+
+  // Sources filter: match atom source against provided values (cast to "Source" enum)
+  if (sources && sources.length > 0) {
+    const placeholders = sources.map((_, i) => `$${paramIndex + i}::"Source"`).join(', ')
+    conditions.push(`ma."source" IN (${placeholders})`)
+    sources.forEach((s) => values.push(s.toUpperCase()))
+    paramIndex += sources.length
+  }
+
+  // Categories filter: match label category against provided values (cast to "Category" enum)
+  if (categories && categories.length > 0) {
+    if (labelCtx) {
+      // Label JOIN will be present — filter on the joined label's category
+      const placeholders = categories.map((_, i) => `$${paramIndex + i}::"Category"`).join(', ')
+      conditions.push(`ml."category" IN (${placeholders})`)
+      categories.forEach((c) => values.push(c.toUpperCase()))
+      paramIndex += categories.length
+    } else {
+      // No label context — use EXISTS subquery against any label
+      const placeholders = categories.map((_, i) => `$${paramIndex + i}::"Category"`).join(', ')
+      conditions.push(
+        `EXISTS (SELECT 1 FROM "message_labels" ml2 WHERE ml2."messageAtomId" = ma."id" AND ml2."category" IN (${placeholders}))`
+      )
+      categories.forEach((c) => values.push(c.toUpperCase()))
+      paramIndex += categories.length
+    }
   }
 
   // Cursor-based keyset pagination: rank DESC, id ASC

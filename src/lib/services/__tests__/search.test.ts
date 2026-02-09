@@ -11,6 +11,7 @@ import { search } from '@/lib/services/search'
 
 // Track IDs for cleanup
 let importBatchId: string
+let claudeImportBatchId: string
 let runId: string
 let jobId: string
 let outputId: string
@@ -125,6 +126,40 @@ beforeAll(async () => {
     atomIds.push(atom.id)
   }
 
+  // Create a second import batch (CLAUDE source) for sources filter testing
+  const claudeBatch = await prisma.importBatch.create({
+    data: {
+      id: 'search-test-batch-claude',
+      source: 'CLAUDE',
+      originalFilename: 'search-test-claude.json',
+      fileSizeBytes: 500,
+      timezone: 'UTC',
+      statsJson: {
+        message_count: 1,
+        day_count: 1,
+        coverage_start: '2024-01-15',
+        coverage_end: '2024-01-15',
+        per_source_counts: { claude: 1 },
+      },
+    },
+  })
+  claudeImportBatchId = claudeBatch.id
+
+  const claudeAtom = await prisma.messageAtom.create({
+    data: {
+      id: 'search-atom-5',
+      atomStableId: 'search-stable-5',
+      importBatchId: claudeImportBatchId,
+      source: 'CLAUDE' as const,
+      timestampUtc: new Date('2024-01-15T11:00:00.000Z'),
+      dayDate: new Date('2024-01-15'),
+      role: 'USER' as const,
+      text: 'Can you explain the fibonacci sequence and its applications in nature?',
+      textHash: 'hash-search-5',
+    },
+  })
+  atomIds.push(claudeAtom.id)
+
   // Create Run + Job + Output for outputs scope testing
   const run = await prisma.run.create({
     data: {
@@ -228,7 +263,7 @@ afterAll(async () => {
   await prisma.job.deleteMany({ where: { id: jobId } })
   await prisma.run.deleteMany({ where: { id: runId } })
   await prisma.messageAtom.deleteMany({ where: { id: { in: atomIds } } })
-  await prisma.importBatch.deleteMany({ where: { id: importBatchId } })
+  await prisma.importBatch.deleteMany({ where: { id: { in: [importBatchId, claudeImportBatchId] } } })
   await prisma.filterProfile.deleteMany({ where: { id: filterProfileId } })
   await prisma.promptVersion.deleteMany({ where: { id: { in: [promptVersionId, classifyPromptVersionId] } } })
   await prisma.prompt.deleteMany({ where: { id: { in: [promptId, classifyPromptId] } } })
@@ -616,6 +651,178 @@ describe('Search Service', () => {
         expect(atom.category).toBeNull()
         expect(atom.confidence).toBeNull()
       })
+    })
+  })
+
+  describe('sources filter', () => {
+    it('sources=chatgpt returns only CHATGPT atoms', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        sources: ['chatgpt'],
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(2)
+      result.items.forEach((item) => {
+        const atom = (item as { atom: { source: string } }).atom
+        expect(atom.source).toBe('chatgpt')
+      })
+      // CLAUDE atom (search-stable-5) must NOT appear
+      const stableIds = result.items.map(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId
+      )
+      expect(stableIds).not.toContain('search-stable-5')
+    })
+
+    it('sources=claude returns only CLAUDE atoms', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        sources: ['claude'],
+      })
+
+      expect(result.items.length).toBeGreaterThanOrEqual(1)
+      result.items.forEach((item) => {
+        const atom = (item as { atom: { source: string } }).atom
+        expect(atom.source).toBe('claude')
+      })
+      const stableIds = result.items.map(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId
+      )
+      expect(stableIds).toContain('search-stable-5')
+    })
+
+    it('sources=chatgpt,claude returns atoms from both sources', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        sources: ['chatgpt', 'claude'],
+      })
+
+      const sources = result.items.map(
+        (item) => (item as { atom: { source: string } }).atom.source
+      )
+      expect(sources).toContain('chatgpt')
+      expect(sources).toContain('claude')
+    })
+
+    it('sources=grok returns no results when no grok atoms exist', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        sources: ['grok'],
+      })
+
+      expect(result.items).toHaveLength(0)
+    })
+  })
+
+  describe('categories filter', () => {
+    it('categories=learning with label context returns only LEARNING-labeled atoms', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        categories: ['learning'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      // Only atom-1 matches fibonacci AND has LEARNING label
+      expect(result.items.length).toBe(1)
+      const atom = (result.items[0] as { atom: { atomStableId: string; category: string | null } }).atom
+      expect(atom.atomStableId).toBe('search-stable-1')
+      expect(atom.category).toBe('learning')
+    })
+
+    it('categories=work with label context returns only WORK-labeled atoms', async () => {
+      const result = await search({
+        q: 'PostgreSQL',
+        scope: 'raw',
+        limit: 50,
+        categories: ['work'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      // Only atom-3 matches PostgreSQL AND has WORK label
+      expect(result.items.length).toBe(1)
+      const atom = (result.items[0] as { atom: { atomStableId: string; category: string | null } }).atom
+      expect(atom.atomStableId).toBe('search-stable-3')
+      expect(atom.category).toBe('work')
+    })
+
+    it('categories=work,learning with label context returns both labeled atoms', async () => {
+      // Search for a broad term that matches atoms with both labels
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        categories: ['work', 'learning'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      // atom-1 (LEARNING) matches fibonacci; atom-3 (WORK) does not match fibonacci
+      // So only atom-1 should appear
+      expect(result.items.length).toBe(1)
+      const atom = (result.items[0] as { atom: { atomStableId: string; category: string | null } }).atom
+      expect(atom.atomStableId).toBe('search-stable-1')
+    })
+
+    it('categories=personal with label context returns no results when no atoms have that label', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        categories: ['personal'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      expect(result.items).toHaveLength(0)
+    })
+
+    it('categories filter without label context uses EXISTS subquery', async () => {
+      // No labelModel/labelPromptVersionId/runId — falls back to EXISTS subquery
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        categories: ['learning'],
+      })
+
+      // atom-1 has a LEARNING label (from any context) and matches fibonacci
+      expect(result.items.length).toBeGreaterThanOrEqual(1)
+      const stableIds = result.items.map(
+        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId
+      )
+      expect(stableIds).toContain('search-stable-1')
+      // atom-2 has no label at all — must not appear
+      expect(stableIds).not.toContain('search-stable-2')
+    })
+
+    it('combined sources + categories filter narrows results', async () => {
+      const result = await search({
+        q: 'fibonacci',
+        scope: 'raw',
+        limit: 50,
+        sources: ['chatgpt'],
+        categories: ['learning'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      // Only atom-1: source=CHATGPT, label=LEARNING, matches fibonacci
+      expect(result.items.length).toBe(1)
+      const atom = (result.items[0] as { atom: { atomStableId: string; source: string; category: string | null } }).atom
+      expect(atom.atomStableId).toBe('search-stable-1')
+      expect(atom.source).toBe('chatgpt')
+      expect(atom.category).toBe('learning')
     })
   })
 })
