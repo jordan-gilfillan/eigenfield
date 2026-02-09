@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-032) are Done. See open entries below if new AUDs are added.
+> All entries (AUD-001 through AUD-033) are Done. See open entries below if new AUDs are added.
 
 ---
 
@@ -527,6 +527,25 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No stale "Not started" on completed or partially completed work.
 - **Status**: Done
 - **Resolution**: Updated UX_SPEC.md Section 8 status markers to reflect work delivered by AUD-015–019. No code changes.
+
+### AUD-033 — Dashboard 2-column layout + latest run card (UX-8.3)
+- **Source**: UX backlog (UX_SPEC.md §4.1, §8.3)
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.1 (Dashboard requirements), §8.3 (Dashboard IA Pass)
+- **Problem**: Dashboard is single-column. No "latest run" card — after creating a run, no way to return to it from the dashboard. UX_SPEC §4.1 requires 2-column layout (primary flow + status/context).
+- **Decision**: Implement 2-column layout + latest run summary card
+- **Planned PR**: `fix/AUD-033-dashboard-2col-layout`
+- **Acceptance checks**:
+  - Desktop: 2-column layout visible (primary flow left, status/context right).
+  - Latest run card shows status badge, progress counters, "View Run" link.
+  - Empty states have explicit next-action text.
+  - Mobile: graceful single-column fallback.
+  - Changes limited to `src/app/distill/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes (616+ tests).
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Converted dashboard to 2-column layout (primary flow left, status/context right). Added latest run card with status badge, progress counters, and "View Run" link. Responsive single-column fallback on mobile. Reorganized feature cards into right-column quick links. No new API routes or schema changes.
 
 ---
 

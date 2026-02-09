@@ -79,6 +79,23 @@ interface FilterProfile {
   categories: string[]
 }
 
+interface LatestRun {
+  id: string
+  status: string
+  model: string
+  createdAt: string
+  progress: {
+    queued: number
+    running: number
+    succeeded: number
+    failed: number
+    cancelled: number
+  }
+  totals: {
+    jobs: number
+  }
+}
+
 interface LastClassifyStats {
   hasStats: boolean
   stats?: {
@@ -142,6 +159,10 @@ function DashboardContent() {
   const [model, setModel] = useState('stub_summarizer_v1')
   const [creatingRun, setCreatingRun] = useState(false)
   const [createRunError, setCreateRunError] = useState<string | null>(null)
+
+  // Latest run state
+  const [latestRun, setLatestRun] = useState<LatestRun | null>(null)
+  const [loadingLatestRun, setLoadingLatestRun] = useState(false)
 
   // Data load error (batches, prompt versions, filter profiles)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -234,6 +255,44 @@ function DashboardContent() {
     }
   }, [selectedBatch])
 
+  // Fetch latest run for the selected batch
+  const fetchLatestRun = useCallback(async (batchId: string) => {
+    setLoadingLatestRun(true)
+    try {
+      const listRes = await fetch(`/api/distill/runs?importBatchId=${encodeURIComponent(batchId)}&limit=1`)
+      if (!listRes.ok) return
+      const listData = await listRes.json()
+      if (!listData.items?.length) {
+        setLatestRun(null)
+        return
+      }
+      const runId = listData.items[0].id
+      const detailRes = await fetch(`/api/distill/runs/${runId}`)
+      if (!detailRes.ok) return
+      const detail = await detailRes.json()
+      setLatestRun({
+        id: detail.id,
+        status: detail.status,
+        model: detail.model,
+        createdAt: detail.createdAt,
+        progress: detail.progress,
+        totals: { jobs: detail.totals.jobs },
+      })
+    } catch {
+      // Latest run card is auxiliary — silent on fetch error
+    } finally {
+      setLoadingLatestRun(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedBatchId) {
+      fetchLatestRun(selectedBatchId)
+    } else {
+      setLatestRun(null)
+    }
+  }, [selectedBatchId, fetchLatestRun])
+
   // Update URL when batch selection changes (for shareability)
   function handleBatchSelect(batchId: string) {
     stopPolling()
@@ -242,6 +301,7 @@ function DashboardContent() {
     setClassifyError(null)
     setClassifyProgress(null)
     setLastClassifyStats(null)
+    setLatestRun(null)
     router.push(`/distill?importBatchId=${batchId}`)
   }
 
@@ -486,6 +546,10 @@ function DashboardContent() {
     }
   }, [selectedBatchId, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, model, router])
 
+  const completedJobs = latestRun
+    ? latestRun.progress.succeeded + latestRun.progress.failed + latestRun.progress.cancelled
+    : 0
+
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
@@ -497,459 +561,541 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* Import Batch Selector */}
-      <div className="mb-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
-        <h2 className="text-lg font-semibold mb-3">Select Import Batch</h2>
+      <div className="flex flex-col md:flex-row gap-6">
+        {/* Left column: primary flow */}
+        <div className="flex-1 min-w-0 space-y-6">
 
-        {loadingBatches ? (
-          <p className="text-gray-500">Loading import batches...</p>
-        ) : importBatches.length === 0 ? (
-          <div className="text-gray-600">
-            <p className="mb-2">No import batches found.</p>
-            <Link
-              href="/distill/import"
-              className="text-blue-600 hover:underline"
-            >
-              Import your first conversation export &rarr;
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <select
-              value={selectedBatchId || ''}
-              onChange={(e) => handleBatchSelect(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md bg-white"
-            >
-              {importBatches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {batch.originalFilename} — {batch.stats.message_count} messages,{' '}
-                  {batch.stats.day_count} days ({batch.source.toLowerCase()})
-                </option>
-              ))}
-            </select>
+          {/* Import Batch Selector */}
+          <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+            <h2 className="text-lg font-semibold mb-3">Select Import Batch</h2>
 
-            {selectedBatch && (
-              <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="font-medium">Source:</span>{' '}
-                    {selectedBatch.source.toLowerCase()}
-                  </div>
-                  <div>
-                    <span className="font-medium">Timezone:</span>{' '}
-                    {selectedBatch.timezone}
-                  </div>
-                  <div>
-                    <span className="font-medium">Coverage:</span>{' '}
-                    {selectedBatch.stats.coverage_start} to {selectedBatch.stats.coverage_end}
-                  </div>
-                  <div>
-                    <span className="font-medium">Imported:</span>{' '}
-                    {new Date(selectedBatch.createdAt).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Classification Section */}
-      {selectedBatchId && (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-          <h2 className="text-lg font-semibold mb-3 text-blue-800">Classification</h2>
-
-          {/* Mode selector */}
-          <div className="mb-3">
-            <label className="block text-sm font-medium text-blue-800 mb-1">Mode</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="classifyMode"
-                  value="stub"
-                  checked={classifyMode === 'stub'}
-                  onChange={() => setClassifyMode('stub')}
-                  disabled={classifying}
-                />
-                Stub (deterministic)
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="classifyMode"
-                  value="real"
-                  checked={classifyMode === 'real'}
-                  onChange={() => setClassifyMode('real')}
-                  disabled={classifying}
-                />
-                Real (LLM-backed)
-              </label>
-            </div>
-            {classifyMode === 'real' && (
-              <p className="text-xs text-amber-700 mt-1">
-                Requires LLM_MODE=real and provider API key. Spend caps apply.
-              </p>
-            )}
-          </div>
-
-          {classifyResult && (
-            <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded">
-              <p className="text-green-700 font-medium">
-                Classification complete ({classifyResult.mode} mode)
-              </p>
-              <ul className="text-green-600 text-sm mt-1 space-y-1">
-                <li>Total atoms: {classifyResult.totals.messageAtoms}</li>
-                <li>Newly labeled: {classifyResult.totals.newlyLabeled}</li>
-                <li>Already labeled: {classifyResult.totals.skippedAlreadyLabeled}</li>
-                <li>
-                  Label spec: {classifyResult.labelSpec.model} /{' '}
-                  <code className="text-xs">{classifyResult.labelSpec.promptVersionId.slice(0, 8)}...</code>
-                </li>
-              </ul>
-            </div>
-          )}
-
-          {classifyError && (
-            <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded">
-              <p className="text-red-700">{classifyError}</p>
-            </div>
-          )}
-
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={handleClassify}
-              disabled={classifying || !activeClassifyPv}
-              className={`px-4 py-2 rounded text-white ${
-                classifying || !activeClassifyPv
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700'
-              }`}
-            >
-              {classifying
-                ? 'Classifying...'
-                : `Classify (${classifyMode})`}
-            </button>
-            {!activeClassifyPv && (
-              <span className="text-sm text-gray-500">
-                {classifyMode === 'real' && !classifyPromptVersions.real
-                  ? 'No real classify prompt version found. Run: npx prisma db seed'
-                  : 'Loading prompt version...'}
-              </span>
-            )}
-            <span className="text-sm text-blue-600">
-              {classifyMode === 'stub'
-                ? 'Assigns categories using deterministic stub algorithm'
-                : 'Assigns categories using LLM provider (costs apply)'}
-            </span>
-          </div>
-
-          {/* Live Classify Progress (foreground polling while classify is running) */}
-          {classifying && lastClassifyStats?.hasStats && lastClassifyStats.stats?.status === 'running' && (
-            <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded text-sm">
-              <div className="mb-2 flex items-center gap-2">
-                <p className="font-medium text-indigo-800">Classify Progress</p>
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-200 text-blue-700">
-                  running
-                </span>
-              </div>
-              <div className="mb-2">
-                <div className="flex justify-between text-indigo-700 text-xs mb-1">
-                  <span>
-                    Processed {lastClassifyStats.stats.processedAtoms} / {lastClassifyStats.stats.totalAtoms}
-                  </span>
-                  <span>
-                    {formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%
-                  </span>
-                </div>
-                <div className="w-full bg-indigo-100 rounded-full h-2">
-                  <div
-                    className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-indigo-700">
-                <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
-                <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
-                {lastClassifyStats.stats.skippedBadOutput > 0 && (
-                  <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
-                )}
-                {lastClassifyStats.stats.aliasedCount > 0 && (
-                  <div>Aliased: {lastClassifyStats.stats.aliasedCount}</div>
-                )}
-                {lastClassifyStats.stats.tokensIn !== null && (
-                  <div>Tokens: {lastClassifyStats.stats.tokensIn.toLocaleString()} in / {(lastClassifyStats.stats.tokensOut ?? 0).toLocaleString()} out</div>
-                )}
-                {lastClassifyStats.stats.costUsd !== null && (
-                  <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Last Classify Stats (persisted) */}
-          {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
-            <div className="mt-3 p-3 bg-blue-100 border border-blue-300 rounded text-sm">
-              <div className="mb-1 flex items-center gap-2">
-                <p className="font-medium text-blue-800">Last Classify Stats</p>
-                <span
-                  className={`px-2 py-0.5 rounded text-xs font-medium ${getClassifyStatusColor(lastClassifyStats.stats.status)}`}
+            {loadingBatches ? (
+              <p className="text-gray-500">Loading import batches...</p>
+            ) : importBatches.length === 0 ? (
+              <div className="text-gray-600">
+                <p className="mb-2">No import batches found.</p>
+                <Link
+                  href="/distill/import"
+                  className="text-blue-600 hover:underline"
                 >
-                  {lastClassifyStats.stats.status}
-                </span>
-                <button
-                  onClick={handleRefreshLastClassifyStats}
-                  disabled={refreshingLastClassifyStats}
-                  className={`ml-auto px-2 py-1 rounded text-xs font-medium ${
-                    refreshingLastClassifyStats
-                      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-700 text-white hover:bg-blue-800'
-                  }`}
-                >
-                  {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
-                </button>
+                  Import your first conversation export &rarr;
+                </Link>
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
-                <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
-                <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
-                <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
-                <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
-                <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
-                <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
-                <div>Aliased category count: {lastClassifyStats.stats.aliasedCount}</div>
-                {lastClassifyStats.stats.status === 'running' && (
-                  <div className="col-span-2 font-medium">
-                    Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
-                    ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
-                  </div>
-                )}
-                <div>Mode: {lastClassifyStats.stats.mode}</div>
-                <div>
-                  Run at:{' '}
-                  {new Date(lastClassifyStats.stats.finishedAt ?? lastClassifyStats.stats.createdAt).toLocaleString()}
-                </div>
-                {lastClassifyStats.stats.tokensIn !== null && (
-                  <div>Tokens in: {lastClassifyStats.stats.tokensIn.toLocaleString()}</div>
-                )}
-                {lastClassifyStats.stats.tokensOut !== null && (
-                  <div>Tokens out: {lastClassifyStats.stats.tokensOut.toLocaleString()}</div>
-                )}
-                {lastClassifyStats.stats.costUsd !== null && (
-                  <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
-                )}
-                {lastClassifyStats.stats.status === 'failed' && lastClassifyStats.stats.errorJson && (
-                  <div className="col-span-2 text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-1">
-                    <span className="font-medium">Error [{lastClassifyStats.stats.errorJson.code}]</span>{' '}
-                    {lastClassifyStats.stats.errorJson.message}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {lastClassifyStatsError && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
-              <p className="text-red-700 text-sm">{lastClassifyStatsError}</p>
-            </div>
-          )}
-          {lastClassifyStats && !lastClassifyStats.hasStats && (
-            <div className="mt-3 flex items-center gap-3">
-              <p className="text-sm text-gray-500">No classify stats yet for this batch + label spec.</p>
-              <button
-                onClick={handleRefreshLastClassifyStats}
-                disabled={refreshingLastClassifyStats}
-                className={`px-2 py-1 rounded text-xs font-medium ${
-                  refreshingLastClassifyStats
-                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                    : 'bg-gray-700 text-white hover:bg-gray-800'
-                }`}
-              >
-                {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Feature Cards */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">
-          <h2 className="text-xl font-semibold mb-4">Import</h2>
-          <p className="text-gray-600 mb-4">
-            Upload ChatGPT, Claude, or Grok exports to create MessageAtoms.
-          </p>
-          <Link
-            href="/distill/import"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Import Conversations
-          </Link>
-        </div>
-
-        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">
-          <h2 className="text-xl font-semibold mb-4">Classify</h2>
-          <p className="text-gray-600 mb-4">
-            Label messages with categories for filtering.
-          </p>
-          {selectedBatchId ? (
-            <span className="inline-block px-4 py-2 bg-green-100 text-green-700 rounded">
-              Ready — use section above
-            </span>
-          ) : (
-            <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
-              Select a batch first
-            </span>
-          )}
-        </div>
-
-        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md md:col-span-2">
-          <h2 className="text-xl font-semibold mb-4">Create Run</h2>
-          <p className="text-gray-600 mb-4">
-            Create a summarization run with frozen config from the selected batch.
-          </p>
-
-          {!selectedBatchId ? (
-            <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
-              Select an import batch first
-            </span>
-          ) : !lastClassifyStats || !lastClassifyStats.hasStats ? (
-            <span className="inline-block px-4 py-2 bg-yellow-100 text-yellow-700 rounded">
-              Classify the batch first (section above)
-            </span>
-          ) : lastClassifyStats.stats?.status === 'running' ? (
-            <span className="inline-block px-4 py-2 bg-blue-100 text-blue-700 rounded">
-              Classification in progress&hellip;
-            </span>
-          ) : (
-            <div className="space-y-4">
-              {/* Date Range */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  />
-                </div>
-              </div>
-
-              {/* Sources */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Sources
-                </label>
-                <div className="flex gap-4">
-                  {['chatgpt', 'claude', 'grok'].map((source) => (
-                    <label key={source} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedSources.includes(source)}
-                        onChange={() => handleSourceToggle(source)}
-                        className="rounded"
-                      />
-                      <span className="capitalize">{source}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Filter Profile */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Filter Profile
-                </label>
+            ) : (
+              <div className="space-y-3">
                 <select
-                  value={selectedFilterProfileId}
-                  onChange={(e) => setSelectedFilterProfileId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                  value={selectedBatchId || ''}
+                  onChange={(e) => handleBatchSelect(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md bg-white"
                 >
-                  {filterProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name} ({profile.mode}: {profile.categories.join(', ')})
+                  {importBatches.map((batch) => (
+                    <option key={batch.id} value={batch.id}>
+                      {batch.originalFilename} — {batch.stats.message_count} messages,{' '}
+                      {batch.stats.day_count} days ({batch.source.toLowerCase()})
                     </option>
                   ))}
                 </select>
+
+                {selectedBatch && (
+                  <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="font-medium">Source:</span>{' '}
+                        {selectedBatch.source.toLowerCase()}
+                      </div>
+                      <div>
+                        <span className="font-medium">Timezone:</span>{' '}
+                        {selectedBatch.timezone}
+                      </div>
+                      <div>
+                        <span className="font-medium">Coverage:</span>{' '}
+                        {selectedBatch.stats.coverage_start} to {selectedBatch.stats.coverage_end}
+                      </div>
+                      <div>
+                        <span className="font-medium">Imported:</span>{' '}
+                        {new Date(selectedBatch.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Classification Section */}
+          {selectedBatchId && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <h2 className="text-lg font-semibold mb-3 text-blue-800">Classification</h2>
+
+              {/* Mode selector */}
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-blue-800 mb-1">Mode</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="classifyMode"
+                      value="stub"
+                      checked={classifyMode === 'stub'}
+                      onChange={() => setClassifyMode('stub')}
+                      disabled={classifying}
+                    />
+                    Stub (deterministic)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="classifyMode"
+                      value="real"
+                      checked={classifyMode === 'real'}
+                      onChange={() => setClassifyMode('real')}
+                      disabled={classifying}
+                    />
+                    Real (LLM-backed)
+                  </label>
+                </div>
+                {classifyMode === 'real' && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Requires LLM_MODE=real and provider API key. Spend caps apply.
+                  </p>
+                )}
               </div>
 
-              {/* Model */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Model
-                </label>
-                <input
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="stub_summarizer_v1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-
-              {/* Error */}
-              {createRunError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded">
-                  <p className="text-red-700">{createRunError}</p>
+              {classifyResult && (
+                <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded">
+                  <p className="text-green-700 font-medium">
+                    Classification complete ({classifyResult.mode} mode)
+                  </p>
+                  <ul className="text-green-600 text-sm mt-1 space-y-1">
+                    <li>Total atoms: {classifyResult.totals.messageAtoms}</li>
+                    <li>Newly labeled: {classifyResult.totals.newlyLabeled}</li>
+                    <li>Already labeled: {classifyResult.totals.skippedAlreadyLabeled}</li>
+                    <li>
+                      Label spec: {classifyResult.labelSpec.model} /{' '}
+                      <code className="text-xs">{classifyResult.labelSpec.promptVersionId.slice(0, 8)}...</code>
+                    </li>
+                  </ul>
                 </div>
               )}
 
-              {/* Create Button */}
-              <button
-                onClick={handleCreateRun}
-                disabled={
-                  creatingRun ||
-                  !selectedBatchId ||
-                  !startDate ||
-                  !endDate ||
-                  selectedSources.length === 0 ||
-                  !selectedFilterProfileId ||
-                  !model
-                }
-                className={`px-4 py-2 rounded text-white ${
-                  creatingRun ||
-                  !selectedBatchId ||
-                  !startDate ||
-                  !endDate ||
-                  selectedSources.length === 0 ||
-                  !selectedFilterProfileId ||
-                  !model
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                {creatingRun ? 'Creating...' : 'Create Run'}
-              </button>
+              {classifyError && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded">
+                  <p className="text-red-700">{classifyError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={handleClassify}
+                  disabled={classifying || !activeClassifyPv}
+                  className={`px-4 py-2 rounded text-white ${
+                    classifying || !activeClassifyPv
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
+                >
+                  {classifying
+                    ? 'Classifying...'
+                    : `Classify (${classifyMode})`}
+                </button>
+                {!activeClassifyPv && (
+                  <span className="text-sm text-gray-500">
+                    {classifyMode === 'real' && !classifyPromptVersions.real
+                      ? 'No real classify prompt version found. Run: npx prisma db seed'
+                      : 'Loading prompt version...'}
+                  </span>
+                )}
+                <span className="text-sm text-blue-600">
+                  {classifyMode === 'stub'
+                    ? 'Assigns categories using deterministic stub algorithm'
+                    : 'Assigns categories using LLM provider (costs apply)'}
+                </span>
+              </div>
+
+              {/* Live Classify Progress (foreground polling while classify is running) */}
+              {classifying && lastClassifyStats?.hasStats && lastClassifyStats.stats?.status === 'running' && (
+                <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded text-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <p className="font-medium text-indigo-800">Classify Progress</p>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-200 text-blue-700">
+                      running
+                    </span>
+                  </div>
+                  <div className="mb-2">
+                    <div className="flex justify-between text-indigo-700 text-xs mb-1">
+                      <span>
+                        Processed {lastClassifyStats.stats.processedAtoms} / {lastClassifyStats.stats.totalAtoms}
+                      </span>
+                      <span>
+                        {formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-indigo-100 rounded-full h-2">
+                      <div
+                        className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-indigo-700">
+                    <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
+                    <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
+                    {lastClassifyStats.stats.skippedBadOutput > 0 && (
+                      <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
+                    )}
+                    {lastClassifyStats.stats.aliasedCount > 0 && (
+                      <div>Aliased: {lastClassifyStats.stats.aliasedCount}</div>
+                    )}
+                    {lastClassifyStats.stats.tokensIn !== null && (
+                      <div>Tokens: {lastClassifyStats.stats.tokensIn.toLocaleString()} in / {(lastClassifyStats.stats.tokensOut ?? 0).toLocaleString()} out</div>
+                    )}
+                    {lastClassifyStats.stats.costUsd !== null && (
+                      <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Last Classify Stats (persisted) */}
+              {lastClassifyStats && lastClassifyStats.hasStats && lastClassifyStats.stats && (
+                <div className="mt-3 p-3 bg-blue-100 border border-blue-300 rounded text-sm">
+                  <div className="mb-1 flex items-center gap-2">
+                    <p className="font-medium text-blue-800">Last Classify Stats</p>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${getClassifyStatusColor(lastClassifyStats.stats.status)}`}
+                    >
+                      {lastClassifyStats.stats.status}
+                    </span>
+                    <button
+                      onClick={handleRefreshLastClassifyStats}
+                      disabled={refreshingLastClassifyStats}
+                      className={`ml-auto px-2 py-1 rounded text-xs font-medium ${
+                        refreshingLastClassifyStats
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : 'bg-blue-700 text-white hover:bg-blue-800'
+                      }`}
+                    >
+                      {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
+                    <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
+                    <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
+                    <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
+                    <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
+                    <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
+                    <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
+                    <div>Aliased category count: {lastClassifyStats.stats.aliasedCount}</div>
+                    {lastClassifyStats.stats.status === 'running' && (
+                      <div className="col-span-2 font-medium">
+                        Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
+                        ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
+                      </div>
+                    )}
+                    <div>Mode: {lastClassifyStats.stats.mode}</div>
+                    <div>
+                      Run at:{' '}
+                      {new Date(lastClassifyStats.stats.finishedAt ?? lastClassifyStats.stats.createdAt).toLocaleString()}
+                    </div>
+                    {lastClassifyStats.stats.tokensIn !== null && (
+                      <div>Tokens in: {lastClassifyStats.stats.tokensIn.toLocaleString()}</div>
+                    )}
+                    {lastClassifyStats.stats.tokensOut !== null && (
+                      <div>Tokens out: {lastClassifyStats.stats.tokensOut.toLocaleString()}</div>
+                    )}
+                    {lastClassifyStats.stats.costUsd !== null && (
+                      <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
+                    )}
+                    {lastClassifyStats.stats.status === 'failed' && lastClassifyStats.stats.errorJson && (
+                      <div className="col-span-2 text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-1">
+                        <span className="font-medium">Error [{lastClassifyStats.stats.errorJson.code}]</span>{' '}
+                        {lastClassifyStats.stats.errorJson.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {lastClassifyStatsError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+                  <p className="text-red-700 text-sm">{lastClassifyStatsError}</p>
+                </div>
+              )}
+              {lastClassifyStats && !lastClassifyStats.hasStats && (
+                <div className="mt-3 flex items-center gap-3">
+                  <p className="text-sm text-gray-500">No classify stats yet for this batch + label spec.</p>
+                  <button
+                    onClick={handleRefreshLastClassifyStats}
+                    disabled={refreshingLastClassifyStats}
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      refreshingLastClassifyStats
+                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                        : 'bg-gray-700 text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    {refreshingLastClassifyStats ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Create Run Section */}
+          <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+            <h2 className="text-lg font-semibold mb-3">Create Run</h2>
+            <p className="text-gray-600 text-sm mb-3">
+              Create a summarization run with frozen config from the selected batch.
+            </p>
+
+            {!selectedBatchId ? (
+              <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+                Select an import batch first.
+              </p>
+            ) : !lastClassifyStats || !lastClassifyStats.hasStats ? (
+              <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+                Classify the batch first using the classification section above.
+              </p>
+            ) : lastClassifyStats.stats?.status === 'running' ? (
+              <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
+                Classification in progress &mdash; wait for it to finish before creating a run.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {/* Date Range */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                </div>
+
+                {/* Sources */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sources
+                  </label>
+                  <div className="flex gap-4">
+                    {['chatgpt', 'claude', 'grok'].map((source) => (
+                      <label key={source} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedSources.includes(source)}
+                          onChange={() => handleSourceToggle(source)}
+                          className="rounded"
+                        />
+                        <span className="capitalize">{source}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filter Profile */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Filter Profile
+                  </label>
+                  <select
+                    value={selectedFilterProfileId}
+                    onChange={(e) => setSelectedFilterProfileId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                  >
+                    {filterProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} ({profile.mode}: {profile.categories.join(', ')})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Model */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Model
+                  </label>
+                  <input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="stub_summarizer_v1"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                {/* Error */}
+                {createRunError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded">
+                    <p className="text-red-700">{createRunError}</p>
+                  </div>
+                )}
+
+                {/* Create Button */}
+                <button
+                  onClick={handleCreateRun}
+                  disabled={
+                    creatingRun ||
+                    !selectedBatchId ||
+                    !startDate ||
+                    !endDate ||
+                    selectedSources.length === 0 ||
+                    !selectedFilterProfileId ||
+                    !model
+                  }
+                  className={`px-4 py-2 rounded text-white ${
+                    creatingRun ||
+                    !selectedBatchId ||
+                    !startDate ||
+                    !endDate ||
+                    selectedSources.length === 0 ||
+                    !selectedFilterProfileId ||
+                    !model
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {creatingRun ? 'Creating...' : 'Create Run'}
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
 
-        <div className="p-6 bg-gray-50 border border-gray-200 rounded-md">
-          <h2 className="text-xl font-semibold mb-4">Search</h2>
-          <p className="text-gray-600 mb-4">
-            Full-text search across atoms and outputs.
-          </p>
-          <Link
-            href="/distill/search"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Search
-          </Link>
+        {/* Right column: status + context */}
+        <div className="w-full md:w-80 flex-shrink-0 space-y-6">
+
+          {/* Latest Run Card */}
+          <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+            <h2 className="text-lg font-semibold mb-3">Latest Run</h2>
+
+            {!selectedBatchId ? (
+              <p className="text-sm text-gray-500">
+                Select an import batch to see its latest run.
+              </p>
+            ) : loadingLatestRun ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : !latestRun ? (
+              <div>
+                <p className="text-sm text-gray-500 mb-2">No runs yet for this batch.</p>
+                <p className="text-sm text-gray-400">
+                  Create a run from the form on the left after classifying your import batch.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${getRunStatusColor(latestRun.status)}`}
+                  >
+                    {latestRun.status}
+                  </span>
+                  <span className="text-xs text-gray-500">{latestRun.model}</span>
+                </div>
+
+                {/* Progress counters */}
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Total jobs</span>
+                    <span className="font-medium">{latestRun.totals.jobs}</span>
+                  </div>
+                  {latestRun.totals.jobs > 0 && (
+                    <>
+                      <div className="flex justify-between text-gray-600">
+                        <span>Completed</span>
+                        <span className="font-medium">
+                          {completedJobs} / {latestRun.totals.jobs}{' '}
+                          ({formatProgressPercent(completedJobs, latestRun.totals.jobs)}%)
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div
+                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                          style={{
+                            width: `${formatProgressPercent(completedJobs, latestRun.totals.jobs)}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-gray-500 mt-1">
+                        {latestRun.progress.succeeded > 0 && (
+                          <div className="text-green-600">Succeeded: {latestRun.progress.succeeded}</div>
+                        )}
+                        {latestRun.progress.failed > 0 && (
+                          <div className="text-red-600">Failed: {latestRun.progress.failed}</div>
+                        )}
+                        {latestRun.progress.running > 0 && (
+                          <div className="text-blue-600">Running: {latestRun.progress.running}</div>
+                        )}
+                        {latestRun.progress.queued > 0 && (
+                          <div className="text-gray-500">Queued: {latestRun.progress.queued}</div>
+                        )}
+                        {latestRun.progress.cancelled > 0 && (
+                          <div className="text-yellow-600">Cancelled: {latestRun.progress.cancelled}</div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="text-xs text-gray-400">
+                  Created {new Date(latestRun.createdAt).toLocaleString()}
+                </div>
+
+                <Link
+                  href={`/distill/runs/${latestRun.id}`}
+                  className="inline-block px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                >
+                  View Run &rarr;
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Links */}
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-md">
+            <h2 className="text-lg font-semibold mb-3">Quick Links</h2>
+            <div className="space-y-2">
+              <Link
+                href="/distill/import"
+                className="block px-3 py-2 bg-white border border-gray-200 rounded hover:bg-gray-50 text-sm"
+              >
+                <span className="font-medium text-blue-600">Import Conversations</span>
+                <span className="block text-xs text-gray-500 mt-0.5">Upload ChatGPT, Claude, or Grok exports</span>
+              </Link>
+              <Link
+                href="/distill/search"
+                className="block px-3 py-2 bg-white border border-gray-200 rounded hover:bg-gray-50 text-sm"
+              >
+                <span className="font-medium text-blue-600">Search</span>
+                <span className="block text-xs text-gray-500 mt-0.5">Full-text search across atoms and outputs</span>
+              </Link>
+              <Link
+                href="/distill/import/inspect"
+                className="block px-3 py-2 bg-white border border-gray-200 rounded hover:bg-gray-50 text-sm"
+              >
+                <span className="font-medium text-blue-600">Import Inspector</span>
+                <span className="block text-xs text-gray-500 mt-0.5">Browse imported atoms by day and source</span>
+              </Link>
+            </div>
+          </div>
+
         </div>
       </div>
     </main>
@@ -964,6 +1110,23 @@ function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): str
       return 'bg-green-200 text-green-700'
     case 'failed':
       return 'bg-red-200 text-red-700'
+    default:
+      return 'bg-gray-200 text-gray-700'
+  }
+}
+
+function getRunStatusColor(status: string): string {
+  switch (status) {
+    case 'queued':
+      return 'bg-gray-200 text-gray-700'
+    case 'processing':
+      return 'bg-blue-200 text-blue-700'
+    case 'succeeded':
+      return 'bg-green-200 text-green-700'
+    case 'failed':
+      return 'bg-red-200 text-red-700'
+    case 'cancelled':
+      return 'bg-yellow-200 text-yellow-700'
     default:
       return 'bg-gray-200 text-gray-700'
   }
