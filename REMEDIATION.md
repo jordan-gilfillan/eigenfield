@@ -620,7 +620,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Run config persists selected batches (and/or derived selection rules) as frozen config.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
-- **Status**: In progress (AUD-043a–043c done; AUD-043d–043f not started)
+- **Status**: In progress (AUD-043a–043d done; AUD-043e–043f not started)
 
 ### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
 - **Source**: UX backlog (UX_SPEC.md §8.5)
@@ -816,7 +816,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - POST with duplicates → 400 INVALID_INPUT.
   - GET returns `importBatchIds` array in response.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Updated `src/app/api/distill/runs/route.ts`: POST accepts `importBatchIds` XOR `importBatchId` with validation (both/neither/empty/duplicates → 400 INVALID_INPUT), catches `TimezoneMismatchError` → 400 TIMEZONE_MISMATCH, passes through to service. GET includes `importBatchIds` from RunBatch junction via Prisma `include`. Added 8 route-level tests (645 total).
 
 ### AUD-043e — Dashboard UI: multi-batch selector + TZ validation
 - **Source**: AUD-043a implementation roadmap
