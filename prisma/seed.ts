@@ -9,7 +9,8 @@
  * - Prompts: classify, summarize, redact
  * - PromptVersions: classify_stub_v1 (inactive), classify_real_v1 (active), summarize_v1 (active), redact_v1 (inactive)
  *
- * Invariant: exactly one active PromptVersion per stage (SPEC §6.7).
+ * Invariant: at most one active PromptVersion per stage (SPEC §6.7).
+ * v0.3: redact has 0 active (stage not yet implemented).
  */
 
 import { PrismaClient } from '@prisma/client'

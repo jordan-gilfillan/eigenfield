@@ -317,7 +317,7 @@ Minimum fields (required):
 - PromptVersion: `id`, `promptId`, `versionLabel` (e.g. `v3`), `templateText`, `createdAt`, `isActive`
 
 Rules:
-- Exactly one active PromptVersion per stage at a time (used only as the server/UI default).
+- At most one active PromptVersion per stage at a time (used only as the server/UI default). Stages not yet implemented (e.g. redact in v0.3) may have zero active versions.
 - `isActive` is a default selector only. It MUST NOT be used to choose prompt behavior by "mode" (e.g., stub vs real).
 - Any endpoint that executes an LLM call MUST use an explicit PromptVersionId appropriate to that stage.
 - Runs MUST record the exact PromptVersion IDs used.

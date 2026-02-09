@@ -471,7 +471,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - Declared invariant is unambiguous in SPEC/plan/seed comments.
   - Post-seed invariant check enforces the declared rule (exactly-one vs at-most-one) consistently.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Changed spec to at-most-one. Updated SPEC §6.7 from "Exactly one active PromptVersion per stage" to "At most one active PromptVersion per stage" with note that unimplemented stages (e.g. redact in v0.3) may have zero. Updated EXECUTION_PLAN.md guardrail note and seed.ts comment to match. Code and tests already enforced at-most-one (`>1` failure check, `activeCount = 0` accepted). All 616 tests pass.
 
 ### AUD-029 — Canonical test count is stale again (regression of AUD-011)
 - **Source**: Audit 2026-02-09
