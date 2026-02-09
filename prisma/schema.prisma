@@ -90,6 +90,7 @@ model ImportBatch {
   messageAtoms  MessageAtom[]
   rawEntries    RawEntry[]
   runs          Run[]
+  runBatches    RunBatch[]
   classifyRuns  ClassifyRun[]
 
   @@map("import_batches")
@@ -228,10 +229,28 @@ model Run {
   importBatch   ImportBatch   @relation(fields: [importBatchId], references: [id])
   filterProfile FilterProfile @relation(fields: [filterProfileId], references: [id])
   jobs          Job[]
+  runBatches    RunBatch[]
 
   @@index([importBatchId])
   @@index([status])
   @@map("runs")
+}
+
+// Section 6.8a: RunBatch (junction — links Run to multiple ImportBatches)
+model RunBatch {
+  id            String      @id @default(cuid())
+  runId         String
+  importBatchId String
+  createdAt     DateTime    @default(now())
+
+  // Relations
+  run         Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  importBatch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, importBatchId])
+  @@index([runId])
+  @@index([importBatchId])
+  @@map("run_batches")
 }
 
 // Section 6.9: Job

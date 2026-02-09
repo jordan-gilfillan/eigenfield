@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a, AUD-043b) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -771,7 +771,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Data migration: every existing Run gets exactly 1 RunBatch row.
   - `npx prisma migrate dev` succeeds.
   - `npx vitest run` passes (no behavioral change).
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `RunBatch` junction model to `prisma/schema.prisma` (id, runId FK, importBatchId FK, @@unique, cascade deletes). Backfilled existing runs via `INSERT ... ON CONFLICT DO NOTHING` in migration SQL — every existing Run now has exactly 1 RunBatch row. Existing `Run.importBatchId` column retained for backward compatibility. No service-layer or API changes. 625 tests pass.
 
 ### AUD-043c — Backend: multi-batch service + bundle dedup
 - **Source**: AUD-043a implementation roadmap
