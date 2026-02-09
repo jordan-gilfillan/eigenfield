@@ -787,23 +787,16 @@ describe('Search Service', () => {
       expect(result.items).toHaveLength(0)
     })
 
-    it('categories filter without label context uses EXISTS subquery', async () => {
-      // No labelModel/labelPromptVersionId/runId — falls back to EXISTS subquery
-      const result = await search({
-        q: 'fibonacci',
-        scope: 'raw',
-        limit: 50,
-        categories: ['learning'],
-      })
-
-      // atom-1 has a LEARNING label (from any context) and matches fibonacci
-      expect(result.items.length).toBeGreaterThanOrEqual(1)
-      const stableIds = result.items.map(
-        (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId
-      )
-      expect(stableIds).toContain('search-stable-1')
-      // atom-2 has no label at all — must not appear
-      expect(stableIds).not.toContain('search-stable-2')
+    it('categories filter without label context throws (SPEC §7.9)', async () => {
+      // No labelModel/labelPromptVersionId/runId — must reject per SPEC §7.9
+      await expect(
+        search({
+          q: 'fibonacci',
+          scope: 'raw',
+          limit: 50,
+          categories: ['learning'],
+        })
+      ).rejects.toThrow('categories filter requires label context')
     })
 
     it('combined sources + categories filter narrows results', async () => {

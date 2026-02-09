@@ -165,13 +165,9 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
       categories.forEach((c) => values.push(c.toUpperCase()))
       paramIndex += categories.length
     } else {
-      // No label context — use EXISTS subquery against any label
-      const placeholders = categories.map((_, i) => `$${paramIndex + i}::"Category"`).join(', ')
-      conditions.push(
-        `EXISTS (SELECT 1 FROM "message_labels" ml2 WHERE ml2."messageAtomId" = ma."id" AND ml2."category" IN (${placeholders}))`
-      )
-      categories.forEach((c) => values.push(c.toUpperCase()))
-      paramIndex += categories.length
+      // SPEC §7.9: categories filter requires label context — route handler
+      // should reject before reaching here, but guard defensively.
+      throw new Error('categories filter requires label context')
     }
   }
 
