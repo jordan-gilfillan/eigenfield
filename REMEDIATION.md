@@ -620,7 +620,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Run config persists selected batches (and/or derived selection rules) as frozen config.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
-- **Status**: In progress (AUD-043a–043d done; AUD-043e–043f not started)
+- **Status**: In progress (AUD-043a–043e done; AUD-043f not started)
 
 ### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
 - **Source**: UX backlog (UX_SPEC.md §8.5)
@@ -836,7 +836,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Payload sends `importBatchIds` array.
   - Per-batch classification status check.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced single-batch dropdown with multi-select checkboxes in `page.tsx`. Added timezone mismatch validation (inline error + Create Run disabled). Sources reflect union across selected batches. Run creation sends `importBatchIds[]`. Per-batch classify status check gates Create Run. Classify batch picker added for multi-batch scenarios.
 
 ### AUD-043f — Run detail + search: multi-batch display
 - **Source**: AUD-043a implementation roadmap

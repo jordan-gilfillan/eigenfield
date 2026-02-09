@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Suspense, useState, useEffect, useCallback } from 'react'
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react'
 import { getClassifyStatusColor, getStatusColor, formatProgressPercent } from './lib/ui-utils'
 import type { LastClassifyStats } from './lib/types'
 import { usePolling } from './hooks/usePolling'
@@ -105,8 +105,16 @@ function DashboardContent() {
   const importBatchIdFromUrl = searchParams.get('importBatchId')
 
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([])
-  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(importBatchIdFromUrl)
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>(
+    importBatchIdFromUrl ? [importBatchIdFromUrl] : []
+  )
   const [loadingBatches, setLoadingBatches] = useState(true)
+
+  // Classify target batch (for multi-batch: which batch the classify section operates on)
+  const [classifyTargetBatchId, setClassifyTargetBatchId] = useState<string | null>(null)
+
+  // Per-batch classify status (for Create Run gating)
+  const [perBatchClassified, setPerBatchClassified] = useState<Record<string, boolean>>({})
 
   const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
     stub: PromptVersion | null
@@ -172,7 +180,7 @@ function DashboardContent() {
 
         // Auto-select latest batch if none specified in URL
         if (!importBatchIdFromUrl && data.items?.length > 0) {
-          setSelectedBatchId(data.items[0].id)
+          setSelectedBatchIds([data.items[0].id])
         }
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : 'Failed to load import batches')
@@ -234,16 +242,48 @@ function DashboardContent() {
     fetchProfiles()
   }, [])
 
-  // Compute selectedBatch before effects that depend on it
-  const selectedBatch = importBatches.find((b) => b.id === selectedBatchId)
+  // Compute multi-batch derived values
+  const selectedBatches = useMemo(
+    () => importBatches.filter((b) => selectedBatchIds.includes(b.id)),
+    [importBatches, selectedBatchIds]
+  )
+  const selectedBatchId = selectedBatchIds.length > 0 ? selectedBatchIds[0] : null
+  const selectedBatch = selectedBatches.length > 0 ? selectedBatches[0] : undefined
 
-  // Update date range when batch changes
+  // Timezone validation
+  const selectedTimezones = [...new Set(selectedBatches.map((b) => b.timezone))]
+  const timezoneMismatch = selectedTimezones.length > 1
+  const timezoneMismatchError = timezoneMismatch
+    ? `Selected batches have different timezones: ${selectedTimezones.join(', ')}. All must match.`
+    : null
+
+  // Available sources (union across selected batches)
+  const availableSources = useMemo(
+    () => [...new Set(selectedBatches.map((b) => b.source.toLowerCase()))].sort(),
+    [selectedBatches]
+  )
+
+  // Resolve classify target batch
+  const classifyBatchId = classifyTargetBatchId && selectedBatchIds.includes(classifyTargetBatchId)
+    ? classifyTargetBatchId
+    : selectedBatchId
+
+  // Update date range when batches change (union of coverage)
   useEffect(() => {
-    if (selectedBatch) {
-      setStartDate(selectedBatch.stats.coverage_start)
-      setEndDate(selectedBatch.stats.coverage_end)
+    if (selectedBatches.length > 0) {
+      const starts = selectedBatches.map((b) => b.stats.coverage_start).sort()
+      const ends = selectedBatches.map((b) => b.stats.coverage_end).sort()
+      setStartDate(starts[0])
+      setEndDate(ends[ends.length - 1])
     }
-  }, [selectedBatch])
+  }, [selectedBatches])
+
+  // Auto-update selected sources when available sources change
+  useEffect(() => {
+    if (availableSources.length > 0) {
+      setSelectedSources(availableSources)
+    }
+  }, [availableSources])
 
   // Fetch latest run for the selected batch
   const fetchLatestRun = useCallback(async (batchId: string) => {
@@ -283,17 +323,23 @@ function DashboardContent() {
     }
   }, [selectedBatchId, fetchLatestRun])
 
-  // Update URL when batch selection changes (for shareability)
-  function handleBatchSelect(batchId: string) {
-    setClassifyPollUrl(null)
-    setSelectedBatchId(batchId)
+  // Toggle batch selection (multi-select checkboxes)
+  function handleBatchToggle(batchId: string) {
+    const newIds = selectedBatchIds.includes(batchId)
+      ? selectedBatchIds.filter((id) => id !== batchId)
+      : [...selectedBatchIds, batchId]
+
+    setSelectedBatchIds(newIds)
     setClassifyResult(null)
     setClassifyError(null)
-    setLastCheckpointAt(null)
-    setLastClassifyStats(null)
-    setLoadingLastClassifyStats(true)
-    setLatestRun(null)
-    router.push(`/distill?importBatchId=${batchId}`)
+    setCreateRunError(null)
+
+    // Update URL with first selected batch (backward compat)
+    if (newIds.length > 0) {
+      router.push(`/distill?importBatchId=${newIds[0]}`)
+    } else {
+      router.push('/distill')
+    }
   }
 
   // Derive the prompt version for the selected mode
@@ -321,11 +367,11 @@ function DashboardContent() {
     }
   }, [])
 
-  // Fetch last classify stats when batch or mode changes (and pv is known).
+  // Fetch last classify stats when classify target batch or mode changes (and pv is known).
   // Uses cleanup-based cancellation to prevent stale responses from overwriting
   // current state when the user switches batches quickly (AUD-042).
   useEffect(() => {
-    if (!selectedBatchId || !activeClassifyPv) {
+    if (!classifyBatchId || !activeClassifyPv) {
       setLastClassifyStats(null)
       setLoadingLastClassifyStats(false)
       return
@@ -340,7 +386,7 @@ function DashboardContent() {
     ;(async () => {
       try {
         const res = await fetch(
-          `/api/distill/import-batches/${selectedBatchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(activeClassifyPv.id)}`
+          `/api/distill/import-batches/${classifyBatchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(activeClassifyPv.id)}`
         )
         if (cancelled) return
         if (!res.ok) {
@@ -364,21 +410,60 @@ function DashboardContent() {
     })()
 
     return () => { cancelled = true }
-  }, [selectedBatchId, classifyMode, activeClassifyPv])
+  }, [classifyBatchId, classifyMode, activeClassifyPv])
+
+  // Per-batch classify status check (for Create Run gating)
+  useEffect(() => {
+    if (selectedBatchIds.length === 0 || !activeClassifyPv) {
+      setPerBatchClassified({})
+      return
+    }
+
+    const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
+    let cancelled = false
+
+    Promise.all(
+      selectedBatchIds.map(async (batchId) => {
+        try {
+          const res = await fetch(
+            `/api/distill/import-batches/${batchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(activeClassifyPv.id)}`
+          )
+          if (cancelled) return [batchId, false] as const
+          if (res.ok) {
+            const data: LastClassifyStats = await res.json()
+            return [batchId, data.hasStats] as const
+          }
+          return [batchId, false] as const
+        } catch {
+          return [batchId, false] as const
+        }
+      })
+    ).then((results) => {
+      if (!cancelled) {
+        const statuses: Record<string, boolean> = {}
+        for (const [id, classified] of results) {
+          if (id) statuses[id] = classified
+        }
+        setPerBatchClassified(statuses)
+      }
+    })
+
+    return () => { cancelled = true }
+  }, [selectedBatchIds, classifyMode, activeClassifyPv])
 
   const handleRefreshLastClassifyStats = useCallback(async () => {
-    if (!selectedBatchId || !activeClassifyPv) return
+    if (!classifyBatchId || !activeClassifyPv) return
     setRefreshingLastClassifyStats(true)
     try {
       const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
-      await fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
+      await fetchLastClassifyStats(classifyBatchId, labelModel, activeClassifyPv.id)
     } finally {
       setRefreshingLastClassifyStats(false)
     }
-  }, [selectedBatchId, activeClassifyPv, classifyMode, fetchLastClassifyStats])
+  }, [classifyBatchId, activeClassifyPv, classifyMode, fetchLastClassifyStats])
 
   async function handleClassify() {
-    if (!selectedBatchId || !activeClassifyPv) return
+    if (!classifyBatchId || !activeClassifyPv) return
 
     setClassifying(true)
     setClassifyError(null)
@@ -387,7 +472,7 @@ function DashboardContent() {
     const classifyModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
 
     // Start foreground polling via last-classify to show progress while POST is in-flight
-    const batchId = selectedBatchId
+    const batchId = classifyBatchId
     const pvId = activeClassifyPv.id
     setClassifyPollUrl(
       `/api/distill/import-batches/${batchId}/last-classify?model=${encodeURIComponent(classifyModel)}&promptVersionId=${encodeURIComponent(pvId)}`
@@ -398,7 +483,7 @@ function DashboardContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          importBatchId: selectedBatchId,
+          importBatchId: classifyBatchId,
           model: classifyModel,
           promptVersionId: activeClassifyPv.id,
           mode: classifyMode,
@@ -425,6 +510,9 @@ function DashboardContent() {
         classifyRes.labelSpec.model,
         classifyRes.labelSpec.promptVersionId
       )
+
+      // Update per-batch classify status for the classified batch
+      setPerBatchClassified((prev) => ({ ...prev, [classifyRes.importBatchId]: true }))
     } catch (err) {
       setClassifyPollUrl(null)
       setClassifyError(err instanceof Error ? err.message : 'Classification failed')
@@ -445,12 +533,17 @@ function DashboardContent() {
     setModel(PROVIDER_MODELS[newProvider].models[0])
   }
 
+  // Check if all selected batches are classified
+  const allBatchesClassified = selectedBatchIds.length > 0 &&
+    selectedBatchIds.every((id) => perBatchClassified[id])
+
   const handleCreateRun = useCallback(async () => {
     // Run creation uses whichever classify prompt version was used for classification
     const classifyPvForRun = activeClassifyPv
-    if (!selectedBatchId || !classifyPvForRun || !selectedFilterProfileId) return
+    if (selectedBatchIds.length === 0 || !classifyPvForRun || !selectedFilterProfileId) return
     if (!startDate || !endDate) return
     if (selectedSources.length === 0) return
+    if (timezoneMismatch) return
 
     setCreatingRun(true)
     setCreateRunError(null)
@@ -462,7 +555,7 @@ function DashboardContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          importBatchId: selectedBatchId,
+          importBatchIds: selectedBatchIds,
           startDate,
           endDate,
           sources: selectedSources,
@@ -489,7 +582,7 @@ function DashboardContent() {
     } finally {
       setCreatingRun(false)
     }
-  }, [selectedBatchId, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, provider, model, router])
+  }, [selectedBatchIds, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, timezoneMismatch, model, router])
 
   const completedJobs = latestRun
     ? latestRun.progress.succeeded + latestRun.progress.failed + latestRun.progress.cancelled
@@ -510,9 +603,9 @@ function DashboardContent() {
         {/* Left column: primary flow */}
         <div className="flex-1 min-w-0 space-y-6">
 
-          {/* Import Batch Selector */}
+          {/* Import Batch Selector (multi-select) */}
           <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
-            <h2 className="text-lg font-semibold mb-3">Select Import Batch</h2>
+            <h2 className="text-lg font-semibold mb-3">Select Import Batches</h2>
 
             {loadingBatches ? (
               <p className="text-gray-500">Loading import batches...</p>
@@ -528,39 +621,42 @@ function DashboardContent() {
               </div>
             ) : (
               <div className="space-y-3">
-                <select
-                  value={selectedBatchId || ''}
-                  onChange={(e) => handleBatchSelect(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-md bg-white"
-                >
+                <div className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-2">
                   {importBatches.map((batch) => (
-                    <option key={batch.id} value={batch.id}>
-                      {batch.originalFilename} — {batch.stats.message_count} messages,{' '}
-                      {batch.stats.day_count} days ({batch.source.toLowerCase()})
-                    </option>
+                    <label
+                      key={batch.id}
+                      className="flex items-center gap-2 p-1.5 hover:bg-gray-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchIds.includes(batch.id)}
+                        onChange={() => handleBatchToggle(batch.id)}
+                        className="rounded"
+                      />
+                      <span className="text-sm">
+                        {batch.originalFilename} — {batch.stats.message_count} msgs,{' '}
+                        {batch.stats.day_count} days ({batch.source.toLowerCase()}) [{batch.timezone}]
+                      </span>
+                    </label>
                   ))}
-                </select>
+                </div>
 
-                {selectedBatch && (
-                  <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="font-medium">Source:</span>{' '}
-                        {selectedBatch.source.toLowerCase()}
-                      </div>
-                      <div>
-                        <span className="font-medium">Timezone:</span>{' '}
+                {selectedBatches.length > 0 && (
+                  <div className="text-sm text-gray-600">
+                    {selectedBatches.length} batch{selectedBatches.length !== 1 ? 'es' : ''} selected
+                    {selectedBatches.length === 1 && selectedBatch && (
+                      <span>
+                        {' '}&mdash; {selectedBatch.source.toLowerCase()},{' '}
+                        {selectedBatch.stats.coverage_start} to {selectedBatch.stats.coverage_end},{' '}
                         {selectedBatch.timezone}
-                      </div>
-                      <div>
-                        <span className="font-medium">Coverage:</span>{' '}
-                        {selectedBatch.stats.coverage_start} to {selectedBatch.stats.coverage_end}
-                      </div>
-                      <div>
-                        <span className="font-medium">Imported:</span>{' '}
-                        {new Date(selectedBatch.createdAt).toLocaleString()}
-                      </div>
-                    </div>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {timezoneMismatchError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded">
+                    <p className="text-red-700 text-sm font-medium">{timezoneMismatchError}</p>
                   </div>
                 )}
               </div>
@@ -568,9 +664,30 @@ function DashboardContent() {
           </div>
 
           {/* Classification Section */}
-          {selectedBatchId && (
+          {selectedBatchIds.length > 0 && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
               <h2 className="text-lg font-semibold mb-3 text-blue-800">Classification</h2>
+
+              {/* Batch picker (multi-batch) */}
+              {selectedBatchIds.length > 1 && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-blue-800 mb-1">
+                    Classify batch
+                  </label>
+                  <select
+                    value={classifyBatchId || ''}
+                    onChange={(e) => setClassifyTargetBatchId(e.target.value)}
+                    className="w-full p-2 border border-blue-300 rounded-md bg-white text-sm"
+                  >
+                    {selectedBatches.map((batch) => (
+                      <option key={batch.id} value={batch.id}>
+                        {batch.originalFilename} ({batch.source.toLowerCase()})
+                        {perBatchClassified[batch.id] ? ' [classified]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Mode selector */}
               <div className="mb-3">
@@ -795,25 +912,33 @@ function DashboardContent() {
           <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
             <h2 className="text-lg font-semibold mb-3">Create Run</h2>
             <p className="text-gray-600 text-sm mb-3">
-              Create a summarization run with frozen config from the selected batch.
+              Create a summarization run with frozen config from the selected batch{selectedBatchIds.length > 1 ? 'es' : ''}.
             </p>
 
-            {!selectedBatchId ? (
+            {selectedBatchIds.length === 0 ? (
               <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
                 Select an import batch first.
               </p>
-            ) : loadingLastClassifyStats ? (
-              <p className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded p-3">
-                Loading classify status...
+            ) : timezoneMismatch ? (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">
+                Cannot create run: {timezoneMismatchError}
               </p>
-            ) : !lastClassifyStats || !lastClassifyStats.hasStats ? (
-              <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
-                Classify the batch first using the classification section above.
-              </p>
-            ) : lastClassifyStats.stats?.status === 'running' ? (
-              <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
-                Classification in progress &mdash; wait for it to finish before creating a run.
-              </p>
+            ) : !allBatchesClassified ? (
+              <div className="space-y-2">
+                <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+                  All selected batches must be classified before creating a run.
+                </p>
+                <div className="text-sm space-y-1">
+                  {selectedBatches.map((batch) => (
+                    <div key={batch.id} className="flex items-center gap-2">
+                      <span className={perBatchClassified[batch.id] ? 'text-green-600 font-medium' : 'text-yellow-600'}>
+                        {perBatchClassified[batch.id] ? '[classified]' : '[needs classification]'}
+                      </span>
+                      <span className="text-gray-700">{batch.originalFilename} ({batch.source.toLowerCase()})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 {/* Date Range */}
@@ -842,13 +967,13 @@ function DashboardContent() {
                   </div>
                 </div>
 
-                {/* Sources */}
+                {/* Sources (union across selected batches) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Sources
                   </label>
                   <div className="flex gap-4">
-                    {['chatgpt', 'claude', 'grok'].map((source) => (
+                    {availableSources.map((source) => (
                       <label key={source} className="flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -934,7 +1059,9 @@ function DashboardContent() {
                   onClick={handleCreateRun}
                   disabled={
                     creatingRun ||
-                    !selectedBatchId ||
+                    selectedBatchIds.length === 0 ||
+                    timezoneMismatch ||
+                    !allBatchesClassified ||
                     !startDate ||
                     !endDate ||
                     selectedSources.length === 0 ||
@@ -943,7 +1070,9 @@ function DashboardContent() {
                   }
                   className={`px-4 py-2 rounded text-white ${
                     creatingRun ||
-                    !selectedBatchId ||
+                    selectedBatchIds.length === 0 ||
+                    timezoneMismatch ||
+                    !allBatchesClassified ||
                     !startDate ||
                     !endDate ||
                     selectedSources.length === 0 ||
@@ -968,7 +1097,7 @@ function DashboardContent() {
           <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
             <h2 className="text-lg font-semibold mb-3">Latest Run</h2>
 
-            {!selectedBatchId ? (
+            {selectedBatchIds.length === 0 ? (
               <p className="text-sm text-gray-500">
                 Select an import batch to see its latest run.
               </p>
