@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a, AUD-043b) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a, AUD-043b, AUD-043c) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -620,7 +620,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Run config persists selected batches (and/or derived selection rules) as frozen config.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
-- **Status**: In progress (AUD-043a done; AUD-043b–043f not started)
+- **Status**: In progress (AUD-043a–043c done; AUD-043d–043f not started)
 
 ### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
 - **Source**: UX backlog (UX_SPEC.md §8.5)
@@ -795,7 +795,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Test: buildBundle deduplicates cross-batch atoms by `atomStableId`.
   - Test: findEligibleDays unions days across batches.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Updated `createRun()` to accept `importBatchIds[]` (XOR with `importBatchId`), validate TZ uniformity (`TimezoneMismatchError`), create RunBatch junction rows, and freeze `importBatchIds` in `configJson`. Updated `findEligibleDays()` to query `importBatchId: { in: importBatchIds }`. Updated `buildBundle()` to load atoms from all batches and deduplicate by `atomStableId`. Updated `processTick()` to read `importBatchIds` from RunBatch junction. 12 new tests (637 total).
 
 ### AUD-043d — API: POST /runs accepts importBatchIds[]
 - **Source**: AUD-043a implementation roadmap
