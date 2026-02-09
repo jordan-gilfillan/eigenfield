@@ -456,7 +456,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - SPEC, route/service behavior, and tests all agree on whether stub mode may record non-stub `promptVersionId`.
   - Guardrail behavior is explicit and covered by tests.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Changed spec to match implementation intent. Updated SPEC §7.2 line 415 to state stub mode records the caller-provided `promptVersionId` unchanged with no guardrails, and line 461 to drop the `classify_stub_v1` requirement. Added explicit assertion to existing guardrail test confirming `result.labelSpec.promptVersionId` equals the caller-provided (non-stub) value. SPEC, code, and tests now agree: stub mode accepts any `promptVersionId`. All 616 tests pass.
 
 ### AUD-028 — “Exactly one active PromptVersion per stage” conflicts with seeded state
 - **Source**: Audit 2026-02-09
