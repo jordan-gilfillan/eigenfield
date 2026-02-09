@@ -4,8 +4,11 @@ import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { OutputViewer } from './components/OutputViewer'
 import { InputViewer } from './components/InputViewer'
+import { usePolling } from '../../hooks/usePolling'
 import { getClassifyStatusColor, getStatusColor, getJobStatusColor, formatProgressPercent } from '../../lib/ui-utils'
 import type { LastClassifyStats } from '../../lib/types'
+
+const RUN_POLL_INTERVAL_MS = 3000
 
 interface RunConfig {
   promptVersionIds: { summarize: string }
@@ -147,6 +150,16 @@ export default function RunDetailPage() {
   useEffect(() => {
     fetchRun()
   }, [fetchRun])
+
+  // Auto-poll run detail when non-terminal (queued/running/processing)
+  const isTerminal = run?.status === 'cancelled' || run?.status === 'completed'
+  usePolling<RunDetail>({
+    url: `/api/distill/runs/${runId}`,
+    intervalMs: RUN_POLL_INTERVAL_MS,
+    enabled: loadingState === 'success' && !!run && !isTerminal,
+    onData: (data) => setRun(data),
+    onTerminal: (data) => data.status === 'cancelled' || data.status === 'completed',
+  })
 
   const fetchLastClassifyStats = useCallback(async () => {
     if (!run) return

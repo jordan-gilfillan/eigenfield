@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042, AUD-044) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -717,6 +717,26 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Replaced free-text Model input with Provider select (stub/openai/anthropic) + Model select (constrained allowlist per provider). Added `PROVIDER_MODELS` constant mirroring the pricing table. Shows effective selection line and paid-API warning for non-stub providers. Default remains stub/stub_summarizer_v1. API payload unchanged. No new API routes or schema changes.
+
+---
+
+### AUD-040 — Wire usePolling into run detail (auto-refresh progress)
+- **Source**: UX backlog (UX-8.8)
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `src/app/distill/hooks/usePolling.ts` (AUD-039), `src/app/distill/runs/[runId]/page.tsx`
+- **Problem**: Run detail required manual Tick/Resume/Cancel actions to see progress updates. No auto-polling.
+- **Decision**: Wire existing `usePolling` hook into run detail page
+- **Planned PR**: `fix/AUD-040-run-detail-polling`
+- **Acceptance checks**:
+  - Run detail auto-polls `GET /api/distill/runs/:runId` when status is non-terminal.
+  - Polling stops when run becomes terminal (cancelled/completed).
+  - Manual Tick/Resume/Cancel still work (they call `fetchRun()` independently).
+  - No new API routes or Prisma schema changes.
+  - Changes limited to `src/app/distill/runs/[runId]/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes.
+- **Status**: Done
+- **Resolution**: Imported `usePolling` hook and wired it to poll run detail endpoint every 3s when run is non-terminal. `onTerminal` stops polling when status becomes cancelled/completed. Manual controls (Tick/Resume/Cancel) continue to work via independent `fetchRun()` calls.
 
 ---
 
