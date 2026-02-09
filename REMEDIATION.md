@@ -316,7 +316,8 @@ Each entry has:
 - **Planned PR**: `ux/run-detail-controls-grouping`
 - **Acceptance checks**:
   - Controls rendered as grouped block with required actions
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced standalone `TickControl` component with grouped `RunControls` component in run detail page. Block contains Tick, Resume, and Cancel buttons side-by-side, each with a description of its side effect (e.g., "Process the next batch of queued jobs", "Requeue failed jobs for retry", "Cancel all queued jobs (irreversible)"). Controls are state-aware: Tick/Cancel disabled when run is terminal; Resume disabled when no failed jobs or run is terminal. In-flight status messages and last-action results (success/error) displayed for all three actions. All 605 tests pass.
 
 ### AUD-019 — Search scope switch clears results immediately without explicit rerun cue
 - **Source**: Codex (MEDIUM)
