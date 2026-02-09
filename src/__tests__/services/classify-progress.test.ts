@@ -281,6 +281,48 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(body.lastError).toBeNull()
     })
 
+    it('response shape matches SPEC §7.2.1 (progress + warnings split)', async () => {
+      const content = createTestExport([
+        { id: 'msg-cr-shape-1', role: 'user', text: 'shape test', timestamp: 1705316750, conversationId: 'conv-cr-shape' },
+        { id: 'msg-cr-shape-2', role: 'assistant', text: 'reply', timestamp: 1705316751, conversationId: 'conv-cr-shape' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'cr-shape.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyResult = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'stub_v1',
+        promptVersionId: stubPromptVersionId,
+        mode: 'stub',
+      })
+
+      const res = await callGetClassifyRun(classifyResult.classifyRunId)
+      const body = await res.json()
+
+      // SPEC §7.2.1: progress contains ONLY progress counters
+      expect(Object.keys(body.progress).sort()).toEqual(['processedAtoms', 'totalAtoms'])
+
+      // SPEC §7.2.1: warnings is a separate top-level key with quality counters
+      expect(Object.keys(body.warnings).sort()).toEqual(['aliasedCount', 'skippedBadOutput'])
+
+      // Ensure skippedBadOutput/aliasedCount are NOT in progress
+      expect(body.progress).not.toHaveProperty('skippedBadOutput')
+      expect(body.progress).not.toHaveProperty('aliasedCount')
+
+      // Top-level response keys match normative schema
+      const expectedKeys = [
+        'id', 'importBatchId', 'labelSpec', 'mode', 'status',
+        'totals', 'progress', 'usage', 'warnings', 'lastError',
+        'createdAt', 'updatedAt', 'startedAt', 'finishedAt',
+      ].sort()
+      expect(Object.keys(body).sort()).toEqual(expectedKeys)
+    })
+
     it('returns 404 for non-existent classify run', async () => {
       const res = await callGetClassifyRun('nonexistent-id')
       expect(res.status).toBe(404)
