@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-038, AUD-042) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -673,6 +673,27 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Extracted `getClassifyStatusColor`, `getStatusColor` (unified from dashboard `getRunStatusColor` + run detail `getStatusColor`), `getJobStatusColor`, and `formatProgressPercent` into `src/app/distill/lib/ui-utils.ts`. Extracted `LastClassifyStats` interface into `src/app/distill/lib/types.ts`. Both pages now import from shared modules. Zero duplicate definitions remain. No behavioral or visual changes. No new API routes or schema changes.
+
+---
+
+### AUD-039 — Extract usePolling hook (UX-8.8)
+- **Source**: UX backlog (UX_SPEC.md §8.8)
+- **Severity**: LOW
+- **Type**: UX roadmap (refactor)
+- **Docs cited**: `UX_SPEC.md` §8.8 (Polling Hook)
+- **Problem**: ~60 lines of polling logic (setTimeout + AbortController + unmount cleanup) inline in dashboard. Needed in run detail too. UX_SPEC §6 + UX-8.8 call for reusable hook.
+- **Decision**: Extract to reusable hook; refactor dashboard to use it
+- **Planned PR**: `fix/AUD-039-use-polling-hook`
+- **Acceptance checks**:
+  - `usePolling<T>` hook exists at `src/app/distill/hooks/usePolling.ts`.
+  - Hook uses setTimeout (not setInterval), no concurrent requests, aborts on unmount/disable, stops on terminal data.
+  - Dashboard refactored to use hook; no behavioral change.
+  - Hook tests pass (fake timers + mock fetch).
+  - Changes limited to new hook file, dashboard page, new test file, and `REMEDIATION.md`.
+  - `npx vitest run` passes.
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Created `usePolling<T>` hook + `startPollingLoop<T>` testable engine at `src/app/distill/hooks/usePolling.ts`. Refactored dashboard to replace inline polling (pollAbortRef, pollTimerRef, stopPolling, startPolling, pollForRunId) with `usePolling` driven by `classifyPollUrl` state. Removed dead `ClassifyRunStatus` interface and `classifyProgress` state. 7 new tests in `src/__tests__/hooks/usePolling.test.ts` (625 total). No behavioral or visual changes.
 
 ---
 
