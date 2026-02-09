@@ -326,7 +326,12 @@ Rules:
 Fields:
 - id
 - status (queued|running|completed|cancelled|failed)
-- importBatchId (FK)
+- importBatchIds (FK[], via RunBatch junction table; see §6.8a)
+  - At least one required.
+  - All referenced ImportBatches MUST share the same timezone.
+  - API backward compat: accepts singular `importBatchId` (normalized to `importBatchIds: [id]`).
+- importBatchId (deprecated) — retained on the Run row for backward compatibility.
+  Equals `importBatchIds[0]` for single-batch runs. New code SHOULD read from RunBatch junction.
 - startDate, endDate
 - sources[]
 - filterProfileId (FK)
@@ -342,6 +347,17 @@ Fields:
 - `labelSpec`: `{ model: <string>, promptVersionId: <id> }` (used for filtering)
 - `filterProfileSnapshot`: `{ name, mode, categories[] }`
 - `timezone` (MUST equal ImportBatch.timezone; runs may not override)
+- `importBatchIds`: `string[]` (frozen list of selected batch IDs at run creation)
+
+### 6.8a RunBatch (junction)
+Fields:
+- id
+- runId (FK → Run)
+- importBatchId (FK → ImportBatch)
+
+Constraints:
+- UNIQUE(runId, importBatchId)
+- Both FKs cascade on delete.
 
 ### 6.9 Job
 Fields:
@@ -463,16 +479,22 @@ Notes:
 ### 7.3 Run creation
 UI: `/distill` dashboard
 
-- Input: `{ importBatchId, startDate, endDate, sources[], filterProfileId, model, outputTarget:"db", labelSpec?: { model: string, promptVersionId: string } }`
+- Input: `{ importBatchId?, importBatchIds?, startDate, endDate, sources[], filterProfileId, model, outputTarget:"db", labelSpec?: { model: string, promptVersionId: string }, maxInputTokens? }`
+  - `importBatchId` (string) and `importBatchIds` (string[]) are **mutually exclusive**.
+  - Exactly one must be provided; both → HTTP 400 `INVALID_INPUT`; neither → HTTP 400 `INVALID_INPUT`.
+  - If `importBatchId` provided alone → normalized to `importBatchIds: [importBatchId]`.
+  - `importBatchIds` must be non-empty and contain unique elements; else HTTP 400 `INVALID_INPUT`.
 - Behavior:
+  0a) Resolve `importBatchIds` (see Input rules above). All referenced ImportBatches MUST exist; else HTTP 404 `NOT_FOUND`.
+  0b) Timezone uniformity: all selected batches must share the same timezone. If not → HTTP 400 `TIMEZONE_MISMATCH` `{ message, timezones: string[], batchIds: string[] }`.
   1) Freeze `promptVersionIds` for summarize/redact (and classify if needed)
   2) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
      - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
      - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
-     - If the import batch has no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
+     - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   3) Freeze `filterProfileSnapshot`
   4) Determine eligible days: days where at least one MessageAtom matches
-     - importBatchId
+     - importBatchId IN (`importBatchIds`)
      - sources
      - date range
      - has a MessageLabel matching **labelSpec**
@@ -779,6 +801,10 @@ This prevents stale labels from leaking into new runs.
 ### 9.1 Bundle ordering
 For a job/day:
 1) Load eligible MessageAtoms (matching sources + date + filter + labelSpec)
+   - Multi-batch runs: atoms are loaded from ALL `importBatchIds` for the given day.
+   - Cross-batch dedup: if the same `atomStableId` appears in atoms from multiple batches,
+     keep only the first occurrence in the canonical sort order below. This is the single
+     canonical dedup point — no dedup elsewhere in the pipeline.
 2) Sort deterministically by:
    - source ASC
    - timestampUtc ASC

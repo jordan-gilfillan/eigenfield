@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -606,21 +606,21 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Resolution**: Fixed two root causes: (1) Race condition — replaced effect-based `fetchLastClassifyStats` call with inline fetch using cleanup-based cancellation flag, preventing stale responses from batch A overwriting batch B's state on rapid switch. (2) Loading state gap — added `loadingLastClassifyStats` state and "Loading classify status..." gating in Create Run section, preventing false "Classify first" during async fetch. Also set loading flag in `handleBatchSelect` to avoid single-render flash. Added 2 integration tests (two-batch and cross-batch leak scenarios) to `classify-audit-trail.test.ts`. No new API routes or schema changes. 618 tests pass.
 
 ### AUD-043 — Support creating runs across multiple import batches (multi-batch selection)
-- **Source**: User UX discovery during manual smoke tests; Create Run “Sources” checkboxes are constrained by single-batch selection
+- **Source**: User UX discovery during manual smoke tests; Create Run "Sources" checkboxes are constrained by single-batch selection
 - **Severity**: LOW
 - **Type**: UX roadmap
 - **Docs cited**: `UX_SPEC.md` (Create Run flow), `SPEC.md` run creation contract currently keyed to a single `importBatchId`
 - **Code refs**: `src/app/distill/page.tsx` (batch selection + create-run form), `POST /api/distill/runs` contract, run config persistence
-- **Problem**: Dashboard allows selecting sources via checkboxes when creating a run, but the UI currently supports selecting only one `importBatchId` at a time. This makes “include sources” effectively redundant/misleading for most batches (which are single-source). The desired end state is to create a run over a union of atoms from multiple import batches (e.g., ChatGPT + Claude + Grok) while preserving deterministic ordering and stable IDs.
-- **Decision**: Defer (scope/contract work)
-- **Planned PR**: `defer/AUD-043-multi-batch-runs`
-- **Acceptance checks** (future):
+- **Problem**: Dashboard allows selecting sources via checkboxes when creating a run, but the UI currently supports selecting only one `importBatchId` at a time. This makes "include sources" effectively redundant/misleading for most batches (which are single-source). The desired end state is to create a run over a union of atoms from multiple import batches (e.g., ChatGPT + Claude + Grok) while preserving deterministic ordering and stable IDs.
+- **Decision**: Split into AUD-043a (design/spec) + AUD-043b–043f (implementation). See sub-entries below.
+- **Planned PR**: split across `docs/AUD-043a-*`, `fix/AUD-043b-*` through `fix/AUD-043f-*`
+- **Acceptance checks** (overall):
   - Create-run supports selecting 2+ batches and produces a run over the combined atom set.
   - Deterministic ordering across batches (stable sort key defined; no duplicates).
   - Run config persists selected batches (and/or derived selection rules) as frozen config.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: In progress (AUD-043a done; AUD-043b–043f not started)
 
 ### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
 - **Source**: UX backlog (UX_SPEC.md §8.5)
@@ -737,6 +737,120 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` passes.
 - **Status**: Done
 - **Resolution**: Imported `usePolling` hook and wired it to poll run detail endpoint every 3s when run is non-terminal. `onTerminal` stops polling when status becomes cancelled/completed. Manual controls (Tick/Resume/Cancel) continue to work via independent `fetchRun()` calls.
+
+### AUD-043a — Multi-batch run support: spec & UX_SPEC design updates
+- **Source**: UX backlog (AUD-043 deferral)
+- **Severity**: LOW
+- **Type**: Doc drift / spec extension
+- **Docs cited**: `SPEC.md` §6.8, §7.3, §9.1; `UX_SPEC.md` §4.1, §4.4
+- **Problem**: SPEC §6.8, §7.3, §9.1 and UX_SPEC §4.1 define single-batch run scoping with no multi-batch contract.
+- **Decision**: Define multi-batch semantics in spec + UX_SPEC; capture implementation roadmap as AUD-043b–043f.
+- **Planned PR**: `docs/AUD-043a-multi-batch-design`
+- **Acceptance checks**:
+  - SPEC.md updated: §6.8 Run model has `importBatchIds` + §6.8a RunBatch junction, §7.3 input contract accepts `importBatchIds` XOR `importBatchId` with TZ validation, §9.1 cross-batch dedup in bundle construction.
+  - UX_SPEC.md updated: §4.1 multi-select batch picker + TZ validation, §4.4 multi-batch display.
+  - REMEDIATION.md has AUD-043a = Done and AUD-043b–043f = Not started.
+  - Zero code changes.
+  - `npx vitest run` passes.
+- **Status**: Done
+- **Resolution**: Updated SPEC.md (§6.8 `importBatchIds` via RunBatch junction, §6.8a RunBatch model, §7.3 input contract with `importBatchIds` XOR `importBatchId` + TZ validation steps 0a/0b, §9.1 cross-batch dedup in bundle construction keeping first atom in canonical sort order). Updated UX_SPEC.md (§4.1 multi-select batch picker with TZ validation + sources union, §4.4 multi-batch display in frozen config). Captured implementation roadmap as AUD-043b–043f.
+
+### AUD-043b — Schema: RunBatch junction table + data migration
+- **Source**: AUD-043a implementation roadmap
+- **Severity**: LOW
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §6.8a (RunBatch)
+- **Code refs**: `prisma/schema.prisma`, migration SQL
+- **Problem**: No `RunBatch` junction table exists. Runs use singular `importBatchId` FK.
+- **Decision**: Add `RunBatch` model, keep deprecated `importBatchId` column, backfill existing runs.
+- **Planned PR**: `fix/AUD-043b-runbatch-schema`
+- **Acceptance checks**:
+  - `RunBatch` model in Prisma schema (id, runId FK, importBatchId FK, @@unique).
+  - `runBatches RunBatch[]` relation on Run model.
+  - Existing `importBatchId` column retained (deprecated, not removed).
+  - Data migration: every existing Run gets exactly 1 RunBatch row.
+  - `npx prisma migrate dev` succeeds.
+  - `npx vitest run` passes (no behavioral change).
+- **Status**: Not started
+
+### AUD-043c — Backend: multi-batch service + bundle dedup
+- **Source**: AUD-043a implementation roadmap
+- **Severity**: LOW
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §7.3 (Run creation), §9.1 (Bundle ordering)
+- **Code refs**: `src/lib/services/run.ts`, `src/lib/services/bundle.ts`, `src/lib/services/tick.ts`
+- **Problem**: `createRun()`, `findEligibleDays()`, `buildBundle()`, and `processTick()` are all scoped to a single `importBatchId`.
+- **Decision**: Accept `importBatchIds[]`, validate TZ uniformity, write RunBatch rows, query across batches, dedup by `atomStableId`.
+- **Depends on**: AUD-043b
+- **Planned PR**: `fix/AUD-043c-multi-batch-service`
+- **Acceptance checks**:
+  - `createRun()` accepts `importBatchIds: string[]`, validates TZ uniformity, writes RunBatch rows.
+  - `findEligibleDays()` queries `importBatchId: { in: importBatchIds }`.
+  - `buildBundle()` queries atoms from all batches, deduplicates by `atomStableId` (keep first in canonical sort order).
+  - `processTick()` reads `importBatchIds` from RunBatch junction.
+  - `configJson` includes `importBatchIds[]`.
+  - Test: createRun with 2 batches (same TZ) → 2 RunBatch rows.
+  - Test: createRun with 2 batches (different TZ) → 400 TIMEZONE_MISMATCH.
+  - Test: buildBundle deduplicates cross-batch atoms by `atomStableId`.
+  - Test: findEligibleDays unions days across batches.
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+### AUD-043d — API: POST /runs accepts importBatchIds[]
+- **Source**: AUD-043a implementation roadmap
+- **Severity**: LOW
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §7.3 (Run creation input)
+- **Code refs**: `src/app/api/distill/runs/route.ts`
+- **Problem**: POST /runs only accepts singular `importBatchId`.
+- **Decision**: Accept `importBatchIds` XOR `importBatchId` (mutual exclusion per SPEC §7.3).
+- **Depends on**: AUD-043c
+- **Planned PR**: `fix/AUD-043d-api-importBatchIds`
+- **Acceptance checks**:
+  - POST `importBatchIds: [a, b]` → run with 2 batches.
+  - POST `importBatchId: a` → run with 1 batch (backward compat).
+  - POST with both → 400 INVALID_INPUT.
+  - POST with neither → 400 INVALID_INPUT.
+  - POST with duplicates → 400 INVALID_INPUT.
+  - GET returns `importBatchIds` array in response.
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+### AUD-043e — Dashboard UI: multi-batch selector + TZ validation
+- **Source**: AUD-043a implementation roadmap
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.1 (Dashboard)
+- **Code refs**: `src/app/distill/page.tsx`
+- **Problem**: Dashboard only allows selecting a single import batch for run creation.
+- **Decision**: Replace single-batch dropdown with multi-select; validate TZ uniformity; send `importBatchIds[]`.
+- **Depends on**: AUD-043d
+- **Planned PR**: `fix/AUD-043e-multi-batch-ui`
+- **Acceptance checks**:
+  - Multi-select works; single-select still works.
+  - TZ mismatch blocks creation with visible inline error.
+  - Sources reflect union across selected batches.
+  - Payload sends `importBatchIds` array.
+  - Per-batch classification status check.
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+### AUD-043f — Run detail + search: multi-batch display
+- **Source**: AUD-043a implementation roadmap
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.4 (Run detail)
+- **Code refs**: `src/app/distill/runs/[runId]/page.tsx`
+- **Problem**: Run detail shows single "Import Batch" line; no multi-batch display.
+- **Decision**: Show batch list when >1 batch in Run Info section.
+- **Depends on**: AUD-043d
+- **Planned PR**: `fix/AUD-043f-run-detail-multi-batch`
+- **Acceptance checks**:
+  - Multi-batch run shows all batch IDs/filenames in Run Info.
+  - Single-batch run display unchanged.
+  - Search: no change needed (search doesn't filter by run batch).
+  - `npx vitest run` passes.
+- **Status**: Not started
 
 ---
 

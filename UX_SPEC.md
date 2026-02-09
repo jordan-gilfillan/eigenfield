@@ -97,7 +97,18 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ### Requirements
 - [ ] Page uses shared distill shell nav (Dashboard active).
 - [ ] Layout: 2 columns on desktop (`primary flow` + `status/context`), 1 column on mobile.
-- [ ] "Select import batch" card shows: filename, source, coverage, timezone, message/day counts.
+- [ ] "Select import batch" card supports multi-select (checkboxes or multi-select list):
+  - When 1 batch selected: behaves identically to current single-batch flow.
+  - When 2+ batches selected:
+    - Display selected batch count and filenames.
+    - Timezone validation: if timezones differ, show inline error
+      ("Selected batches have different timezones: {tz1}, {tz2}. All must match.")
+      and disable Create Run button.
+    - Sources checkboxes reflect the UNION of sources across all selected batches.
+    - Classification: must exist for each selected batch (with matching labelSpec).
+      If any batch lacks classification, show per-batch warning.
+  - Each batch card shows: filename, source, coverage, timezone, message/day counts.
+- [ ] Create-run card shows "{N} batches selected" with expandable list when multi-batch.
 - [ ] Classification card shows:
   - current mode, label spec, status badge
   - processed/total progress and percent when running
@@ -151,6 +162,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Tick, reset, resume/cancel style controls are grouped and clearly state side effects.
 - [ ] Last classify stats card includes status, processed/total, percent, error summary, refresh.
 - [ ] Frozen config remains visible but collapsible after first view.
+  - Multi-batch runs: Run Info section shows list of batch IDs/filenames instead of single "Import Batch" line.
 - [ ] Jobs table defaults to compact rows; heavy inspectors are progressive disclosure.
 - [ ] Error copy includes code + human-readable action guidance.
 - [ ] All controls remain 1:1 with explicit API actions.
