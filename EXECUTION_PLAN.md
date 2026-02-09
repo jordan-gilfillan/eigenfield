@@ -188,7 +188,7 @@ const confidence = 0.5
 - Return response per 7.9 schema
 
 > **Spec alignment note (SPEC §6.7, §7.2):**
-> - Exactly one active PromptVersion per stage; `isActive` is a **default selector only** — it MUST NOT determine behavior by mode.
+> - At most one active PromptVersion per stage; `isActive` is a **default selector only** — it MUST NOT determine behavior by mode.
 > - `mode="real"` MUST use a JSON-constraining classify PromptVersion; it MUST reject `classify_stub_v1` with 400 `INVALID_INPUT`.
 > - `mode="stub"` MUST remain deterministic and MUST NOT call external LLM providers.
 
