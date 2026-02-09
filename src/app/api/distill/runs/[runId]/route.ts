@@ -26,6 +26,14 @@ export async function GET(
         jobs: {
           orderBy: { dayDate: 'asc' },
         },
+        runBatches: {
+          select: {
+            importBatchId: true,
+            importBatch: {
+              select: { originalFilename: true, source: true },
+            },
+          },
+        },
       },
     })
 
@@ -86,6 +94,12 @@ export async function GET(
       id: run.id,
       status: run.status.toLowerCase(),
       importBatchId: run.importBatchId,
+      importBatchIds: run.runBatches.map((rb) => rb.importBatchId),
+      importBatches: run.runBatches.map((rb) => ({
+        id: rb.importBatchId,
+        originalFilename: rb.importBatch.originalFilename,
+        source: rb.importBatch.source,
+      })),
       model: run.model,
       sources: run.sources,
       startDate: run.startDate,

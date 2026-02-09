@@ -43,10 +43,18 @@ interface JobDetail {
   error: string | null
 }
 
+interface ImportBatchInfo {
+  id: string
+  originalFilename: string
+  source: string
+}
+
 interface RunDetail {
   id: string
   status: string
   importBatchId: string
+  importBatchIds?: string[]
+  importBatches?: ImportBatchInfo[]
   model: string
   sources: string[]
   startDate: string
@@ -552,9 +560,24 @@ export default function RunDetailPage() {
       <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
         <h2 className="text-lg font-semibold mb-3">Run Info</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <dt className="text-gray-600">Import Batch:</dt>
+          <dt className="text-gray-600">
+            {run.importBatches && run.importBatches.length > 1 ? 'Import Batches:' : 'Import Batch:'}
+          </dt>
           <dd>
-            <code className="bg-gray-200 px-1 rounded text-xs">{run.importBatchId}</code>
+            {run.importBatches && run.importBatches.length > 1 ? (
+              <ul className="space-y-1">
+                {run.importBatches.map((batch) => (
+                  <li key={batch.id} className="flex items-center gap-2">
+                    <code className="bg-gray-200 px-1 rounded text-xs">{batch.id}</code>
+                    <span className="text-gray-600 text-xs">
+                      {batch.originalFilename} ({batch.source.toLowerCase()})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <code className="bg-gray-200 px-1 rounded text-xs">{run.importBatchId}</code>
+            )}
           </dd>
           <dt className="text-gray-600">Model:</dt>
           <dd>{run.model}</dd>

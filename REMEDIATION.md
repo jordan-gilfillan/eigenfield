@@ -620,7 +620,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Run config persists selected batches (and/or derived selection rules) as frozen config.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
-- **Status**: In progress (AUD-043a–043e done; AUD-043f not started)
+- **Status**: Done (AUD-043a–043f all complete)
 
 ### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
 - **Source**: UX backlog (UX_SPEC.md §8.5)
@@ -854,7 +854,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Single-batch run display unchanged.
   - Search: no change needed (search doesn't filter by run batch).
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `importBatchIds` and `importBatches` (id, filename, source) to GET `/api/distill/runs/:id` response via RunBatch junction include. Updated run detail page Run Info section: multi-batch runs show batch list with IDs, filenames, and sources; single-batch display unchanged. 645 tests pass.
 
 ---
 
