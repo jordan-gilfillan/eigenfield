@@ -429,6 +429,90 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added "Not implemented in v0.3" annotation to the E2E Tests heading and a status blockquote noting neither Playwright nor Cypress is installed. Bullet items retained as aspirational targets. References SPEC §2 non-goals.
 
+### AUD-026 — Search `categories` filter bypasses required labelSpec context
+- **Source**: Audit 2026-02-09
+- **Severity**: HIGH
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §7.9 rules (category filtering requires `labelModel` + `labelPromptVersionId` when `runId` is absent)
+- **Code refs**: `src/app/api/distill/search/route.ts` (no context-required validation); `src/lib/services/search.ts` (`categories` fallback uses `EXISTS` over any label context); `src/lib/services/__tests__/search.test.ts` (explicitly tests no-context `categories` behavior)
+- **Problem**: SPEC requires explicit label context for category filtering without `runId`, but implementation accepts no-context category filters and applies them across any labels. This can return semantically different results than labelSpec-pinned filtering.
+- **Decision**: Fix code to enforce required context OR change spec to explicitly permit global/no-context category filtering.
+- **Planned PR**: `fix/AUD-026-search-category-context`
+- **Acceptance checks**:
+  - `GET /api/distill/search?...&categories=...` without `runId` and without `labelModel`/`labelPromptVersionId` is either rejected with `400 INVALID_INPUT` (code fix path) or explicitly documented as supported (spec fix path).
+  - Search tests reflect the chosen contract and remove ambiguous behavior.
+- **Status**: Not started
+
+### AUD-027 — Stub mode PromptVersion contract differs from SPEC
+- **Source**: Audit 2026-02-09
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §7.2 (stub mode labels should reference seeded `classify_stub_v1`)
+- **Code refs**: `src/lib/services/classify.ts` (stub mode records caller-provided `promptVersionId`); `src/__tests__/services/classify.test.ts` (expects stub mode to accept non-stub PromptVersion IDs)
+- **Problem**: SPEC states stub mode labels should point to `classify_stub_v1`, but implementation intentionally supports arbitrary PromptVersion IDs in stub mode (deterministic execution, versioned labels).
+- **Decision**: Change spec to match implementation intent OR change code/tests to force `classify_stub_v1` recording in stub mode.
+- **Planned PR**: `docs/AUD-027-stub-promptversion-contract`
+- **Acceptance checks**:
+  - SPEC, route/service behavior, and tests all agree on whether stub mode may record non-stub `promptVersionId`.
+  - Guardrail behavior is explicit and covered by tests.
+- **Status**: Not started
+
+### AUD-028 — “Exactly one active PromptVersion per stage” conflicts with seeded state
+- **Source**: Audit 2026-02-09
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §6.7 ("Exactly one active PromptVersion per stage"); `EXECUTION_PLAN.md` classify guardrail block
+- **Code refs**: `prisma/seed.ts` (`redact v1` seeded inactive); `prisma/seed.ts` invariant check enforces `>1` failure (at-most-one), not exactly-one
+- **Problem**: Docs assert exactly one active PromptVersion per stage, but seeded v0.3 data has no active redact version and code enforces only at-most-one.
+- **Decision**: Either enforce exactly-one for all stages (including redact) or revise docs to at-most-one with stage-specific requirements for v0.3.
+- **Planned PR**: `docs/AUD-028-active-prompt-invariant`
+- **Acceptance checks**:
+  - Declared invariant is unambiguous in SPEC/plan/seed comments.
+  - Post-seed invariant check enforces the declared rule (exactly-one vs at-most-one) consistently.
+- **Status**: Not started
+
+### AUD-029 — Canonical test count is stale again (regression of AUD-011)
+- **Source**: Audit 2026-02-09
+- **Severity**: LOW
+- **Type**: Doc drift
+- **Docs cited**: `CONTEXT_PACK.md` line with canonical test count
+- **Code refs**: `npx vitest run` output (current passing test count)
+- **Problem**: Canonical count says `605 passing`, but current suite is `616 passing`, so the designated source-of-truth is stale.
+- **Decision**: Fix docs and tighten update discipline for canonical count updates.
+- **Planned PR**: `docs/AUD-029-refresh-canonical-test-count`
+- **Acceptance checks**:
+  - Canonical count matches latest `npx vitest run`.
+  - No conflicting "current test count" claims across primary docs.
+- **Status**: Not started
+
+### AUD-030 — ACCEPTANCE test-suite commands reference non-existent paths
+- **Source**: Audit 2026-02-09
+- **Severity**: LOW
+- **Type**: Doc drift
+- **Docs cited**: `ACCEPTANCE.md` Test Suites command block
+- **Code refs**: Repo test directories under `src/__tests__/...` and `src/lib/services/__tests__/...`
+- **Problem**: `ACCEPTANCE.md` recommends `src/lib/parsers/__tests__/` and `src/lib/__tests__/`, which do not exist; this misleads verification workflow.
+- **Decision**: Fix docs to use existing test paths.
+- **Planned PR**: `docs/AUD-030-acceptance-test-paths`
+- **Acceptance checks**:
+  - Every documented path in Test Suites command block exists.
+  - Running documented subset commands executes expected suites.
+- **Status**: Not started
+
+### AUD-031 — REMEDIATION “Current top priorities” lists already-done items
+- **Source**: Audit 2026-02-09
+- **Severity**: INFO
+- **Type**: Doc drift
+- **Docs cited**: `REMEDIATION.md` Current top priorities section vs AUD statuses
+- **Code refs**: `REMEDIATION.md` entries AUD-022/AUD-023/AUD-024/AUD-025 marked `Done`
+- **Problem**: Priority list still points to completed AUDs, reducing ledger reliability for triage.
+- **Decision**: Fix docs so top priorities reflect open work only (or explicitly state none open).
+- **Planned PR**: `docs/AUD-031-remediation-priority-refresh`
+- **Acceptance checks**:
+  - Current top priorities include only non-Done AUDs.
+  - Priority section remains consistent after status changes.
+- **Status**: Not started
+
 ---
 
 ## Notes
