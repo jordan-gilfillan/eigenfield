@@ -168,8 +168,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Build query
-    const where = importBatchId ? { importBatchId } : {}
+    // Build query — use RunBatch membership (not deprecated Run.importBatchId)
+    const where = importBatchId
+      ? { runBatches: { some: { importBatchId } } }
+      : {}
 
     const runs = await prisma.run.findMany({
       where,
