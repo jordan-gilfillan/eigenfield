@@ -131,6 +131,16 @@ export default function RunDetailPage() {
   const [lastTickResult, setLastTickResult] = useState<TickResult | null>(null)
   const [lastTickError, setLastTickError] = useState<TickError | null>(null)
 
+  // Resume state
+  const [resumeInFlight, setResumeInFlight] = useState(false)
+  const [lastResumeResult, setLastResumeResult] = useState<{ jobsRequeued: number; status: string } | null>(null)
+  const [lastResumeError, setLastResumeError] = useState<TickError | null>(null)
+
+  // Cancel state
+  const [cancelInFlight, setCancelInFlight] = useState(false)
+  const [lastCancelResult, setLastCancelResult] = useState<{ jobsCancelled: number; status: string } | null>(null)
+  const [lastCancelError, setLastCancelError] = useState<TickError | null>(null)
+
   // Last classify stats (same shared endpoint as dashboard)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
   const [refreshingClassifyStats, setRefreshingClassifyStats] = useState(false)
@@ -267,6 +277,74 @@ export default function RunDetailPage() {
       // CRITICAL: Only set tickInFlight to false after request completes
       // This ensures sequential tick requests per spec
       setTickInFlight(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (resumeInFlight) return
+
+    setResumeInFlight(true)
+    setLastResumeError(null)
+    setLastResumeResult(null)
+
+    try {
+      const res = await fetch(`/api/distill/runs/${runId}/resume`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        const apiError = data as ApiError
+        setLastResumeError({
+          code: apiError.error?.code || 'UNKNOWN',
+          message: apiError.error?.message || 'Resume failed',
+        })
+        return
+      }
+
+      setLastResumeResult({ jobsRequeued: data.jobsRequeued, status: data.status })
+      await fetchRun()
+    } catch (err) {
+      setLastResumeError({
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Network error during resume',
+      })
+    } finally {
+      setResumeInFlight(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (cancelInFlight) return
+
+    setCancelInFlight(true)
+    setLastCancelError(null)
+    setLastCancelResult(null)
+
+    try {
+      const res = await fetch(`/api/distill/runs/${runId}/cancel`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        const apiError = data as ApiError
+        setLastCancelError({
+          code: apiError.error?.code || 'UNKNOWN',
+          message: apiError.error?.message || 'Cancel failed',
+        })
+        return
+      }
+
+      setLastCancelResult({ jobsCancelled: data.jobsCancelled, status: data.status })
+      await fetchRun()
+    } catch (err) {
+      setLastCancelError({
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Network error during cancel',
+      })
+    } finally {
+      setCancelInFlight(false)
     }
   }
 
@@ -441,13 +519,21 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {/* Manual Tick Control */}
-      <TickControl
-        runStatus={run.status}
+      {/* Run Controls — grouped tick/resume/cancel per UX_SPEC §4.4 */}
+      <RunControls
+        run={run}
         tickInFlight={tickInFlight}
         lastTickResult={lastTickResult}
         lastTickError={lastTickError}
         onTick={handleTick}
+        resumeInFlight={resumeInFlight}
+        lastResumeResult={lastResumeResult}
+        lastResumeError={lastResumeError}
+        onResume={handleResume}
+        cancelInFlight={cancelInFlight}
+        lastCancelResult={lastCancelResult}
+        lastCancelError={lastCancelError}
+        onCancel={handleCancel}
       />
 
       {/* Run Info */}
@@ -629,65 +715,131 @@ function ProgressCard({
 }
 
 /**
- * Manual tick control component.
- * Per spec 7.5.1: Manual Tick control (single request; show last tick result)
+ * Grouped run controls component.
+ * Per UX_SPEC §4.4: "Tick, reset, resume/cancel style controls are grouped and clearly state side effects."
  * CRITICAL invariant: No overlapping tick requests allowed.
  */
-function TickControl({
-  runStatus,
+function RunControls({
+  run,
   tickInFlight,
   lastTickResult,
   lastTickError,
   onTick,
+  resumeInFlight,
+  lastResumeResult,
+  lastResumeError,
+  onResume,
+  cancelInFlight,
+  lastCancelResult,
+  lastCancelError,
+  onCancel,
 }: {
-  runStatus: string
+  run: RunDetail
   tickInFlight: boolean
   lastTickResult: TickResult | null
   lastTickError: TickError | null
   onTick: () => void
+  resumeInFlight: boolean
+  lastResumeResult: { jobsRequeued: number; status: string } | null
+  lastResumeError: TickError | null
+  onResume: () => void
+  cancelInFlight: boolean
+  lastCancelResult: { jobsCancelled: number; status: string } | null
+  lastCancelError: TickError | null
+  onCancel: () => void
 }) {
-  // Disable tick for terminal run states
-  const isTerminal = runStatus === 'cancelled' || runStatus === 'completed'
+  const isTerminal = run.status === 'cancelled' || run.status === 'completed'
   const canTick = !isTerminal && !tickInFlight
+  const hasFailedJobs = run.progress.failed > 0
+  const canResume = !isTerminal && hasFailedJobs && !resumeInFlight
+  const canCancel = !isTerminal && !cancelInFlight
 
   return (
     <div className="mt-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
-      <h2 className="text-lg font-semibold mb-3">Manual Tick Control</h2>
+      <h2 className="text-lg font-semibold mb-3">Run Controls</h2>
 
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onTick}
-          disabled={!canTick}
-          className={`px-4 py-2 rounded font-medium ${
-            canTick
-              ? 'bg-green-600 text-white hover:bg-green-700'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          {tickInFlight ? 'Processing...' : 'Tick'}
-        </button>
+      {isTerminal && (
+        <div className="mb-3 text-sm text-gray-500">
+          Run is {run.status} — controls are disabled.
+        </div>
+      )}
 
-        {isTerminal && (
-          <span className="text-sm text-gray-500">
-            Run is {runStatus} — no more ticks allowed
-          </span>
-        )}
+      <div className="flex items-start gap-3 flex-wrap">
+        {/* Tick */}
+        <div className="flex flex-col items-start gap-1">
+          <button
+            onClick={onTick}
+            disabled={!canTick}
+            className={`px-4 py-2 rounded font-medium ${
+              canTick
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {tickInFlight ? 'Processing...' : 'Tick'}
+          </button>
+          <span className="text-xs text-gray-500">Process the next batch of queued jobs</span>
+        </div>
 
-        {tickInFlight && (
-          <span className="text-sm text-blue-600">
-            Tick in progress — waiting for response...
-          </span>
-        )}
+        {/* Resume */}
+        <div className="flex flex-col items-start gap-1">
+          <button
+            onClick={onResume}
+            disabled={!canResume}
+            className={`px-4 py-2 rounded font-medium ${
+              canResume
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {resumeInFlight ? 'Resuming...' : 'Resume'}
+          </button>
+          <span className="text-xs text-gray-500">Requeue failed jobs for retry</span>
+        </div>
+
+        {/* Cancel */}
+        <div className="flex flex-col items-start gap-1">
+          <button
+            onClick={onCancel}
+            disabled={!canCancel}
+            className={`px-4 py-2 rounded font-medium ${
+              canCancel
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {cancelInFlight ? 'Cancelling...' : 'Cancel'}
+          </button>
+          <span className="text-xs text-gray-500">Cancel all queued jobs (irreversible)</span>
+        </div>
       </div>
 
-      {/* Last tick result display */}
-      {(lastTickResult || lastTickError) && (
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Last Tick Result</h3>
+      {/* In-flight status messages */}
+      {tickInFlight && (
+        <div className="mt-3 text-sm text-blue-600">
+          Tick in progress — waiting for response...
+        </div>
+      )}
+      {resumeInFlight && (
+        <div className="mt-3 text-sm text-blue-600">
+          Resume in progress — requeuing failed jobs...
+        </div>
+      )}
+      {cancelInFlight && (
+        <div className="mt-3 text-sm text-red-600">
+          Cancel in progress — stopping queued jobs...
+        </div>
+      )}
 
+      {/* Last action results */}
+      {(lastTickResult || lastTickError || lastResumeResult || lastResumeError || lastCancelResult || lastCancelError) && (
+        <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700">Last Action Results</h3>
+
+          {/* Tick result */}
           {lastTickError && (
             <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
-              <span className="font-medium text-red-700">Error:</span>{' '}
+              <span className="font-medium text-red-700">Tick Error:</span>{' '}
               <code className="text-red-600">{lastTickError.code}</code>
               <span className="text-red-700"> — {lastTickError.message}</span>
             </div>
@@ -696,7 +848,7 @@ function TickControl({
           {lastTickResult && !lastTickError && (
             <div className="p-3 bg-gray-50 border border-gray-200 rounded text-sm">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <dt className="text-gray-600">Processed:</dt>
+                <dt className="text-gray-600">Tick Processed:</dt>
                 <dd className="font-medium">{lastTickResult.processed} job(s)</dd>
                 <dt className="text-gray-600">Run Status:</dt>
                 <dd>
@@ -708,7 +860,6 @@ function TickControl({
                 </dd>
               </dl>
 
-              {/* Show processed jobs details if any */}
               {lastTickResult.jobs.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
                   <span className="text-xs text-gray-500">Processed jobs:</span>
@@ -730,6 +881,48 @@ function TickControl({
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Resume result */}
+          {lastResumeError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
+              <span className="font-medium text-red-700">Resume Error:</span>{' '}
+              <code className="text-red-600">{lastResumeError.code}</code>
+              <span className="text-red-700"> — {lastResumeError.message}</span>
+            </div>
+          )}
+
+          {lastResumeResult && !lastResumeError && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+              <span className="font-medium text-blue-700">Resume:</span>{' '}
+              {lastResumeResult.jobsRequeued} job(s) requeued — run status:{' '}
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(lastResumeResult.status)}`}
+              >
+                {lastResumeResult.status}
+              </span>
+            </div>
+          )}
+
+          {/* Cancel result */}
+          {lastCancelError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
+              <span className="font-medium text-red-700">Cancel Error:</span>{' '}
+              <code className="text-red-600">{lastCancelError.code}</code>
+              <span className="text-red-700"> — {lastCancelError.message}</span>
+            </div>
+          )}
+
+          {lastCancelResult && !lastCancelError && (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+              <span className="font-medium text-yellow-700">Cancelled:</span>{' '}
+              {lastCancelResult.jobsCancelled} job(s) cancelled — run status:{' '}
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(lastCancelResult.status)}`}
+              >
+                {lastCancelResult.status}
+              </span>
             </div>
           )}
         </div>
