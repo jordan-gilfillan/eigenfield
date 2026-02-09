@@ -22,6 +22,38 @@ interface ClassifyResult {
 
 const POLL_INTERVAL_MS = 1000
 
+// Provider → model allowlist (mirrors pricing table in src/lib/llm/pricing.ts)
+type ProviderId = 'stub' | 'openai' | 'anthropic'
+
+const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> = {
+  stub: {
+    label: 'Stub (no API cost)',
+    models: ['stub_summarizer_v1'],
+  },
+  openai: {
+    label: 'OpenAI',
+    models: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+      'o4-mini',
+      'o3-mini',
+    ],
+  },
+  anthropic: {
+    label: 'Anthropic',
+    models: [
+      'claude-sonnet-4-5',
+      'claude-haiku-4-5',
+      'claude-opus-4-6',
+      'claude-3-5-sonnet',
+      'claude-3-5-haiku',
+    ],
+  },
+}
+
 interface PromptVersion {
   id: string
   versionLabel: string
@@ -113,6 +145,7 @@ function DashboardContent() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [selectedSources, setSelectedSources] = useState<string[]>(['chatgpt', 'claude', 'grok'])
+  const [provider, setProvider] = useState<ProviderId>('stub')
   const [model, setModel] = useState('stub_summarizer_v1')
   const [creatingRun, setCreatingRun] = useState(false)
   const [createRunError, setCreateRunError] = useState<string | null>(null)
@@ -407,6 +440,11 @@ function DashboardContent() {
     )
   }, [])
 
+  function handleProviderChange(newProvider: ProviderId) {
+    setProvider(newProvider)
+    setModel(PROVIDER_MODELS[newProvider].models[0])
+  }
+
   const handleCreateRun = useCallback(async () => {
     // Run creation uses whichever classify prompt version was used for classification
     const classifyPvForRun = activeClassifyPv
@@ -451,7 +489,7 @@ function DashboardContent() {
     } finally {
       setCreatingRun(false)
     }
-  }, [selectedBatchId, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, model, router])
+  }, [selectedBatchId, activeClassifyPv, classifyMode, selectedFilterProfileId, startDate, endDate, selectedSources, provider, model, router])
 
   const completedJobs = latestRun
     ? latestRun.progress.succeeded + latestRun.progress.failed + latestRun.progress.cancelled
@@ -842,19 +880,47 @@ function DashboardContent() {
                   </select>
                 </div>
 
-                {/* Model */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Model
-                  </label>
-                  <input
-                    type="text"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="stub_summarizer_v1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  />
+                {/* Provider + Model */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Provider
+                    </label>
+                    <select
+                      value={provider}
+                      onChange={(e) => handleProviderChange(e.target.value as ProviderId)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                    >
+                      {(Object.keys(PROVIDER_MODELS) as ProviderId[]).map((pid) => (
+                        <option key={pid} value={pid}>
+                          {PROVIDER_MODELS[pid].label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Model
+                    </label>
+                    <select
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                    >
+                      {PROVIDER_MODELS[provider].models.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+                <div className="text-xs text-gray-500">
+                  Will run with: <span className="font-medium">{PROVIDER_MODELS[provider].label}</span> / <span className="font-medium">{model}</span>
+                </div>
+                {provider !== 'stub' && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    This will use paid API credits. Requires LLM_MODE=real and a valid API key.
+                  </p>
+                )}
 
                 {/* Error */}
                 {createRunError && (

@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-039, AUD-042, AUD-044) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -694,6 +694,29 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Created `usePolling<T>` hook + `startPollingLoop<T>` testable engine at `src/app/distill/hooks/usePolling.ts`. Refactored dashboard to replace inline polling (pollAbortRef, pollTimerRef, stopPolling, startPolling, pollForRunId) with `usePolling` driven by `classifyPollUrl` state. Removed dead `ClassifyRunStatus` interface and `classifyProgress` state. 7 new tests in `src/__tests__/hooks/usePolling.test.ts` (625 total). No behavioral or visual changes.
+
+---
+
+### AUD-044 — Create Run UI: provider/model selection is unclear (model is free-text)
+- **Source**: UX discovery during manual smoke tests
+- **Severity**: MED
+- **Type**: UX roadmap
+- **Docs cited**: `src/lib/llm/pricing.ts` (rate table), `src/lib/services/run.ts` (inferProvider at run creation)
+- **Problem**: The "Create Run" card on the Dashboard had a free-text Model input. This provided no clarity on which provider is used, invited typos, and made it hard to run a real-cost test safely.
+- **Decision**: Replace free-text with constrained Provider + Model dropdowns
+- **Planned PR**: `fix/AUD-044-provider-model-selects`
+- **Acceptance checks**:
+  - Provider dropdown with stub / openai / anthropic options.
+  - Model dropdown constrained to valid models for the selected provider (mirrors pricing table).
+  - Default: stub / stub_summarizer_v1 (safe, no API cost).
+  - "Will run with: Provider / Model" effective selection line visible.
+  - Warning shown for non-stub providers ("This will use paid API credits").
+  - API payload unchanged (sends `model` string; provider inferred server-side).
+  - Changes limited to `src/app/distill/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes.
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Replaced free-text Model input with Provider select (stub/openai/anthropic) + Model select (constrained allowlist per provider). Added `PROVIDER_MODELS` constant mirroring the pricing table. Shows effective selection line and paid-API warning for non-stub providers. Default remains stub/stub_summarizer_v1. API payload unchanged. No new API routes or schema changes.
 
 ---
 
