@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-035) are Done. See open entries below if new AUDs are added.
+> All entries (AUD-001 through AUD-035) are Done. Open entries are listed below.
 
 ---
 
@@ -565,6 +565,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Enhanced Import Inspector with context bar (filename, source badge, coverage, selected day, active source filter with clear button, atom count). Added clear/reset controls for source filter in both context bar and dropdown. Improved empty states with actionable recovery (clear filter button when filtered, sidebar guidance when no day selected). Source filter dropdown now syncs to URL for shareability. No new API routes or schema changes.
 
+
 ### AUD-035 — Run detail top status rail + collapsible config (UX-8.7)
 - **Source**: UX backlog (UX_SPEC.md §4.4, §8.7)
 - **Severity**: LOW
@@ -582,6 +583,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Added top status rail (prominent badge, progress bar, inline counters, completion percent, token/cost totals). Moved RunControls immediately below status rail so controls are visible without scrolling past config. Made frozen config collapsible with toggle (starts expanded, user can collapse). Removed separate Progress Summary section (merged into status rail). No new API routes or schema changes.
+
+### AUD-042 — Dashboard classify gating not scoped to selected batch
+- **Source**: Manual smoke test after AUD-033/AUD-034 (dashboard shows “needs classify” for a batch that was previously classified)
+- **Severity**: MEDIUM
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.1 (dashboard primary flow), AUD-016 (“Create Run” gated by persisted classify status)
+- **Code refs**: `src/app/distill/page.tsx` (dashboard create-run gating), `GET /api/distill/last-classify` (or equivalent endpoint used by dashboard)
+- **Problem**: Selecting an import batch that has already been classified can still show the dashboard as if it has not been classified. The persisted classify gating appears to be using unscoped “last classify” state (not filtered by `importBatchId`) or the UI is not passing/using `importBatchId` correctly. This blocks the expected “classify once, create multiple runs” workflow and makes manual smoke tests ambiguous.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-042-dashboard-classify-scope`
+- **Acceptance checks**:
+  - When selecting a batch that has a terminal classify run (`succeeded` or `failed`), the dashboard gating recognizes it and shows the Create Run form (or terminal classify status UI) without requiring re-classify.
+  - When selecting a different batch with no classify run, the dashboard correctly shows “Classify the batch first.”
+  - The server/API behavior is batch-scoped: the dashboard’s “last classify” request is filtered by `importBatchId` (query param) or otherwise deterministically returns stats for the selected batch.
+  - Add/adjust tests to cover two batches: only one classified → endpoint/UI reflects correct per-batch behavior.
+  - `npx vitest run` passes (616+ tests).
+  - No new API routes (extend existing endpoint behavior if needed) and no Prisma schema changes.
+- **Status**: Not started
 
 ---
 
