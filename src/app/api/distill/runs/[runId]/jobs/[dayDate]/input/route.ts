@@ -28,14 +28,14 @@ export async function GET(
   try {
     const { runId, dayDate } = await params
 
-    // Validate runId exists and get frozen config
+    // Validate runId exists and get frozen config + canonical batch IDs
     const run = await prisma.run.findUnique({
       where: { id: runId },
       select: {
         id: true,
-        importBatchId: true,
         sources: true,
         configJson: true,
+        runBatches: { select: { importBatchId: true } },
       },
     })
 
@@ -60,13 +60,19 @@ export async function GET(
     }
 
     // Extract frozen config from run
-    const config = run.configJson as RunConfig
+    const config = run.configJson as RunConfig & { importBatchIds?: string[] }
     const sources = (run.sources as string[]).map((s) => s.toLowerCase())
+
+    // Resolve importBatchIds from RunBatch junction (canonical source per §6.8a),
+    // falling back to frozen configJson.importBatchIds for backward compat
+    const importBatchIds = run.runBatches.length > 0
+      ? run.runBatches.map((rb) => rb.importBatchId)
+      : config.importBatchIds ?? []
 
     // Build bundle using the SAME logic as tick/job execution
     // This guarantees preview content + hashes match what the job actually used
     const bundle = await buildBundle({
-      importBatchId: run.importBatchId,
+      importBatchIds,
       dayDate,
       sources,
       labelSpec: config.labelSpec,
