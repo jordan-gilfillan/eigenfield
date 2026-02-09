@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-037, AUD-042) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-038, AUD-042) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -656,6 +656,23 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` passes.
 - **Status**: Done
 - **Resolution**: Added client-side `lastCheckpointAt` state that records the time of each successful poll update during classify running state. Displayed as "Last checkpoint: {time}" in the live classify progress panel. Clears on batch switch and classify completion. No new API routes or schema changes.
+
+### AUD-038 — Extract shared UI utility functions and types
+- **Source**: UX backlog (UX_SPEC.md §8.2)
+- **Severity**: LOW
+- **Type**: UX roadmap (refactor)
+- **Docs cited**: `UX_SPEC.md` §8.2 (Shared Components)
+- **Problem**: `getStatusColor`, `getClassifyStatusColor`, `getJobStatusColor`, `formatProgressPercent` copy-pasted between dashboard and run detail. `LastClassifyStats` interface (26 lines) duplicated identically.
+- **Decision**: Extract to shared modules
+- **Planned PR**: `fix/AUD-038-shared-ui-utils`
+- **Acceptance checks**:
+  - No duplicate function/interface definitions across pages.
+  - No behavioral or visual change.
+  - Changes limited to `src/app/distill/page.tsx`, `src/app/distill/runs/[runId]/page.tsx`, new `src/app/distill/lib/ui-utils.ts`, new `src/app/distill/lib/types.ts`, and `REMEDIATION.md`.
+  - `npx vitest run` passes.
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Extracted `getClassifyStatusColor`, `getStatusColor` (unified from dashboard `getRunStatusColor` + run detail `getStatusColor`), `getJobStatusColor`, and `formatProgressPercent` into `src/app/distill/lib/ui-utils.ts`. Extracted `LastClassifyStats` interface into `src/app/distill/lib/types.ts`. Both pages now import from shared modules. Zero duplicate definitions remain. No behavioral or visual changes. No new API routes or schema changes.
 
 ---
 

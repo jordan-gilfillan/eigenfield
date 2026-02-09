@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense, useState, useEffect, useCallback, useRef } from 'react'
+import { getClassifyStatusColor, getStatusColor, formatProgressPercent } from './lib/ui-utils'
+import type { LastClassifyStats } from './lib/types'
 
 interface ClassifyResult {
   classifyRunId: string
@@ -93,33 +95,6 @@ interface LatestRun {
   }
   totals: {
     jobs: number
-  }
-}
-
-interface LastClassifyStats {
-  hasStats: boolean
-  stats?: {
-    status: 'running' | 'succeeded' | 'failed'
-    totalAtoms: number
-    processedAtoms: number
-    newlyLabeled: number
-    skippedAlreadyLabeled: number
-    skippedBadOutput: number
-    aliasedCount: number
-    labeledTotal: number
-    tokensIn: number | null
-    tokensOut: number | null
-    costUsd: number | null
-    mode: string
-    errorJson: {
-      code: string
-      message: string
-      details?: Record<string, unknown>
-    } | null
-    lastAtomStableIdProcessed: string | null
-    startedAt: string
-    finishedAt: string | null
-    createdAt: string
   }
 }
 
@@ -1053,7 +1028,7 @@ function DashboardContent() {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`px-2 py-0.5 rounded text-xs font-medium ${getRunStatusColor(latestRun.status)}`}
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(latestRun.status)}`}
                   >
                     {latestRun.status}
                   </span>
@@ -1150,41 +1125,6 @@ function DashboardContent() {
       </div>
     </main>
   )
-}
-
-function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): string {
-  switch (status) {
-    case 'running':
-      return 'bg-blue-200 text-blue-700'
-    case 'succeeded':
-      return 'bg-green-200 text-green-700'
-    case 'failed':
-      return 'bg-red-200 text-red-700'
-    default:
-      return 'bg-gray-200 text-gray-700'
-  }
-}
-
-function getRunStatusColor(status: string): string {
-  switch (status) {
-    case 'queued':
-      return 'bg-gray-200 text-gray-700'
-    case 'processing':
-      return 'bg-blue-200 text-blue-700'
-    case 'succeeded':
-      return 'bg-green-200 text-green-700'
-    case 'failed':
-      return 'bg-red-200 text-red-700'
-    case 'cancelled':
-      return 'bg-yellow-200 text-yellow-700'
-    default:
-      return 'bg-gray-200 text-gray-700'
-  }
-}
-
-function formatProgressPercent(processedAtoms: number, totalAtoms: number): number {
-  if (totalAtoms <= 0) return 100
-  return Math.min(100, Math.round((processedAtoms / totalAtoms) * 100))
 }
 
 export default function DashboardPage() {

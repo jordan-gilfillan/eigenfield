@@ -4,6 +4,8 @@ import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { OutputViewer } from './components/OutputViewer'
 import { InputViewer } from './components/InputViewer'
+import { getClassifyStatusColor, getStatusColor, getJobStatusColor, formatProgressPercent } from '../../lib/ui-utils'
+import type { LastClassifyStats } from '../../lib/types'
 
 interface RunConfig {
   promptVersionIds: { summarize: string }
@@ -85,33 +87,6 @@ interface TickResult {
 interface TickError {
   code: string
   message: string
-}
-
-interface LastClassifyStats {
-  hasStats: boolean
-  stats?: {
-    status: 'running' | 'succeeded' | 'failed'
-    totalAtoms: number
-    processedAtoms: number
-    newlyLabeled: number
-    skippedAlreadyLabeled: number
-    skippedBadOutput: number
-    aliasedCount: number
-    labeledTotal: number
-    tokensIn: number | null
-    tokensOut: number | null
-    costUsd: number | null
-    mode: string
-    errorJson: {
-      code: string
-      message: string
-      details?: Record<string, unknown>
-    } | null
-    lastAtomStableIdProcessed: string | null
-    startedAt: string
-    finishedAt: string | null
-    createdAt: string
-  }
 }
 
 type LoadingState = 'loading' | 'success' | 'error'
@@ -622,24 +597,6 @@ export default function RunDetailPage() {
   )
 }
 
-function getClassifyStatusColor(status: 'running' | 'succeeded' | 'failed'): string {
-  switch (status) {
-    case 'running':
-      return 'bg-blue-200 text-blue-700'
-    case 'succeeded':
-      return 'bg-green-200 text-green-700'
-    case 'failed':
-      return 'bg-red-200 text-red-700'
-    default:
-      return 'bg-gray-200 text-gray-700'
-  }
-}
-
-function formatProgressPercent(processedAtoms: number, totalAtoms: number): number {
-  if (totalAtoms <= 0) return 100
-  return Math.min(100, Math.round((processedAtoms / totalAtoms) * 100))
-}
-
 function FrozenConfigBlock({ config }: { config: RunConfig }) {
   return (
     <div className="space-y-4">
@@ -1008,36 +965,3 @@ function JobRow({
   )
 }
 
-function getJobStatusColor(status: string): string {
-  switch (status) {
-    case 'queued':
-      return 'bg-gray-200 text-gray-700'
-    case 'running':
-      return 'bg-blue-200 text-blue-700'
-    case 'succeeded':
-      return 'bg-green-200 text-green-700'
-    case 'failed':
-      return 'bg-red-200 text-red-700'
-    case 'cancelled':
-      return 'bg-yellow-200 text-yellow-700'
-    default:
-      return 'bg-gray-200 text-gray-700'
-  }
-}
-
-function getStatusColor(status: string): string {
-  switch (status) {
-    case 'queued':
-      return 'bg-gray-200 text-gray-700'
-    case 'running':
-      return 'bg-blue-200 text-blue-700'
-    case 'completed':
-      return 'bg-green-200 text-green-700'
-    case 'failed':
-      return 'bg-red-200 text-red-700'
-    case 'cancelled':
-      return 'bg-yellow-200 text-yellow-700'
-    default:
-      return 'bg-gray-200 text-gray-700'
-  }
-}
