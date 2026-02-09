@@ -48,19 +48,54 @@ npm test -- --watch
 
 | Component | Test File | What It Verifies |
 |-----------|-----------|------------------|
-| ChatGPT Parser | `parsers/__tests__/chatgpt.test.ts` | Parses ChatGPT JSON exports correctly |
-| Claude Parser | `parsers/__tests__/claude.test.ts` | Parses Claude JSON exports correctly |
-| Grok Parser | `parsers/__tests__/grok.test.ts` | Parses Grok JSON exports correctly |
-| Stable IDs | `__tests__/stable-id.test.ts` | atomStableId is deterministic |
-| Timestamps | `__tests__/timestamp.test.ts` | Canonical timestamp formatting |
-| Hashing | `__tests__/hash.test.ts` | SHA-256 works correctly |
-| Classifier | `services/__tests__/classifier.test.ts` | Stub classification is deterministic |
-| Bundle Service | `services/__tests__/bundle.test.ts` | Bundle ordering and hashing |
-| Run Service | `services/__tests__/run.test.ts` | Run creation with frozen config |
-| Tick Service | `services/__tests__/tick.test.ts` | Job processing and status transitions |
-| Advisory Lock | `services/__tests__/advisory-lock.test.ts` | Concurrent tick prevention |
-| Segmentation | `services/__tests__/segmentation.test.ts` | Deterministic segment splitting |
-| Run Controls | `services/__tests__/run-controls.test.ts` | Cancel/resume/reset operations |
+| **Unit tests** | | |
+| Stable IDs | `src/__tests__/stableId.test.ts` | atomStableId is deterministic |
+| Timestamps | `src/__tests__/timestamp.test.ts` | Canonical timestamp formatting |
+| Normalization | `src/__tests__/normalize.test.ts` | Text normalization |
+| Bundle Hash | `src/__tests__/bundleHash.test.ts` | Bundle hash computation |
+| RawEntry | `src/__tests__/rawEntry.test.ts` | RawEntry per source per day |
+| Enums | `src/__tests__/enums.test.ts` | Enum type guards and values |
+| **Parsers** | | |
+| ChatGPT Parser | `src/__tests__/parsers/chatgpt.test.ts` | Parses ChatGPT JSON exports correctly |
+| Claude Parser | `src/__tests__/parsers/claude.test.ts` | Parses Claude JSON exports correctly |
+| Grok Parser | `src/__tests__/parsers/grok.test.ts` | Parses Grok JSON exports correctly |
+| Parser Auto-detect | `src/__tests__/parsers/autodetect.test.ts` | Format detection + registry wiring |
+| **LLM** | | |
+| LLM Config | `src/__tests__/llm-config.test.ts` | LLM configuration loading |
+| LLM Errors | `src/__tests__/llm-errors.test.ts` | LLM error types and codes |
+| LLM Budget | `src/__tests__/llm-budget.test.ts` | Budget tracking and enforcement |
+| LLM Rate Limit | `src/__tests__/llm-rateLimit.test.ts` | Rate limiting |
+| LLM Pricing | `src/__tests__/llm-pricing.test.ts` | Pricing book + cost estimation |
+| LLM Client (stub) | `src/__tests__/llm-client.test.ts` | LLM client dry-run mode |
+| LLM Client (real) | `src/__tests__/llm-client-real.test.ts` | LLM client real mode routing |
+| OpenAI Provider | `src/__tests__/llm-provider-openai.test.ts` | OpenAI Responses API wrapper |
+| Anthropic Provider | `src/__tests__/llm-provider-anthropic.test.ts` | Anthropic Messages API wrapper |
+| **Import services** | | |
+| Import (ChatGPT) | `src/__tests__/services/import.test.ts` | Import service for ChatGPT exports |
+| Import (Claude) | `src/__tests__/services/import-claude.test.ts` | Import service for Claude exports |
+| Import (Grok) | `src/__tests__/services/import-grok.test.ts` | Import service for Grok exports |
+| Import (auto-detect) | `src/__tests__/services/import-autodetect.test.ts` | Import with format auto-detection |
+| **Classify services** | | |
+| Classify (stub) | `src/__tests__/services/classify.test.ts` | Stub classification is deterministic |
+| Classify (real) | `src/__tests__/services/classify-real.test.ts` | Real-mode classify pipeline |
+| Classify Audit Trail | `src/__tests__/services/classify-audit-trail.test.ts` | Classification audit trail |
+| Classify Stats | `src/__tests__/services/classify-stats.test.ts` | ClassifyRun stats persistence |
+| Classify Progress | `src/__tests__/services/classify-progress.test.ts` | Classify progress polling |
+| **Run + tick services** | | |
+| Run Aggregates | `src/__tests__/services/run-aggregates.test.ts` | Run aggregate totals (partial usage) |
+| Seed Invariants | `src/__tests__/seed-invariants.test.ts` | Seed idempotency + active-per-stage |
+| Bundle Service | `src/lib/services/__tests__/bundle.test.ts` | Bundle ordering and hashing |
+| Run Service | `src/lib/services/__tests__/run.test.ts` | Run creation with frozen config |
+| Tick Service | `src/lib/services/__tests__/tick.test.ts` | Job processing and status transitions |
+| Tick (real summarize) | `src/lib/services/__tests__/tick-real-summarize.test.ts` | Tick with real LLM summarization |
+| Advisory Lock | `src/lib/services/__tests__/advisory-lock.test.ts` | Concurrent tick prevention |
+| Segmentation | `src/lib/services/__tests__/segmentation.test.ts` | Deterministic segment splitting |
+| Run Controls | `src/lib/services/__tests__/run-controls.test.ts` | Cancel/resume/reset operations |
+| **Inspectors + search** | | |
+| Import Inspector | `src/lib/services/__tests__/import-inspector.test.ts` | Import batch inspection |
+| Run Inspector | `src/lib/services/__tests__/run-inspector.test.ts` | Run detail inspection |
+| Search | `src/lib/services/__tests__/search.test.ts` | Search service + FTS + filters |
+| Pricing Integration | `src/lib/services/__tests__/pricing-integration.test.ts` | Pricing snapshot integration |
 
 ---
 
@@ -92,7 +127,7 @@ it('preserves duplicate messages with different timestamps', async () => {
 
 **Test:**
 ```typescript
-// In __tests__/stable-id.test.ts
+// In src/__tests__/stableId.test.ts
 it('produces same atomStableId for identical inputs', () => {
   const id1 = computeAtomStableId(input)
   const id2 = computeAtomStableId(input)
