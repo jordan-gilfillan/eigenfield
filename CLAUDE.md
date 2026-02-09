@@ -2,10 +2,43 @@
 
 This repo uses a strict remediation workflow to preserve conceptual control and prevent scope creep.
 
+
 ## Canonical task source
 - `REMEDIATION.md` is the single source of truth for remediation work.
 - Work on exactly one remediation entry per PR: `AUD-###`.
 - Do not create competing TODO lists in other docs. If you discover new issues, add a new `AUD-###` entry.
+
+## Prompt template (copy/paste)
+Use this minimal template when instructing an agent. Keep prompts short and refer back to this guide instead of repeating it.
+
+```
+AUD-### — <short title>
+
+Follow CLAUDE.md execution loop: one AUD per branch/PR, no scope creep, stop after merge + clean master.
+
+Branch:
+- git checkout -b fix/AUD-###-short-slug
+
+Goal:
+- <1–2 sentences: what “done” means>
+
+Files to change (allowed scope):
+- <explicit list>
+
+Acceptance checks (from REMEDIATION.md):
+- <copy bullets exactly>
+
+Verify:
+- npx vitest run
+- <any extra commands: migrations/lint/etc>
+
+Stop:
+- Update REMEDIATION.md (Status=Done + Resolution), commit, merge to master, return to clean master.
+```
+
+Notes:
+- If a task would require touching files outside “Files to change”, STOP and create a new AUD entry instead.
+- If you discover adjacent issues, record them as a new AUD and STOP.
 
 ## Scope rules (hard)
 - Fix exactly one `AUD-###` per branch/PR.
@@ -19,7 +52,7 @@ Before making changes:
 - `git log -5 --oneline`
 
 Branching:
-- Create a new branch per AUD: `fix/AUD-###-short-slug`
+- Create a new branch per AUD: `fix/AUD-###-short-slug` (docs-only changes may use `docs/AUD-###-short-slug`).
 - Do not create/switch branches unless needed for the PR.
 - Keep `master` clean; merge back and return to `master` in a clean state after PR completion.
 
@@ -41,7 +74,8 @@ Merge requirement:
 5. Add/adjust tests to lock the behavior.
 6. Run:
    - `npx vitest run`
-   - plus any specific commands relevant to the change (migrations, lint, etc.)
+   - plus any specific commands relevant to the change (e.g., `npx prisma migrate dev`, lint, etc.)
+   - If a command fails and fixing it would expand scope beyond the AUD, STOP and record a new AUD.
 7. Report:
    - files changed
    - test results
@@ -51,8 +85,10 @@ Merge requirement:
 ## Stopping rule
 Stop once acceptance checks pass and `REMEDIATION.md` is updated.
 Do not continue “improving” things beyond the single AUD.
+If you are unsure whether a change is in-scope, assume it is out-of-scope and STOP.
 
 ## Definition of done
+- Only the single targeted AUD was addressed; no unrelated changes.
 - Acceptance checks in the AUD entry pass
 - Changes are committed on `fix/AUD-###-short-slug`
 - `REMEDIATION.md` updated (Status=Done + Resolution note)
