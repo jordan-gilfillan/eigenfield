@@ -8,13 +8,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createRun } from '@/lib/services/run'
+import { createRun, TimezoneMismatchError } from '@/lib/services/run'
 import { prisma } from '@/lib/db'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { UnknownModelPricingError } from '@/lib/llm'
 
 interface CreateRunRequest {
-  importBatchId: string
+  importBatchId?: string
+  importBatchIds?: string[]
   startDate: string
   endDate: string
   sources: string[]
@@ -31,10 +32,22 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Partial<CreateRunRequest>
 
-    // Validate required fields
-    if (!body.importBatchId) {
-      return errors.invalidInput('importBatchId is required')
+    // Validate importBatchId XOR importBatchIds (SPEC §7.3 step 0a)
+    if (body.importBatchId && body.importBatchIds) {
+      return errors.invalidInput('Provide importBatchId or importBatchIds, not both')
     }
+    if (!body.importBatchId && !body.importBatchIds) {
+      return errors.invalidInput('importBatchId or importBatchIds is required')
+    }
+    if (body.importBatchIds) {
+      if (!Array.isArray(body.importBatchIds) || body.importBatchIds.length === 0) {
+        return errors.invalidInput('importBatchIds must be a non-empty array')
+      }
+      if (new Set(body.importBatchIds).size !== body.importBatchIds.length) {
+        return errors.invalidInput('importBatchIds must contain unique elements')
+      }
+    }
+
     if (!body.startDate) {
       return errors.invalidInput('startDate is required')
     }
@@ -74,7 +87,8 @@ export async function POST(request: NextRequest) {
 
     // Create the run
     const result = await createRun({
-      importBatchId: body.importBatchId,
+      ...(body.importBatchId ? { importBatchId: body.importBatchId } : {}),
+      ...(body.importBatchIds ? { importBatchIds: body.importBatchIds } : {}),
       startDate: body.startDate,
       endDate: body.endDate,
       sources: body.sources.map((s) => s.toLowerCase()),
@@ -92,7 +106,17 @@ export async function POST(request: NextRequest) {
       return errorResponse(400, error.code, error.message, error.details)
     }
 
+    if (error instanceof TimezoneMismatchError) {
+      return errorResponse(400, error.code, error.message, {
+        timezones: error.timezones,
+        batchIds: error.batchIds,
+      })
+    }
+
     if (error instanceof Error) {
+      if (error.message.startsWith('INVALID_INPUT:')) {
+        return errors.invalidInput(error.message.replace('INVALID_INPUT: ', ''))
+      }
       if (error.message.includes('ImportBatch not found')) {
         return errors.notFound('ImportBatch')
       }
@@ -153,6 +177,7 @@ export async function GET(request: NextRequest) {
       cursor: cursor ? { id: cursor } : undefined,
       skip: cursor ? 1 : 0,
       orderBy: { createdAt: 'desc' },
+      include: { runBatches: { select: { importBatchId: true } } },
     })
 
     const hasMore = runs.length > limit
@@ -164,6 +189,7 @@ export async function GET(request: NextRequest) {
         id: run.id,
         status: run.status.toLowerCase(),
         importBatchId: run.importBatchId,
+        importBatchIds: run.runBatches.map((rb) => rb.importBatchId),
         model: run.model,
         createdAt: run.createdAt.toISOString(),
       })),
