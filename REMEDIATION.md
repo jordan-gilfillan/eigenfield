@@ -21,7 +21,12 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-039, AUD-042, AUD-044, AUD-040, AUD-043a, AUD-043b, AUD-043c) are Done. Open entries (if any) are listed below.
+> All existing entries are Done. Open entries (if any) are listed below.
+
+## Open entries
+
+- AUD-045 (P0) — Multi-batch correctness for job input inspector endpoint
+- AUD-046 (P1) — Runs list filtering should respect RunBatch membership (not deprecated Run.importBatchId)
 
 ---
 
@@ -37,6 +42,8 @@ Each entry has:
 - AUD-005
 - AUD-006
 - AUD-007
+- AUD-045
+- AUD-046
 
 ### Bucket C — Docs drift (P1)
 - AUD-008
@@ -839,6 +846,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Replaced single-batch dropdown with multi-select checkboxes in `page.tsx`. Added timezone mismatch validation (inline error + Create Run disabled). Sources reflect union across selected batches. Run creation sends `importBatchIds[]`. Per-batch classify status check gates Create Run. Classify batch picker added for multi-batch scenarios.
 
+
 ### AUD-043f — Run detail + search: multi-batch display
 - **Source**: AUD-043a implementation roadmap
 - **Severity**: LOW
@@ -856,6 +864,37 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` passes.
 - **Status**: Done
 - **Resolution**: Added `importBatchIds` and `importBatches` (id, filename, source) to GET `/api/distill/runs/:id` response via RunBatch junction include. Updated run detail page Run Info section: multi-batch runs show batch list with IDs, filenames, and sources; single-batch display unchanged. 645 tests pass.
+
+### AUD-045 — Multi-batch correctness for job input inspector endpoint
+- **Source**: Audit 2026-02-09 (multi-batch review)
+- **Severity**: HIGH
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §9.1 (multi-batch atoms loaded from ALL importBatchIds)
+- **Code refs**: `src/app/api/distill/runs/[runId]/jobs/[dayDate]/input/route.ts` (uses deprecated single batch ID)
+- **Problem**: `GET /api/distill/runs/:runId/jobs/:dayDate/input` builds the input preview/hash using the deprecated singular `run.importBatchId`, while ticking uses RunBatch junction `importBatchIds`. For multi-batch runs, the input preview/hash can differ from the actual processed bundle.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-045-multi-batch-input-endpoint`
+- **Acceptance checks**:
+  - Route resolves `importBatchIds` from the canonical source (RunBatch junction, or frozen `configJson.importBatchIds`) and never from deprecated `run.importBatchId`.
+  - Multi-batch regression test: for a multi-batch run + dayDate, input endpoint’s preview/hash matches the bundle used by tick/output (same importBatchIds and dedup behavior).
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+### AUD-046 — Runs list filtering should respect RunBatch membership
+- **Source**: Audit 2026-02-09 (multi-batch review)
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` guidance: new code should read from RunBatch junction; multi-batch semantics
+- **Code refs**: `src/app/api/distill/runs/route.ts` (GET list filter uses deprecated field)
+- **Problem**: `GET /api/distill/runs?importBatchId=...` filters on deprecated `Run.importBatchId` (primary/first batch). Multi-batch runs that include the batch as non-primary are omitted. Dashboard “latest run” depends on this filter.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-046-runs-list-membership-filter`
+- **Acceptance checks**:
+  - GET list filter uses `runBatches.some(importBatchId=...)` semantics (or equivalent join) so any membership matches.
+  - Test: create multi-batch run where queried batch is not the primary/first; list endpoint still returns that run.
+  - Dashboard latest-run behavior continues to work (no regressions).
+  - `npx vitest run` passes.
+- **Status**: Not started
 
 ---
 
