@@ -397,7 +397,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - SPEC §7.2.1 normative JSON schema matches code response shape
   - `progress` contains only progress fields; `warnings` contains warning fields
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Updated SPEC §7.2.1 normative JSON schema to match code response shape: `progress` now contains only `processedAtoms` + `totalAtoms`; warning counters (`skippedBadOutput`, `aliasedCount`) moved to a separate `warnings` key. Also added `startedAt` and `finishedAt` timestamp fields that were present in code but missing from the schema. Added notes clarifying `warnings` semantics. Added 1 contract-shape integration test asserting exact key sets for `progress`, `warnings`, and top-level response. All 616 tests pass.
 
 ### AUD-024 — ACCEPTANCE.md test coverage table stale
 - **Source**: Audit 2026-02-08

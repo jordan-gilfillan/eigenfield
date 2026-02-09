@@ -439,15 +439,19 @@ Status endpoint response (normative):
   "mode": "real|stub",
   "status": "running|succeeded|failed",
   "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
-  "progress": {"processedAtoms": 0, "totalAtoms": 0, "skippedBadOutput": 0, "aliasedCount": 0},
+  "progress": {"processedAtoms": 0, "totalAtoms": 0},
   "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},
+  "warnings": {"skippedBadOutput": 0, "aliasedCount": 0},
+  "lastError": null,
   "createdAt": "RFC3339",
   "updatedAt": "RFC3339",
-  "lastError": null
+  "startedAt": "RFC3339",
+  "finishedAt": "RFC3339 | null"
 }
 ```
 Notes:
-- `progress` and `usage` MAY be partial while `status="running"`.
+- `progress`, `usage`, and `warnings` MAY be partial while `status="running"`.
+- `warnings` contains classification-quality counters separate from progress tracking.
 - The status endpoint MUST be read-only and MUST NOT trigger classification work.
 
 **Deterministic stub algorithm (stub_v1):**
