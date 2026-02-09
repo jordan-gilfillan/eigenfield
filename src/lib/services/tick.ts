@@ -123,12 +123,19 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
       })
     }
 
+    // Read importBatchIds from RunBatch junction (canonical source per §6.8a)
+    const runBatches = await prisma.runBatch.findMany({
+      where: { runId },
+      select: { importBatchId: true },
+    })
+    const importBatchIds = runBatches.map((rb) => rb.importBatchId)
+
     // Process each job
     const processedJobs: TickResult['jobs'] = []
 
     for (const job of queuedJobs) {
       const jobResult = await processJob(job.id, {
-        importBatchId: currentRun.importBatchId,
+        importBatchIds,
         sources: (currentRun.sources as string[]).map((s) => s.toLowerCase()),
         model: currentRun.model,
         config,
@@ -156,7 +163,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
 async function processJob(
   jobId: string,
   context: {
-    importBatchId: string
+    importBatchIds: string[]
     sources: string[]
     model: string
     config: {
@@ -168,7 +175,7 @@ async function processJob(
     }
   }
 ): Promise<TickResult['jobs'][0]> {
-  const { importBatchId, sources, model, config } = context
+  const { importBatchIds, sources, model, config } = context
 
   // Mark job as running
   const job = await prisma.job.update({
@@ -187,9 +194,9 @@ async function processJob(
   let totalCostUsd = 0
 
   try {
-    // 1. Build bundle
+    // 1. Build bundle (across all batches per §9.1)
     const bundle = await buildBundle({
-      importBatchId,
+      importBatchIds,
       dayDate,
       sources,
       labelSpec: config.labelSpec,

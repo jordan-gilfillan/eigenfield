@@ -17,8 +17,28 @@ const DEFAULT_MAX_INPUT_TOKENS = 12000
 /** Default classifier model per SPEC §7.3 (v0.3 default) */
 const DEFAULT_CLASSIFY_MODEL = 'stub_v1'
 
+/**
+ * Thrown when selected batches have different timezones.
+ * Per SPEC §7.3 step 0b.
+ */
+export class TimezoneMismatchError extends Error {
+  code = 'TIMEZONE_MISMATCH' as const
+  timezones: string[]
+  batchIds: string[]
+
+  constructor(timezones: string[], batchIds: string[]) {
+    super(`Selected batches have different timezones: ${timezones.join(', ')}`)
+    this.name = 'TimezoneMismatchError'
+    this.timezones = timezones
+    this.batchIds = batchIds
+  }
+}
+
 export interface CreateRunOptions {
-  importBatchId: string
+  /** Single batch (backward compat). Mutually exclusive with importBatchIds. */
+  importBatchId?: string
+  /** Multiple batches (preferred). Mutually exclusive with importBatchId. */
+  importBatchIds?: string[]
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
   sources: string[] // lowercase: chatgpt, claude, grok
@@ -38,6 +58,7 @@ export interface CreateRunResult {
   id: string
   status: string
   importBatchId: string
+  importBatchIds: string[]
   startDate: string
   endDate: string
   sources: string[]
@@ -51,6 +72,7 @@ export interface CreateRunResult {
     timezone: string
     maxInputTokens: number
     pricingSnapshot?: PricingSnapshot
+    importBatchIds?: string[]
   }
   jobCount: number
   eligibleDays: string[]
@@ -59,16 +81,42 @@ export interface CreateRunResult {
 }
 
 /**
+ * Resolves importBatchId/importBatchIds XOR into a canonical array.
+ * Per SPEC §7.3 step 0a.
+ */
+function resolveImportBatchIds(options: CreateRunOptions): string[] {
+  const { importBatchId, importBatchIds } = options
+  if (importBatchId && importBatchIds) {
+    throw new Error('INVALID_INPUT: Provide importBatchId or importBatchIds, not both')
+  }
+  if (!importBatchId && !importBatchIds) {
+    throw new Error('INVALID_INPUT: importBatchId or importBatchIds is required')
+  }
+  if (importBatchIds) {
+    if (importBatchIds.length === 0) {
+      throw new Error('INVALID_INPUT: importBatchIds must be non-empty')
+    }
+    if (new Set(importBatchIds).size !== importBatchIds.length) {
+      throw new Error('INVALID_INPUT: importBatchIds must contain unique elements')
+    }
+    return importBatchIds
+  }
+  return [importBatchId!]
+}
+
+/**
  * Creates a new Run with frozen config and jobs for each eligible day.
  *
+ * Supports multi-batch runs per SPEC §6.8a / §7.3.
+ *
  * @throws Error if importBatchId not found
+ * @throws TimezoneMismatchError if batches have different timezones
  * @throws Error if filterProfileId not found
  * @throws Error if no active summarize prompt version
  * @throws Error if no eligible days (NO_ELIGIBLE_DAYS)
  */
 export async function createRun(options: CreateRunOptions): Promise<CreateRunResult> {
   const {
-    importBatchId,
     startDate,
     endDate,
     sources,
@@ -77,13 +125,28 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
   } = options
 
-  // 1. Verify import batch exists and get timezone
-  const importBatch = await prisma.importBatch.findUnique({
-    where: { id: importBatchId },
+  // 0a. Resolve importBatchIds (XOR normalization)
+  const importBatchIds = resolveImportBatchIds(options)
+
+  // 0b. Fetch all batches, validate existence and timezone uniformity
+  const importBatches = await prisma.importBatch.findMany({
+    where: { id: { in: importBatchIds } },
   })
-  if (!importBatch) {
-    throw new Error(`ImportBatch not found: ${importBatchId}`)
+
+  // Check all batches exist
+  if (importBatches.length !== importBatchIds.length) {
+    const foundIds = new Set(importBatches.map((b) => b.id))
+    const missingId = importBatchIds.find((id) => !foundIds.has(id))
+    throw new Error(`ImportBatch not found: ${missingId}`)
   }
+
+  // Check timezone uniformity
+  const timezones = [...new Set(importBatches.map((b) => b.timezone))]
+  if (timezones.length > 1) {
+    throw new TimezoneMismatchError(timezones, importBatchIds)
+  }
+
+  const timezone = timezones[0]
 
   // 2. Verify filter profile exists and snapshot it
   const filterProfile = await prisma.filterProfile.findUnique({
@@ -133,9 +196,9 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     }
   }
 
-  // 5. Determine eligible days
+  // 5. Determine eligible days (across all batches)
   const eligibleDays = await findEligibleDays({
-    importBatchId,
+    importBatchIds,
     startDate,
     endDate,
     sources,
@@ -154,7 +217,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
   const provider = inferProvider(model)
   const pricingSnapshot = buildPricingSnapshot(provider, model)
 
-  // 7. Create run with frozen config
+  // 7. Create run with frozen config + RunBatch junction rows
   const filterProfileSnapshot = {
     name: filterProfile.name,
     mode: filterProfile.mode.toLowerCase(),
@@ -170,9 +233,10 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       promptVersionId: labelSpec.promptVersionId,
     },
     filterProfileSnapshot,
-    timezone: importBatch.timezone,
+    timezone,
     maxInputTokens,
     pricingSnapshot: { ...pricingSnapshot },
+    importBatchIds,
   }
 
   // Convert sources to uppercase for DB
@@ -180,7 +244,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
 
   const run = await prisma.run.create({
     data: {
-      importBatchId,
+      importBatchId: importBatchIds[0], // deprecated, kept for backward compat
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       sources: dbSources,
@@ -189,10 +253,15 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       outputTarget: 'db',
       configJson,
       status: 'QUEUED',
+      runBatches: {
+        create: importBatchIds.map((batchId) => ({
+          importBatchId: batchId,
+        })),
+      },
     },
   })
 
-  // 7. Create jobs for each eligible day
+  // 8. Create jobs for each eligible day
   const jobsData = eligibleDays.map((dayDate) => ({
     runId: run.id,
     dayDate: new Date(dayDate),
@@ -204,11 +273,12 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     data: jobsData,
   })
 
-  // 8. Return response per spec 7.9
+  // 9. Return response per spec 7.9
   return {
     id: run.id,
     status: run.status.toLowerCase(),
     importBatchId: run.importBatchId,
+    importBatchIds,
     startDate,
     endDate,
     sources,
@@ -222,6 +292,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       timezone: configJson.timezone,
       maxInputTokens: configJson.maxInputTokens,
       pricingSnapshot: configJson.pricingSnapshot,
+      importBatchIds: configJson.importBatchIds,
     },
     jobCount: eligibleDays.length,
     eligibleDays,
@@ -232,14 +303,14 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
 
 /**
  * Finds days that have at least one MessageAtom matching:
- * - importBatchId
+ * - importBatchId IN (importBatchIds)
  * - sources
  * - date range
  * - has a MessageLabel matching labelSpec
  * - passes filter profile
  */
 async function findEligibleDays(options: {
-  importBatchId: string
+  importBatchIds: string[]
   startDate: string
   endDate: string
   sources: string[]
@@ -252,7 +323,7 @@ async function findEligibleDays(options: {
     promptVersionId: string
   }
 }): Promise<string[]> {
-  const { importBatchId, startDate, endDate, sources, filterProfile, labelSpec } = options
+  const { importBatchIds, startDate, endDate, sources, filterProfile, labelSpec } = options
 
   // Convert sources to uppercase for DB query
   const dbSources = sources.map((s) => s.toUpperCase())
@@ -265,10 +336,10 @@ async function findEligibleDays(options: {
       ? { in: filterProfile.categories }
       : { notIn: filterProfile.categories }
 
-  // Find distinct dayDates where atoms exist with matching labels
+  // Find distinct dayDates where atoms exist with matching labels (across all batches)
   const atomsWithLabels = await prisma.messageAtom.findMany({
     where: {
-      importBatchId,
+      importBatchId: { in: importBatchIds },
       source: { in: dbSources as Source[] },
       dayDate: {
         gte: new Date(startDate),

@@ -12,7 +12,10 @@ import { toCanonicalTimestamp } from '../timestamp'
 import type { Source, FilterMode } from '@prisma/client'
 
 export interface BuildBundleOptions {
-  importBatchId: string
+  /** Single batch (backward compat). Use importBatchIds for multi-batch. */
+  importBatchId?: string
+  /** Multiple batches (preferred). Atoms deduped by atomStableId per SPEC §9.1. */
+  importBatchIds?: string[]
   dayDate: string // YYYY-MM-DD
   sources: string[] // lowercase
   labelSpec: {
@@ -67,7 +70,14 @@ export interface BundleResult {
  * ```
  */
 export async function buildBundle(options: BuildBundleOptions): Promise<BundleResult> {
-  const { importBatchId, dayDate, sources, labelSpec, filterProfile } = options
+  const { dayDate, sources, labelSpec, filterProfile } = options
+
+  // Normalize importBatchId/importBatchIds → resolvedBatchIds
+  const resolvedBatchIds = options.importBatchIds
+    ? options.importBatchIds
+    : options.importBatchId
+      ? [options.importBatchId]
+      : (() => { throw new Error('importBatchId or importBatchIds is required') })()
 
   // Convert to DB types
   const dbSources = sources.map((s) => s.toUpperCase()) as Source[]
@@ -79,10 +89,10 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
       ? { in: filterProfile.categories }
       : { notIn: filterProfile.categories }
 
-  // Load eligible atoms with their labels
-  const atoms = await prisma.messageAtom.findMany({
+  // Load eligible atoms with their labels (across all batches)
+  const rawAtoms = await prisma.messageAtom.findMany({
     where: {
-      importBatchId,
+      importBatchId: { in: resolvedBatchIds },
       source: { in: dbSources },
       dayDate: new Date(dayDate),
       messageLabels: {
@@ -109,13 +119,21 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
     ],
   })
 
+  // Cross-batch dedup: keep first occurrence per atomStableId (already in canonical sort order)
+  const seen = new Set<string>()
+  const atoms = rawAtoms.filter((a) => {
+    if (seen.has(a.atomStableId)) return false
+    seen.add(a.atomStableId)
+    return true
+  })
+
   if (atoms.length === 0) {
     // Return empty bundle
     const emptyBundle = ''
     return {
       bundleText: emptyBundle,
       bundleHash: computeBundleHash(emptyBundle),
-      bundleContextHash: computeBundleContextHash(importBatchId, dayDate, sources, filterProfile, labelSpec),
+      bundleContextHash: computeBundleContextHash(resolvedBatchIds, dayDate, sources, filterProfile, labelSpec),
       atomCount: 0,
       atomIds: [],
       atoms: [],
@@ -159,7 +177,7 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
   return {
     bundleText,
     bundleHash: computeBundleHash(bundleText),
-    bundleContextHash: computeBundleContextHash(importBatchId, dayDate, sources, filterProfile, labelSpec),
+    bundleContextHash: computeBundleContextHash(resolvedBatchIds, dayDate, sources, filterProfile, labelSpec),
     atomCount: atoms.length,
     atomIds: atoms.map((a) => a.id),
     atoms: atoms.map((a) => ({
@@ -183,21 +201,24 @@ function computeBundleHash(bundleText: string): string {
 
 /**
  * Computes bundleContextHash per spec 5.3:
- * sha256("bundle_ctx_v1|" + importBatchId + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson)
+ * sha256("bundle_ctx_v1|" + importBatchIdsCsv + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson)
+ *
+ * For single-batch, sorted join of [id] === id, so hash is backward compatible.
  */
 function computeBundleContextHash(
-  importBatchId: string,
+  importBatchIds: string[],
   dayDate: string,
   sources: string[],
   filterProfile: { mode: string; categories: string[] },
   labelSpec: { model: string; promptVersionId: string }
 ): string {
+  const importBatchIdsCsv = importBatchIds.slice().sort().join(',')
   const sourcesCsv = sources.slice().sort().join(',')
   const filterProfileJson = JSON.stringify(filterProfile)
   const labelSpecJson = JSON.stringify(labelSpec)
 
   return sha256(
-    `bundle_ctx_v1|${importBatchId}|${dayDate}|${sourcesCsv}|${filterProfileJson}|${labelSpecJson}`
+    `bundle_ctx_v1|${importBatchIdsCsv}|${dayDate}|${sourcesCsv}|${filterProfileJson}|${labelSpecJson}`
   )
 }
 
