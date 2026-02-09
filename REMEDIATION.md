@@ -25,7 +25,6 @@ Each entry has:
 
 ## Open entries
 
-- AUD-045 (P0) — Multi-batch correctness for job input inspector endpoint
 - AUD-046 (P1) — Runs list filtering should respect RunBatch membership (not deprecated Run.importBatchId)
 
 ---
@@ -878,7 +877,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Route resolves `importBatchIds` from the canonical source (RunBatch junction, or frozen `configJson.importBatchIds`) and never from deprecated `run.importBatchId`.
   - Multi-batch regression test: for a multi-batch run + dayDate, input endpoint’s preview/hash matches the bundle used by tick/output (same importBatchIds and dedup behavior).
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Changed input route to resolve `importBatchIds` from RunBatch junction (with `configJson.importBatchIds` fallback), replacing deprecated `run.importBatchId`. Added 6 route-level tests: multi-batch includes atoms from both batches, hashes match `buildBundle` with `importBatchIds`, regression test proves old single-batch behavior would have fewer atoms/different hashes, single-batch unchanged, 404 cases. 651 tests pass.
 
 ### AUD-046 — Runs list filtering should respect RunBatch membership
 - **Source**: Audit 2026-02-09 (multi-batch review)
