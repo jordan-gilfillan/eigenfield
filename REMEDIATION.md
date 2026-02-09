@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-033) are Done. See open entries below if new AUDs are added.
+> All entries (AUD-001 through AUD-034) are Done. See open entries below if new AUDs are added.
 
 ---
 
@@ -546,6 +546,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Converted dashboard to 2-column layout (primary flow left, status/context right). Added latest run card with status badge, progress counters, and "View Run" link. Responsive single-column fallback on mobile. Reorganized feature cards into right-column quick links. No new API routes or schema changes.
+
+### AUD-034 — Import Inspector context bar + filter reset (UX-8.6)
+- **Source**: UX backlog (UX_SPEC.md §4.3, §8.6)
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.3 (Import Inspector requirements), §8.6 (Inspector Orientation Pass)
+- **Problem**: No top context bar summarizing batch/day/filter state. No clear/reset affordance when source filter is active. Empty states lack recovery guidance.
+- **Decision**: Implement context bar + filter reset + actionable empty states
+- **Planned PR**: `fix/AUD-034-inspector-context-bar`
+- **Acceptance checks**:
+  - Context bar visible when batch selected (filename, source, coverage, selected day, source filter, atom count).
+  - Clear-filter button appears when source filter active; clicking resets to "all".
+  - Empty states have actionable recovery text and buttons.
+  - Changes limited to `src/app/distill/import/inspect/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes (616+ tests).
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Enhanced Import Inspector with context bar (filename, source badge, coverage, selected day, active source filter with clear button, atom count). Added clear/reset controls for source filter in both context bar and dropdown. Improved empty states with actionable recovery (clear filter button when filtered, sidebar guidance when no day selected). Source filter dropdown now syncs to URL for shareability. No new API routes or schema changes.
 
 ---
 

@@ -335,11 +335,48 @@ function InspectorContent() {
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-2">Import Inspector</h1>
       {batchInfo && (
-        <div className="text-sm text-gray-500 mb-6">
-          <span className="font-medium">{batchInfo.originalFilename}</span>
-          {' '}&middot; {batchInfo.source}
-          {' '}&middot; {batchInfo.stats.coverage_start} to {batchInfo.stats.coverage_end}
-          {' '}&middot; {batchInfo.stats.message_count} messages
+        <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-medium text-gray-800">{batchInfo.originalFilename}</span>
+          <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700 capitalize">
+            {batchInfo.source.toLowerCase()}
+          </span>
+          <span>{batchInfo.stats.coverage_start} to {batchInfo.stats.coverage_end}</span>
+          {selectedDay && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="font-medium text-blue-700">{selectedDay}</span>
+            </>
+          )}
+          {sourceFilter && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                {sourceFilter}
+                <button
+                  onClick={() => {
+                    setSourceFilter('')
+                    // Update URL to remove source param
+                    const params = new URLSearchParams()
+                    if (batchId) params.set('importBatchId', batchId)
+                    if (selectedDay) params.set('dayDate', selectedDay)
+                    router.replace(`/distill/import/inspect?${params}`)
+                  }}
+                  className="ml-0.5 hover:text-blue-900"
+                  title="Clear source filter"
+                >
+                  &times;
+                </button>
+              </span>
+            </>
+          )}
+          {selectedDay && !loadingAtoms && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="text-gray-500">
+                {atoms.length} atom{atoms.length !== 1 ? 's' : ''}
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -356,7 +393,9 @@ function InspectorContent() {
           {loadingDays ? (
             <div className="text-sm text-gray-400">Loading days...</div>
           ) : days.length === 0 ? (
-            <div className="text-sm text-gray-400">No days found</div>
+            <div className="text-sm text-gray-400">
+              No days found for this batch.
+            </div>
           ) : (
             <DayList
               days={days}
@@ -375,18 +414,43 @@ function InspectorContent() {
 
                 {/* Source filter dropdown */}
                 {availableSources.length > 1 && (
-                  <select
-                    value={sourceFilter}
-                    onChange={(e) => setSourceFilter(e.target.value)}
-                    className="text-sm border border-gray-300 rounded-md px-2 py-1"
-                  >
-                    <option value="">All sources</option>
-                    {availableSources.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={sourceFilter}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setSourceFilter(val)
+                        const params = new URLSearchParams()
+                        if (batchId) params.set('importBatchId', batchId)
+                        if (selectedDay) params.set('dayDate', selectedDay)
+                        if (val) params.set('source', val)
+                        router.replace(`/distill/import/inspect?${params}`)
+                      }}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1"
+                    >
+                      <option value="">All sources</option>
+                      {availableSources.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    {sourceFilter && (
+                      <button
+                        onClick={() => {
+                          setSourceFilter('')
+                          const params = new URLSearchParams()
+                          if (batchId) params.set('importBatchId', batchId)
+                          if (selectedDay) params.set('dayDate', selectedDay)
+                          router.replace(`/distill/import/inspect?${params}`)
+                        }}
+                        className="text-sm text-gray-500 hover:text-gray-700 px-1"
+                        title="Clear source filter"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {!loadingAtoms && (
@@ -399,8 +463,26 @@ function InspectorContent() {
               {loadingAtoms ? (
                 <div className="text-sm text-gray-400">Loading atoms...</div>
               ) : atoms.length === 0 ? (
-                <div className="text-sm text-gray-400 p-4 bg-gray-50 rounded-md">
-                  No atoms found for this day{sourceFilter ? ` (source: ${sourceFilter})` : ''}.
+                <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-md">
+                  {sourceFilter ? (
+                    <div>
+                      <p>No <span className="font-medium">{sourceFilter}</span> atoms on <span className="font-medium">{selectedDay}</span>.</p>
+                      <button
+                        onClick={() => {
+                          setSourceFilter('')
+                          const params = new URLSearchParams()
+                          if (batchId) params.set('importBatchId', batchId)
+                          if (selectedDay) params.set('dayDate', selectedDay)
+                          router.replace(`/distill/import/inspect?${params}`)
+                        }}
+                        className="mt-2 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Clear filter
+                      </button>
+                    </div>
+                  ) : (
+                    <p>No atoms found for this day.</p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -411,8 +493,9 @@ function InspectorContent() {
               )}
             </>
           ) : (
-            <div className="text-sm text-gray-400 p-8 text-center bg-gray-50 rounded-md">
-              Select a day from the list to view messages.
+            <div className="text-sm text-gray-500 p-8 text-center bg-gray-50 rounded-md">
+              <p className="mb-1 font-medium">No day selected</p>
+              <p>&larr; Select a day from the sidebar to view atoms.</p>
             </div>
           )}
         </div>
