@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-031) are Done. See open entries below if new AUDs are added.
+> All entries (AUD-001 through AUD-032) are Done. See open entries below if new AUDs are added.
 
 ---
 
@@ -513,6 +513,20 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Priority section remains consistent after status changes.
 - **Status**: Done
 - **Resolution**: Replaced stale "Current top priorities" list (AUD-022/023/024/025, all Done) with a summary noting all AUD-001 through AUD-031 are Done, directing readers to check for new entries below.
+
+### AUD-032 — UX_SPEC Section 8 status markers are stale
+- **Source**: UX backlog review
+- **Severity**: LOW
+- **Type**: Doc drift
+- **Docs cited**: `UX_SPEC.md` Section 8 (UX-8.1 through UX-8.8)
+- **Problem**: All 8 UX-8.x items say "**Status**: Not started" despite AUD-015 through AUD-019 delivering work on several of them. Misrepresents project state and creates audit noise.
+- **Decision**: Fix docs
+- **Planned PR**: `docs/AUD-032-ux-spec-status-refresh`
+- **Acceptance checks**:
+  - Each UX-8.x status marker reflects actual state (Done / Partial / Not started) with AUD cross-references where applicable.
+  - No stale "Not started" on completed or partially completed work.
+- **Status**: Done
+- **Resolution**: Updated UX_SPEC.md Section 8 status markers to reflect work delivered by AUD-015–019. No code changes.
 
 ---
 

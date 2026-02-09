@@ -246,35 +246,35 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ### UX-8.1 Distill Shell + Navigation
 - Add shared distill layout with persistent nav and active tab state.
 - Independently useful: immediate orientation and consistency.
-- **Status**: Not started
+- **Status**: Done (AUD-015) — shared layout with persistent nav and active tab state
 
 ### UX-8.2 Shared State Components
 - Introduce shared alert/empty/loading/next-action components.
 - Independently useful: consistent error and empty handling everywhere.
-- **Status**: Not started
+- **Status**: Partial (AUD-017) — actionable error patterns added; shared components not yet extracted
 
 ### UX-8.3 Dashboard IA Pass
 - Recompose dashboard into primary flow + status/context column.
 - Fix create-run gating to persisted classify status.
-- **Status**: Not started
+- **Status**: Partial (AUD-016) — create-run gating uses persisted classify; 2-column layout and latest run card remain
 
 ### UX-8.4 Dashboard Progress Surface
 - Add standardized progress panel for classify status with manual refresh and percent.
-- **Status**: Not started
+- **Status**: Mostly done — classify progress, refresh, and polling exist; checkpoint timestamp during running state remains
 
 ### UX-8.5 Search Readability Pass
 - Improve scope-change affordance, metadata hierarchy, and retry UX.
-- **Status**: Not started
+- **Status**: Partial (AUD-019) — scope-change affordance fixed; metadata hierarchy and empty state remain
 
 ### UX-8.6 Import Inspector Orientation Pass
 - Add context bar, better filter controls, and stronger empty-state recovery.
-- **Status**: Not started
+- **Status**: Not started — remaining: context bar, filter reset, actionable empty states
 
 ### UX-8.7 Run Detail Task-Focus Pass
 - Add top status rail and progressive disclosure for heavy job inspectors.
-- **Status**: Not started
+- **Status**: Partial (AUD-018) — controls grouped with side-effect labels; top status rail and collapsible config remain
 
 ### UX-8.8 Foreground Progress Hook
 - Add reusable foreground polling hook (read-only status endpoints, abort-safe lifecycle).
 - Wire only where explicitly enabled in UI.
-- **Status**: Not started
+- **Status**: Not started — remaining: reusable polling hook extraction and run detail wiring
