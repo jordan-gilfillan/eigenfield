@@ -441,7 +441,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - `GET /api/distill/search?...&categories=...` without `runId` and without `labelModel`/`labelPromptVersionId` is either rejected with `400 INVALID_INPUT` (code fix path) or explicitly documented as supported (spec fix path).
   - Search tests reflect the chosen contract and remove ambiguous behavior.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Fixed code path (enforce required label context per SPEC §7.9). Route handler now rejects `categories` filter on raw scope without label context (`runId` or both `labelModel`+`labelPromptVersionId`) with 400 INVALID_INPUT. Removed the `EXISTS` fallback in `searchRaw()` that matched categories against any label regardless of labelSpec context, replacing it with a defensive throw. Updated test from exercising the old no-context `EXISTS` behavior to verifying the rejection. All 616 tests pass.
 
 ### AUD-027 — Stub mode PromptVersion contract differs from SPEC
 - **Source**: Audit 2026-02-09

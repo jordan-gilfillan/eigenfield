@@ -83,6 +83,13 @@ export async function GET(request: NextRequest) {
           validCategories: CATEGORY_VALUES,
         })
       }
+
+      // SPEC §7.9: categories filter on raw scope requires label context
+      if (scope === 'raw' && !runId && !(labelModel && labelPromptVersionId)) {
+        return errors.invalidInput(
+          'categories filter requires label context: provide runId or both labelModel and labelPromptVersionId (SPEC §7.9)'
+        )
+      }
     }
 
     const result = await search({
