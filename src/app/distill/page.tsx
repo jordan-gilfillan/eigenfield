@@ -145,6 +145,7 @@ function DashboardContent() {
   const [classifyProgress, setClassifyProgress] = useState<ClassifyRunStatus | null>(null)
   const pollAbortRef = useRef<AbortController | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [lastCheckpointAt, setLastCheckpointAt] = useState<Date | null>(null)
 
   // Last classify stats (persisted, from shared endpoint)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
@@ -301,6 +302,7 @@ function DashboardContent() {
     setClassifyResult(null)
     setClassifyError(null)
     setClassifyProgress(null)
+    setLastCheckpointAt(null)
     setLastClassifyStats(null)
     setLoadingLastClassifyStats(true)
     setLatestRun(null)
@@ -478,6 +480,7 @@ function DashboardContent() {
           if (data.hasStats && data.stats?.status === 'running') {
             // Show progress from last-classify while we wait for POST to return
             setLastClassifyStats(data)
+            setLastCheckpointAt(new Date())
           }
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return
@@ -528,6 +531,7 @@ function DashboardContent() {
     } finally {
       setClassifying(false)
       setClassifyProgress(null)
+      setLastCheckpointAt(null)
     }
   }
 
@@ -792,6 +796,11 @@ function DashboardContent() {
                       <div>Cost: ${lastClassifyStats.stats.costUsd.toFixed(4)}</div>
                     )}
                   </div>
+                  {lastCheckpointAt && (
+                    <div className="mt-2 text-xs text-indigo-500">
+                      Last checkpoint: {lastCheckpointAt.toLocaleTimeString()}
+                    </div>
+                  )}
                 </div>
               )}
 
