@@ -335,8 +335,18 @@ function SearchContent() {
 
       {/* Error */}
       {state.error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center justify-between">
           <p className="text-red-700 text-sm">{state.error}</p>
+          {query.trim() && (
+            <button
+              type="button"
+              onClick={executeSearch}
+              disabled={state.status === 'loading'}
+              className="ml-4 px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
 
@@ -349,13 +359,20 @@ function SearchContent() {
       {state.status === 'success' && (
         <>
           {state.items.length === 0 ? (
-            <div className="text-gray-500 text-sm p-4 bg-gray-50 rounded-md">
-              No results found for &quot;{query.trim()}&quot; in {scope === 'raw' ? 'raw messages' : 'outputs'}.
+            <div className="text-sm p-4 bg-gray-50 rounded-md border border-gray-200">
+              <p className="text-gray-700 font-medium mb-1">No results found</p>
+              <p className="text-gray-500 mb-2">
+                Query: &quot;{query.trim()}&quot; &middot; Scope: {scope === 'raw' ? 'Raw' : 'Outputs'}
+              </p>
+              <p className="text-gray-400">
+                Try broadening your query, switching scope, or removing filters.
+              </p>
             </div>
           ) : (
             <>
               <div className="text-sm text-gray-500 mb-4">
-                {state.items.length} result{state.items.length !== 1 ? 's' : ''} shown
+                {state.items.length} result{state.items.length !== 1 ? 's' : ''}
+                {state.nextCursor ? ' (more available)' : ''}
               </div>
 
               <div className="space-y-3">

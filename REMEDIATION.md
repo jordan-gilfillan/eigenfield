@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-042) are Done. Open entries (if any) are listed below.
+> All entries (AUD-001 through AUD-036, AUD-042) are Done. Open entries (if any) are listed below.
 
 ---
 
@@ -621,6 +621,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Search/run detail behaviors remain correct with multi-batch runs.
   - `npx vitest run` passes.
 - **Status**: Not started
+
+### AUD-036 — Search metadata hierarchy + empty state (UX-8.5)
+- **Source**: UX backlog (UX_SPEC.md §8.5)
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.5 (Search requirements), §8.5 (Search Readability Pass)
+- **Problem**: Result count lacks "more available" cue when paginated. Empty state lacks query/scope context and suggestion. Error state lacks retry button.
+- **Decision**: Fix UI
+- **Planned PR**: `fix/AUD-036-search-metadata-empty`
+- **Acceptance checks**:
+  - "more available" indicator visible when `nextCursor` exists.
+  - Empty state shows query + scope + suggestion text.
+  - Error state has clickable Retry that re-executes last search.
+  - Changes limited to `src/app/distill/search/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes.
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Added three UX improvements to search page: (1) Result count shows "(more available)" when nextCursor exists. (2) Empty state displays query text, scope, and actionable suggestion. (3) Error block includes Retry button that re-executes with current params (hidden when no query). No new API routes or schema changes.
 
 ---
 
