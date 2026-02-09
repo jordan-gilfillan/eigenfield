@@ -148,6 +148,7 @@ function DashboardContent() {
 
   // Last classify stats (persisted, from shared endpoint)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
+  const [loadingLastClassifyStats, setLoadingLastClassifyStats] = useState(false)
   const [refreshingLastClassifyStats, setRefreshingLastClassifyStats] = useState(false)
 
   // Run creation state
@@ -301,6 +302,7 @@ function DashboardContent() {
     setClassifyError(null)
     setClassifyProgress(null)
     setLastClassifyStats(null)
+    setLoadingLastClassifyStats(true)
     setLatestRun(null)
     router.push(`/distill?importBatchId=${batchId}`)
   }
@@ -330,15 +332,50 @@ function DashboardContent() {
     }
   }, [])
 
-  // Fetch last classify stats when batch or mode changes (and pv is known)
+  // Fetch last classify stats when batch or mode changes (and pv is known).
+  // Uses cleanup-based cancellation to prevent stale responses from overwriting
+  // current state when the user switches batches quickly (AUD-042).
   useEffect(() => {
     if (!selectedBatchId || !activeClassifyPv) {
       setLastClassifyStats(null)
+      setLoadingLastClassifyStats(false)
       return
     }
+
+    let cancelled = false
     const labelModel = classifyMode === 'stub' ? 'stub_v1' : 'gpt-4o'
-    fetchLastClassifyStats(selectedBatchId, labelModel, activeClassifyPv.id)
-  }, [selectedBatchId, classifyMode, activeClassifyPv, fetchLastClassifyStats])
+
+    setLoadingLastClassifyStats(true)
+    setLastClassifyStatsError(null)
+
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/distill/import-batches/${selectedBatchId}/last-classify?model=${encodeURIComponent(labelModel)}&promptVersionId=${encodeURIComponent(activeClassifyPv.id)}`
+        )
+        if (cancelled) return
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setLastClassifyStatsError(data.error?.message || `Failed to load classify stats (${res.status})`)
+          return
+        }
+        const data: LastClassifyStats = await res.json()
+        if (!cancelled) {
+          setLastClassifyStats(data)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLastClassifyStatsError(err instanceof Error ? err.message : 'Failed to load classify stats')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingLastClassifyStats(false)
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [selectedBatchId, classifyMode, activeClassifyPv])
 
   // Stop any active polling loop
   const stopPolling = useCallback(() => {
@@ -851,6 +888,10 @@ function DashboardContent() {
             {!selectedBatchId ? (
               <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
                 Select an import batch first.
+              </p>
+            ) : loadingLastClassifyStats ? (
+              <p className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded p-3">
+                Loading classify status...
               </p>
             ) : !lastClassifyStats || !lastClassifyStats.hasStats ? (
               <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">

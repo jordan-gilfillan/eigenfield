@@ -283,4 +283,93 @@ describe('ClassifyRun audit trail', () => {
 
     expect(runCount).toBe(0)
   })
+
+  it('two batches: only one classified → endpoint returns per-batch correct results', async () => {
+    // Batch A — will be classified
+    const contentA = createTestExport([
+      { id: 'msg-scope-a-1', role: 'user', text: 'Batch A message', timestamp: 1705316400, conversationId: 'conv-scope-a' },
+    ])
+    const importA = await importExport({
+      content: contentA,
+      filename: 'scope-a.json',
+      fileSizeBytes: contentA.length,
+    })
+    createdBatchIds.push(importA.importBatch.id)
+
+    // Batch B — will NOT be classified
+    const contentB = createTestExport([
+      { id: 'msg-scope-b-1', role: 'user', text: 'Batch B message', timestamp: 1705316500, conversationId: 'conv-scope-b' },
+    ])
+    const importB = await importExport({
+      content: contentB,
+      filename: 'scope-b.json',
+      fileSizeBytes: contentB.length,
+    })
+    createdBatchIds.push(importB.importBatch.id)
+
+    // Classify only batch A
+    await classifyBatch({
+      importBatchId: importA.importBatch.id,
+      model: 'stub_v1',
+      promptVersionId: stubPromptVersionId,
+      mode: 'stub',
+    })
+
+    // Batch A → hasStats: true (classified)
+    const lastA = await fetchLastClassify(importA.importBatch.id, 'stub_v1', stubPromptVersionId)
+    expect(lastA.hasStats).toBe(true)
+    expect(lastA.stats).toBeDefined()
+    expect(lastA.stats!.status).toBe('succeeded')
+    expect(lastA.stats!.totalAtoms).toBeGreaterThan(0)
+
+    // Batch B → hasStats: false (not classified)
+    const lastB = await fetchLastClassify(importB.importBatch.id, 'stub_v1', stubPromptVersionId)
+    expect(lastB.hasStats).toBe(false)
+    expect(lastB.stats).toBeUndefined()
+  })
+
+  it('classify stats for one batch do not leak to another batch', async () => {
+    // Create two batches and classify both with different models
+    const contentA = createTestExport([
+      { id: 'msg-leak-a-1', role: 'user', text: 'Leak test A', timestamp: 1705316400, conversationId: 'conv-leak-a' },
+      { id: 'msg-leak-a-2', role: 'assistant', text: 'Reply A', timestamp: 1705316401, conversationId: 'conv-leak-a' },
+    ])
+    const importA = await importExport({
+      content: contentA,
+      filename: 'leak-a.json',
+      fileSizeBytes: contentA.length,
+    })
+    createdBatchIds.push(importA.importBatch.id)
+
+    const contentB = createTestExport([
+      { id: 'msg-leak-b-1', role: 'user', text: 'Leak test B', timestamp: 1705316500, conversationId: 'conv-leak-b' },
+    ])
+    const importB = await importExport({
+      content: contentB,
+      filename: 'leak-b.json',
+      fileSizeBytes: contentB.length,
+    })
+    createdBatchIds.push(importB.importBatch.id)
+
+    // Classify batch A only (stub mode)
+    await classifyBatch({
+      importBatchId: importA.importBatch.id,
+      model: 'stub_v1',
+      promptVersionId: stubPromptVersionId,
+      mode: 'stub',
+    })
+
+    // Query batch A with correct label spec → gets stats
+    const lastA = await fetchLastClassify(importA.importBatch.id, 'stub_v1', stubPromptVersionId)
+    expect(lastA.hasStats).toBe(true)
+    expect(lastA.stats!.totalAtoms).toBe(2)
+
+    // Query batch B with same label spec → no stats (not classified)
+    const lastB = await fetchLastClassify(importB.importBatch.id, 'stub_v1', stubPromptVersionId)
+    expect(lastB.hasStats).toBe(false)
+
+    // Query batch A with wrong model → no stats (different label spec)
+    const lastAWrong = await fetchLastClassify(importA.importBatch.id, 'gpt-4o', stubPromptVersionId)
+    expect(lastAWrong.hasStats).toBe(false)
+  })
 })

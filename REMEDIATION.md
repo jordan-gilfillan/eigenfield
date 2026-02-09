@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-035) are Done. Open entries are listed below.
+> All entries (AUD-001 through AUD-042) are Done. Open entries are listed below.
 
 ---
 
@@ -600,7 +600,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Add/adjust tests to cover two batches: only one classified → endpoint/UI reflects correct per-batch behavior.
   - `npx vitest run` passes (616+ tests).
   - No new API routes (extend existing endpoint behavior if needed) and no Prisma schema changes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Fixed two root causes: (1) Race condition — replaced effect-based `fetchLastClassifyStats` call with inline fetch using cleanup-based cancellation flag, preventing stale responses from batch A overwriting batch B's state on rapid switch. (2) Loading state gap — added `loadingLastClassifyStats` state and "Loading classify status..." gating in Create Run section, preventing false "Classify first" during async fetch. Also set loading flag in `handleBatchSelect` to avoid single-render flash. Added 2 integration tests (two-batch and cross-batch leak scenarios) to `classify-audit-trail.test.ts`. No new API routes or schema changes. 618 tests pass.
 
 ---
 
