@@ -609,7 +609,10 @@ Acceptance:
 - Run execution (tick processing)
 - Search queries
 
-### E2E Tests (Playwright/Cypress)
+### E2E Tests (Playwright/Cypress) — *Not implemented in v0.3*
+
+> **Status: Not implemented.** Neither Playwright nor Cypress is installed. These items are aspirational targets for a future version; SPEC §2 non-goals exclude UI polish for v0.3.
+
 - Import flow
 - Run creation and polling
 - Sequential polling behavior (no overlap)

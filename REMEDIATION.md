@@ -426,7 +426,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Planned PR**: `docs/AUD-025-e2e-caveat`
 - **Acceptance checks**:
   - EXECUTION_PLAN E2E section clearly marked as not yet implemented
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added "Not implemented in v0.3" annotation to the E2E Tests heading and a status blockquote noting neither Playwright nor Cypress is installed. Bullet items retained as aspirational targets. References SPEC §2 non-goals.
 
 ---
 
