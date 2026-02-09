@@ -146,6 +146,9 @@ export default function RunDetailPage() {
   const [refreshingClassifyStats, setRefreshingClassifyStats] = useState(false)
   const [classifyStatsError, setClassifyStatsError] = useState<string | null>(null)
 
+  // Collapsible frozen config
+  const [configCollapsed, setConfigCollapsed] = useState(false)
+
   const fetchRun = useCallback(async () => {
     try {
       const res = await fetch(`/api/distill/runs/${runId}`)
@@ -366,54 +369,92 @@ export default function RunDetailPage() {
     )
   }
 
+  const completedJobs = run.progress.succeeded + run.progress.failed + run.progress.cancelled
+  const completionPercent = run.totals.jobs > 0
+    ? Math.min(100, Math.round((completedJobs / run.totals.jobs) * 100))
+    : 100
+
   return (
     <main className="min-h-screen p-8 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Run Detail</h1>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
-          <span>
-            ID: <code className="bg-gray-100 px-1 rounded">{run.id}</code>
-          </span>
-          <span>
-            Status:{' '}
-            <span
-              className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(run.status)}`}
-            >
-              {run.status}
-            </span>
-          </span>
-          <span>Created: {new Date(run.createdAt).toLocaleString()}</span>
+      <div className="mb-4">
+        <h1 className="text-3xl font-bold mb-1">Run Detail</h1>
+        <div className="text-sm text-gray-500">
+          ID: <code className="bg-gray-100 px-1 rounded">{run.id}</code>
+          {' \u00b7 '}
+          Created {new Date(run.createdAt).toLocaleString()}
         </div>
       </div>
 
-      {/* Frozen Config Block */}
-      <FrozenConfigBlock config={run.config} />
+      {/* Status Rail */}
+      <div className="p-4 bg-white border border-gray-200 rounded-md shadow-sm">
+        <div className="flex items-center gap-3 mb-3">
+          <span className={`px-3 py-1 rounded text-sm font-semibold ${getStatusColor(run.status)}`}>
+            {run.status}
+          </span>
+          <span className="text-sm text-gray-600">
+            {completedJobs} / {run.totals.jobs} jobs complete ({completionPercent}%)
+          </span>
+        </div>
+        {run.totals.jobs > 0 && (
+          <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
+            <div
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${completionPercent}%` }}
+            />
+          </div>
+        )}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          {run.progress.queued > 0 && <span className="text-gray-600">Queued: {run.progress.queued}</span>}
+          {run.progress.running > 0 && <span className="text-blue-600">Running: {run.progress.running}</span>}
+          {run.progress.succeeded > 0 && <span className="text-green-600">Succeeded: {run.progress.succeeded}</span>}
+          {run.progress.failed > 0 && <span className="text-red-600">Failed: {run.progress.failed}</span>}
+          {run.progress.cancelled > 0 && <span className="text-yellow-600">Cancelled: {run.progress.cancelled}</span>}
+        </div>
+        <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-4 text-sm text-gray-600">
+          <span>Tokens In: {run.totals.tokensIn.toLocaleString()}</span>
+          <span>Tokens Out: {run.totals.tokensOut.toLocaleString()}</span>
+          <span>Cost: ${run.totals.costUsd.toFixed(4)}</span>
+        </div>
+      </div>
 
-      {/* Progress Summary */}
-      <div className="mt-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
-        <h2 className="text-lg font-semibold mb-3">Progress</h2>
-        <div className="grid grid-cols-5 gap-4 text-center">
-          <ProgressCard label="Queued" count={run.progress.queued} color="bg-gray-100" />
-          <ProgressCard label="Running" count={run.progress.running} color="bg-blue-100" />
-          <ProgressCard label="Succeeded" count={run.progress.succeeded} color="bg-green-100" />
-          <ProgressCard label="Failed" count={run.progress.failed} color="bg-red-100" />
-          <ProgressCard label="Cancelled" count={run.progress.cancelled} color="bg-yellow-100" />
-        </div>
-        <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-4 gap-4 text-sm text-gray-600">
-          <div>
-            <span className="font-medium">Total Jobs:</span> {run.totals.jobs}
-          </div>
-          <div>
-            <span className="font-medium">Tokens In:</span> {run.totals.tokensIn.toLocaleString()}
-          </div>
-          <div>
-            <span className="font-medium">Tokens Out:</span> {run.totals.tokensOut.toLocaleString()}
-          </div>
-          <div>
-            <span className="font-medium">Cost:</span> ${run.totals.costUsd.toFixed(4)}
-          </div>
-        </div>
+      {/* Run Controls — immediately below status rail per UX_SPEC §4.4 */}
+      <RunControls
+        run={run}
+        tickInFlight={tickInFlight}
+        lastTickResult={lastTickResult}
+        lastTickError={lastTickError}
+        onTick={handleTick}
+        resumeInFlight={resumeInFlight}
+        lastResumeResult={lastResumeResult}
+        lastResumeError={lastResumeError}
+        onResume={handleResume}
+        cancelInFlight={cancelInFlight}
+        lastCancelResult={lastCancelResult}
+        lastCancelError={lastCancelError}
+        onCancel={handleCancel}
+      />
+
+      {/* Frozen Config (collapsible — starts expanded) */}
+      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
+        <button
+          onClick={() => setConfigCollapsed(!configCollapsed)}
+          className="w-full flex items-center gap-2 text-left"
+        >
+          <span className="text-sm text-blue-600">{configCollapsed ? '\u25b6' : '\u25bc'}</span>
+          <h2 className="text-lg font-semibold text-blue-800">Frozen Config</h2>
+          {configCollapsed && (
+            <span className="text-sm text-blue-600 ml-auto">Click to expand</span>
+          )}
+        </button>
+        {!configCollapsed && (
+          <>
+            <p className="text-xs text-blue-600 mb-4 mt-2">
+              These values are frozen at run creation and will not change.
+            </p>
+            <FrozenConfigBlock config={run.config} />
+          </>
+        )}
       </div>
 
       {/* Last Classify Stats (shared endpoint with dashboard) */}
@@ -519,23 +560,6 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {/* Run Controls — grouped tick/resume/cancel per UX_SPEC §4.4 */}
-      <RunControls
-        run={run}
-        tickInFlight={tickInFlight}
-        lastTickResult={lastTickResult}
-        lastTickError={lastTickError}
-        onTick={handleTick}
-        resumeInFlight={resumeInFlight}
-        lastResumeResult={lastResumeResult}
-        lastResumeError={lastResumeError}
-        onResume={handleResume}
-        cancelInFlight={cancelInFlight}
-        lastCancelResult={lastCancelResult}
-        lastCancelError={lastCancelError}
-        onCancel={handleCancel}
-      />
-
       {/* Run Info */}
       <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
         <h2 className="text-lg font-semibold mb-3">Run Info</h2>
@@ -618,72 +642,65 @@ function formatProgressPercent(processedAtoms: number, totalAtoms: number): numb
 
 function FrozenConfigBlock({ config }: { config: RunConfig }) {
   return (
-    <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
-      <h2 className="text-lg font-semibold mb-3 text-blue-800">Frozen Config</h2>
-      <p className="text-xs text-blue-600 mb-4">
-        These values are frozen at run creation and will not change.
-      </p>
+    <div className="space-y-4">
+      {/* Prompt Version IDs */}
+      <ConfigSection title="Prompt Version IDs">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dt className="text-gray-600">summarize:</dt>
+          <dd>
+            <code className="bg-white px-1 rounded text-xs">
+              {config.promptVersionIds.summarize}
+            </code>
+          </dd>
+        </dl>
+      </ConfigSection>
 
-      <div className="space-y-4">
-        {/* Prompt Version IDs */}
-        <ConfigSection title="Prompt Version IDs">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-gray-600">summarize:</dt>
-            <dd>
-              <code className="bg-white px-1 rounded text-xs">
-                {config.promptVersionIds.summarize}
-              </code>
-            </dd>
-          </dl>
-        </ConfigSection>
+      {/* Label Spec */}
+      <ConfigSection title="Label Spec">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dt className="text-gray-600">model:</dt>
+          <dd>{config.labelSpec.model}</dd>
+          <dt className="text-gray-600">promptVersionId:</dt>
+          <dd>
+            <code className="bg-white px-1 rounded text-xs">
+              {config.labelSpec.promptVersionId}
+            </code>
+          </dd>
+        </dl>
+      </ConfigSection>
 
-        {/* Label Spec */}
-        <ConfigSection title="Label Spec">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-gray-600">model:</dt>
-            <dd>{config.labelSpec.model}</dd>
-            <dt className="text-gray-600">promptVersionId:</dt>
-            <dd>
-              <code className="bg-white px-1 rounded text-xs">
-                {config.labelSpec.promptVersionId}
-              </code>
-            </dd>
-          </dl>
-        </ConfigSection>
+      {/* Filter Profile Snapshot */}
+      <ConfigSection title="Filter Profile Snapshot">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dt className="text-gray-600">name:</dt>
+          <dd>{config.filterProfile.name}</dd>
+          <dt className="text-gray-600">mode:</dt>
+          <dd>{config.filterProfile.mode}</dd>
+          <dt className="text-gray-600">categories:</dt>
+          <dd>
+            <div className="flex flex-wrap gap-1">
+              {config.filterProfile.categories.map((cat) => (
+                <span
+                  key={cat}
+                  className="px-1.5 py-0.5 bg-white rounded text-xs border border-blue-100"
+                >
+                  {cat}
+                </span>
+              ))}
+            </div>
+          </dd>
+        </dl>
+      </ConfigSection>
 
-        {/* Filter Profile Snapshot */}
-        <ConfigSection title="Filter Profile Snapshot">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-gray-600">name:</dt>
-            <dd>{config.filterProfile.name}</dd>
-            <dt className="text-gray-600">mode:</dt>
-            <dd>{config.filterProfile.mode}</dd>
-            <dt className="text-gray-600">categories:</dt>
-            <dd>
-              <div className="flex flex-wrap gap-1">
-                {config.filterProfile.categories.map((cat) => (
-                  <span
-                    key={cat}
-                    className="px-1.5 py-0.5 bg-white rounded text-xs border border-blue-100"
-                  >
-                    {cat}
-                  </span>
-                ))}
-              </div>
-            </dd>
-          </dl>
-        </ConfigSection>
+      {/* Timezone */}
+      <ConfigSection title="Timezone">
+        <span className="text-sm">{config.timezone}</span>
+      </ConfigSection>
 
-        {/* Timezone */}
-        <ConfigSection title="Timezone">
-          <span className="text-sm">{config.timezone}</span>
-        </ConfigSection>
-
-        {/* Max Input Tokens */}
-        <ConfigSection title="Max Input Tokens">
-          <span className="text-sm">{config.maxInputTokens.toLocaleString()}</span>
-        </ConfigSection>
-      </div>
+      {/* Max Input Tokens */}
+      <ConfigSection title="Max Input Tokens">
+        <span className="text-sm">{config.maxInputTokens.toLocaleString()}</span>
+      </ConfigSection>
     </div>
   )
 }
@@ -693,23 +710,6 @@ function ConfigSection({ title, children }: { title: string; children: React.Rea
     <div className="bg-white/50 p-3 rounded">
       <h3 className="text-sm font-medium text-blue-700 mb-2">{title}</h3>
       {children}
-    </div>
-  )
-}
-
-function ProgressCard({
-  label,
-  count,
-  color,
-}: {
-  label: string
-  count: number
-  color: string
-}) {
-  return (
-    <div className={`p-3 rounded ${color}`}>
-      <div className="text-2xl font-bold">{count}</div>
-      <div className="text-xs text-gray-600">{label}</div>
     </div>
   )
 }

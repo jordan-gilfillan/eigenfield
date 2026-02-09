@@ -21,7 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-> All entries (AUD-001 through AUD-034) are Done. See open entries below if new AUDs are added.
+> All entries (AUD-001 through AUD-035) are Done. See open entries below if new AUDs are added.
 
 ---
 
@@ -564,6 +564,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No new API routes or Prisma schema changes.
 - **Status**: Done
 - **Resolution**: Enhanced Import Inspector with context bar (filename, source badge, coverage, selected day, active source filter with clear button, atom count). Added clear/reset controls for source filter in both context bar and dropdown. Improved empty states with actionable recovery (clear filter button when filtered, sidebar guidance when no day selected). Source filter dropdown now syncs to URL for shareability. No new API routes or schema changes.
+
+### AUD-035 — Run detail top status rail + collapsible config (UX-8.7)
+- **Source**: UX backlog (UX_SPEC.md §4.4, §8.7)
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Docs cited**: `UX_SPEC.md` §4.4 (Run Detail requirements), §8.7 (Run Detail Task-Focus Pass)
+- **Problem**: Status badge is small and buried in header. Progress is below frozen config. Controls (Tick/Resume/Cancel) are below progress, requiring scroll. Frozen config always expanded, pushing everything down.
+- **Decision**: Add top status rail, move controls above config, make config collapsible
+- **Planned PR**: `fix/AUD-035-run-detail-status-rail`
+- **Acceptance checks**:
+  - Status rail is first visible element after heading (prominent badge, progress counters, completion percent).
+  - Controls visible without scrolling past config.
+  - Config collapse toggle works (starts expanded, user can collapse/expand).
+  - Changes limited to `src/app/distill/runs/[runId]/page.tsx` and `REMEDIATION.md`.
+  - `npx vitest run` passes (616+ tests).
+  - No new API routes or Prisma schema changes.
+- **Status**: Done
+- **Resolution**: Added top status rail (prominent badge, progress bar, inline counters, completion percent, token/cost totals). Moved RunControls immediately below status rail so controls are visible without scrolling past config. Made frozen config collapsible with toggle (starts expanded, user can collapse). Removed separate Progress Summary section (merged into status rail). No new API routes or schema changes.
 
 ---
 
