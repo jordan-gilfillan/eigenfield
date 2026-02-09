@@ -412,7 +412,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - Every test file in the repo appears in the table with correct path
   - No table entry references a non-existent file
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced the stale 13-entry table in ACCEPTANCE.md with all 41 test files using correct full paths. Removed non-existent `__tests__/hash.test.ts`, fixed `stable-id.test.ts` → `stableId.test.ts`, fixed `classifier.test.ts` → `classify.test.ts`, and added all `src/` prefixes. Added 28 missing test suites (LLM, pricing, providers, classify variants, import-claude/grok, seed-invariants, inspectors, search, etc.) organized by component group. Also fixed the stale path reference in AC-02 code example. All 616 tests pass.
 
 ### AUD-025 — EXECUTION_PLAN references non-existent E2E tests
 - **Source**: Audit 2026-02-08
