@@ -161,6 +161,7 @@ function SearchContent() {
 
   const [query, setQuery] = useState(initialQ)
   const [scope, setScope] = useState<Scope>(initialScope)
+  const [searchedScope, setSearchedScope] = useState<Scope>(initialScope)
   const [state, setState] = useState<SearchState>({
     status: initialQ ? 'idle' : 'idle',
     items: [],
@@ -168,6 +169,9 @@ function SearchContent() {
     error: null,
     loadingMore: false,
   })
+
+  // True when scope has changed since last search and there are stale results
+  const scopeChanged = scope !== searchedScope && state.status === 'success'
 
   // Fetch search results (user-driven, no background polling)
   const doSearch = useCallback(
@@ -192,45 +196,51 @@ function SearchContent() {
     []
   )
 
+  // Execute search with current query and scope
+  const executeSearch = useCallback(async () => {
+    const trimmed = query.trim()
+    if (!trimmed) return
+
+    // Update URL for shareability
+    router.push(`/distill/search?q=${encodeURIComponent(trimmed)}&scope=${scope}`)
+
+    setState((prev) => ({
+      ...prev,
+      status: 'loading',
+      items: [],
+      nextCursor: undefined,
+      error: null,
+      loadingMore: false,
+    }))
+
+    try {
+      const data = await doSearch(trimmed, scope)
+      setSearchedScope(scope)
+      setState({
+        status: 'success',
+        items: data.items,
+        nextCursor: data.nextCursor,
+        error: null,
+        loadingMore: false,
+      })
+    } catch (err) {
+      setState({
+        status: 'error',
+        items: [],
+        nextCursor: undefined,
+        error: err instanceof Error ? err.message : 'Search failed',
+        loadingMore: false,
+      })
+    }
+  }, [query, scope, doSearch, router])
+
   // Handle form submit (new search)
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
-      const trimmed = query.trim()
-      if (!trimmed) return
-
-      // Update URL for shareability
-      router.push(`/distill/search?q=${encodeURIComponent(trimmed)}&scope=${scope}`)
-
-      setState((prev) => ({
-        ...prev,
-        status: 'loading',
-        items: [],
-        nextCursor: undefined,
-        error: null,
-        loadingMore: false,
-      }))
-
-      try {
-        const data = await doSearch(trimmed, scope)
-        setState({
-          status: 'success',
-          items: data.items,
-          nextCursor: data.nextCursor,
-          error: null,
-          loadingMore: false,
-        })
-      } catch (err) {
-        setState({
-          status: 'error',
-          items: [],
-          nextCursor: undefined,
-          error: err instanceof Error ? err.message : 'Search failed',
-          loadingMore: false,
-        })
-      }
+      await executeSearch()
     },
-    [query, scope, doSearch, router]
+    [executeSearch]
   )
 
   // Handle Load More (cursor pagination, appends to existing results)
@@ -257,16 +267,9 @@ function SearchContent() {
     }
   }, [state.nextCursor, state.loadingMore, query, scope, doSearch])
 
-  // Handle scope tab change — clears results, user must re-submit
+  // Handle scope tab change — preserves stale results with rerun cue
   const handleScopeChange = useCallback((newScope: Scope) => {
     setScope(newScope)
-    setState({
-      status: 'idle',
-      items: [],
-      nextCursor: undefined,
-      error: null,
-      loadingMore: false,
-    })
   }, [])
 
   return (
@@ -312,6 +315,23 @@ function SearchContent() {
           onClick={handleScopeChange}
         />
       </div>
+
+      {/* Scope changed — rerun cue */}
+      {scopeChanged && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-center justify-between">
+          <p className="text-amber-700 text-sm">
+            Scope changed to <strong>{scope === 'raw' ? 'Raw' : 'Outputs'}</strong> — click Search to update results.
+          </p>
+          <button
+            type="button"
+            onClick={executeSearch}
+            disabled={state.status === 'loading' || !query.trim()}
+            className="ml-4 px-3 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            Rerun
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {state.error && (
