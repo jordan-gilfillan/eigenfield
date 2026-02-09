@@ -329,7 +329,8 @@ Each entry has:
 - **Planned PR**: `ux/search-scope-switch`
 - **Acceptance checks**:
   - Changing scope shows explicit rerun state and does not silently wipe results
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced silent result-wipe on scope change with stale-result preservation and explicit rerun cue. Added `searchedScope` state to track the scope used for the last executed search. When scope differs from `searchedScope` and results exist, an amber banner appears: "Scope changed to {X} — click Search to update results" with a Rerun button. Extracted `executeSearch()` from `handleSubmit` so both the form and the rerun button share the same logic. `searchedScope` updates only after a successful search. Previous results remain visible until the user explicitly reruns. All 605 tests pass.
 
 ---
 
