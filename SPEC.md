@@ -412,7 +412,7 @@ POST `/api/distill/classify`
 **PromptVersion selection (normative):**
 - `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
 - `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
-- `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server MAY ignore `promptVersionId` in stub mode, but if it is recorded in labels it MUST reference the seeded `classify_stub_v1` PromptVersion.
+- `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server records the caller-provided `promptVersionId` unchanged in labels; it need not be `classify_stub_v1`. No guardrails are applied to `promptVersionId` in stub mode.
 
 Stub mode must be deterministic for tests.
 
@@ -458,7 +458,7 @@ Notes:
 - For each MessageAtom, compute `h = sha256(atomStableId)`.
 - Map to a category via `index = uint32(h[0..3]) % N`, where `N` is the number of **core** categories: `[WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER]`.
 - Set `confidence = 0.5`.
-- Record `model = "stub_v1"` and `promptVersionId` pointing at a seeded `classify_stub_v1` PromptVersion.
+- Record `model = "stub_v1"` and the caller-provided `promptVersionId`.
 
 ### 7.3 Run creation
 UI: `/distill` dashboard

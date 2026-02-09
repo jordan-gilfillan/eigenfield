@@ -915,6 +915,8 @@ describe('Classification Service', () => {
 
       expect(result.mode).toBe('stub')
       expect(result.totals.newlyLabeled).toBe(1)
+      // SPEC §7.2: stub mode records caller-provided promptVersionId unchanged
+      expect(result.labelSpec.promptVersionId).toBe(realPromptVersionId)
     })
 
     it('mode=real + stub prompt → no LLM calls made (fails fast)', async () => {
