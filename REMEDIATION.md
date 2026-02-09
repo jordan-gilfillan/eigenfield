@@ -21,12 +21,7 @@ Each entry has:
 
 ## Current top priorities
 
-1. **AUD-022** — Search endpoint missing `sources` and `categories` filter params (SPEC §10.1 contract).
-2. **AUD-023** — Classify-runs `progress` response shape differs from SPEC §7.2.1 normative schema.
-3. **AUD-024** — ACCEPTANCE.md test coverage table stale (13 listed, 41 actual; wrong paths).
-4. **AUD-025** — EXECUTION_PLAN references non-existent E2E tests (Playwright/Cypress).
-
-> All previous priorities (AUD-001 through AUD-021) are Done.
+> All entries (AUD-001 through AUD-031) are Done. See open entries below if new AUDs are added.
 
 ---
 
@@ -486,7 +481,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - Canonical count matches latest `npx vitest run`.
   - No conflicting "current test count" claims across primary docs.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Updated CONTEXT_PACK.md canonical test count from 605 to 616 (matching `npx vitest run` output). No other primary docs had stale current-count claims — remaining "605" references in REMEDIATION.md are historical resolution notes, not current assertions.
 
 ### AUD-030 — ACCEPTANCE test-suite commands reference non-existent paths
 - **Source**: Audit 2026-02-09
@@ -500,9 +496,10 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - Every documented path in Test Suites command block exists.
   - Running documented subset commands executes expected suites.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Fixed ACCEPTANCE.md Test Suites command block: replaced non-existent `src/lib/parsers/__tests__/` with `src/__tests__/parsers/`, replaced non-existent `src/lib/__tests__/` with `src/__tests__/`, and added `src/__tests__/services/`. All four documented subset paths now resolve to existing directories with test files.
 
-### AUD-031 — REMEDIATION “Current top priorities” lists already-done items
+### AUD-031 — REMEDIATION "Current top priorities" lists already-done items
 - **Source**: Audit 2026-02-09
 - **Severity**: INFO
 - **Type**: Doc drift
@@ -514,7 +511,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Acceptance checks**:
   - Current top priorities include only non-Done AUDs.
   - Priority section remains consistent after status changes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Replaced stale "Current top priorities" list (AUD-022/023/024/025, all Done) with a summary noting all AUD-001 through AUD-031 are Done, directing readers to check for new entries below.
 
 ---
 

@@ -35,10 +35,11 @@ The codebase includes comprehensive tests. Run them to verify each component:
 # All tests
 npm test
 
-# Specific test files
-npm test -- src/lib/parsers/__tests__/
+# Specific test directories
+npm test -- src/__tests__/parsers/
+npm test -- src/__tests__/services/
+npm test -- src/__tests__/
 npm test -- src/lib/services/__tests__/
-npm test -- src/lib/__tests__/
 
 # Watch mode for development
 npm test -- --watch
