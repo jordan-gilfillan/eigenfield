@@ -406,25 +406,24 @@ async function getProgress(runId: string): Promise<TickResult['progress']> {
 }
 
 /**
- * Determines run status based on job progress.
+ * Determines run status based on job progress (SPEC §7.4.1).
  */
 function determineRunStatus(progress: TickResult['progress']): RunStatus {
-  if (progress.running > 0) {
-    return 'RUNNING'
+  const { running, queued, succeeded, failed, cancelled } = progress
+
+  // Any jobs actively running → RUNNING
+  if (running > 0) return 'RUNNING'
+
+  // Jobs still queued: RUNNING if any work has been done, QUEUED if none yet
+  if (queued > 0) {
+    return (succeeded + failed + cancelled) > 0 ? 'RUNNING' : 'QUEUED'
   }
-  if (progress.queued > 0) {
-    return 'QUEUED'
-  }
-  if (progress.failed > 0 && progress.succeeded === 0) {
-    return 'FAILED'
-  }
-  if (progress.succeeded > 0 && progress.failed === 0 && progress.queued === 0) {
-    return 'COMPLETED'
-  }
-  // Mixed state: some succeeded, some failed, none queued/running
-  if (progress.succeeded > 0 && progress.failed > 0) {
-    return 'FAILED' // Treat partial failure as failed
-  }
+
+  // All jobs terminal (no queued, no running)
+  if (failed > 0) return 'FAILED'
+  if (succeeded > 0) return 'COMPLETED'
+
+  // Defensive fallback (no jobs, or all cancelled — shouldn't happen in practice)
   return 'QUEUED'
 }
 

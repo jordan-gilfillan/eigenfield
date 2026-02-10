@@ -959,6 +959,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `startAutoRunLoop` engine in `src/app/distill/hooks/useAutoRun.ts` and wired into run detail page. Start/Stop Auto-run buttons in RunControls, "Auto-running..." indicator, manual Tick disabled during auto-run, auto-run error display. 10 new tests for the loop engine (sequential calls, stop-on-error, stop-on-terminal, abort-on-stop, idempotent stop). 667 tests pass.
 
+### AUD-051 — Align Run.status transitions with SPEC §7.4.1 (tick semantics)
+- **Source**: Stabilization audit
+- **Severity**: HIGH
+- **Type**: Spec/code drift (runtime semantics)
+- **Docs cited**: `SPEC.md` §7.4.1
+- **Problem**: `determineRunStatus()` in `tick.ts` returns `queued` whenever queued jobs remain, even after tick has processed jobs. SPEC §7.4.1 requires `running` once any job is started or completed.
+- **Decision**: Fix `determineRunStatus()` to return `RUNNING` when `queued > 0` and any work has been done (`succeeded + failed + cancelled > 0`)
+- **Planned PR**: `fix/AUD-051-run-status-transitions`
+- **Acceptance checks**:
+  - Multi-job run with 1 succeeded + 1 queued → `runStatus = 'running'` (not `queued`).
+  - Terminal transitions unchanged: all succeeded → `completed`; any failed → `failed`.
+  - Cancelled run still returns early with `cancelled` status.
+  - DB run record reflects correct status.
+  - `npx vitest run` passes.
+  - Branch merged to master, clean working tree.
+- **Status**: Done
+- **Resolution**: Fixed `determineRunStatus()` in `tick.ts` — when queued jobs remain and any work has been done (succeeded + failed + cancelled > 0), returns `RUNNING` instead of `QUEUED`. Updated 1 existing test assertion, added 1 new test verifying §7.4.1 semantics. 668 tests pass.
+
 ---
 
 ## Notes

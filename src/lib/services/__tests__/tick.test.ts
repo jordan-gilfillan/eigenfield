@@ -209,8 +209,8 @@ describe('tick service', () => {
       expect(typeof result.jobs[0].tokensOut).toBe('number')
       expect(result.progress.queued).toBe(1)
       expect(result.progress.succeeded).toBe(1)
-      // When jobs are still queued, run status is 'queued' per determineRunStatus logic
-      expect(result.runStatus).toBe('queued')
+      // §7.4.1: once work has begun, run is 'running' until terminal
+      expect(result.runStatus).toBe('running')
 
       // Verify output was created (or job completed successfully with empty bundle)
       const outputs = await prisma.output.findMany({
@@ -227,6 +227,36 @@ describe('tick service', () => {
         expect(result.jobs[0].tokensIn).toBe(0)
         expect(result.jobs[0].tokensOut).toBe(0)
       }
+    })
+
+    it('reports running (not queued) when some jobs succeeded and others remain queued (§7.4.1)', async () => {
+      const run = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'stub_summarizer_v1',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+      })
+
+      expect(run.jobCount).toBe(2)
+
+      // Process first tick (1 of 2 jobs)
+      const result = await processTick({ runId: run.id })
+
+      expect(result.processed).toBe(1)
+      expect(result.progress.queued).toBe(1)
+      expect(result.progress.succeeded).toBe(1)
+      // §7.4.1: once any job is started or completed, run MUST be 'running'
+      expect(result.runStatus).toBe('running')
+
+      // Verify DB also reflects RUNNING
+      const dbRun = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
+      expect(dbRun.status).toBe('RUNNING')
     })
 
     it('processes multiple jobs with maxJobs parameter', async () => {
