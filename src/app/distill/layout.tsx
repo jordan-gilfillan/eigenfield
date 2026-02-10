@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const NAV_ITEMS = [
+  { href: '/distill/studio', label: 'Studio' },
   { href: '/distill', label: 'Dashboard' },
   { href: '/distill/import', label: 'Import' },
   { href: '/distill/import/inspect', label: 'Inspector' },
@@ -12,6 +13,7 @@ const NAV_ITEMS = [
 
 function getActiveHref(pathname: string): string {
   // Match most specific path first
+  if (pathname.startsWith('/distill/studio')) return '/distill/studio'
   if (pathname.startsWith('/distill/import/inspect')) return '/distill/import/inspect'
   if (pathname.startsWith('/distill/import')) return '/distill/import'
   if (pathname.startsWith('/distill/search')) return '/distill/search'
