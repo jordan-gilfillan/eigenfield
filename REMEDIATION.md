@@ -915,6 +915,26 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `role: 'USER'` filter to Prisma queries in `buildBundle()` and `findEligibleDays()`. Updated SPEC.md §9.1 and §7.3 step 6 to require role=user. Updated 6 existing tests with corrected atom counts. Added 3 new tests: bundle excludes assistant atoms, assistant-only day produces empty bundle, assistant-only day not eligible for run creation. 657 tests pass.
 
+### AUD-048 — Foreground auto-run tick: spec + UX updates (DOC-ONLY)
+- **Source**: UX/operability discovery — manual ticking is tedious for large runs
+- **Severity**: LOW
+- **Type**: Doc drift / spec extension
+- **Docs cited**: `SPEC.md` §2, §4.5, §4.6, §7.4; `UX_SPEC.md` §4.4, §6, §7.4
+- **Problem**: SPEC §2 non-goals forbid "automatic tick loops" without distinguishing background automation from user-initiated foreground tick loops on the run detail page. No spec or UX contract exists for a "Start Auto-run" feature.
+- **Decision**: Update spec + UX spec (doc-only, no code changes)
+- **Planned PR**: `docs/AUD-048-foreground-autorun-spec`
+- **Acceptance checks**:
+  - SPEC.md explicitly allows foreground auto-run tick and still forbids background scheduling.
+  - SPEC.md defines auto-run invariants: user-initiated, sequential tick calls (maxJobs=1), stop on unmount, stop on terminal, stop on first tick error, no auto-retry.
+  - SPEC.md distinguishes "polling" (read-only) from "foreground auto-run tick loop" (work-triggering).
+  - UX_SPEC.md defines run detail auto-run controls, state indicator, and stop conditions.
+  - UX_SPEC.md specifies manual Tick button disabled or guarded while auto-run is active.
+  - Only SPEC.md, UX_SPEC.md, REMEDIATION.md changed.
+  - `npx vitest run` passes.
+  - Branch merged to master, clean working tree.
+- **Status**: Done
+- **Resolution**: Updated SPEC.md (§2 non-goals, §4.5, §4.6, §7.4, new §7.4.2) and UX_SPEC.md (§4.4, §6, §7.4) to define foreground auto-run tick loop contract. Four clarifications: (1) "polling" reserved for read-only; work-triggering loops are "foreground auto-run tick loop" governed by §7.4.2; (2) auto-run locked to maxJobs=1; (3) stop on first error, no auto-retry; (4) manual Tick disabled or guarded while auto-run active. No code changes.
+
 ---
 
 ## Notes

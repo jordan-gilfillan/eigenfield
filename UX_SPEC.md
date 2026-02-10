@@ -166,6 +166,14 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Jobs table defaults to compact rows; heavy inspectors are progressive disclosure.
 - [ ] Error copy includes code + human-readable action guidance.
 - [ ] All controls remain 1:1 with explicit API actions.
+- [ ] Auto-run controls (foreground tick loop per SPEC §7.4.2):
+  - "Start Auto-run" button visible when run is non-terminal and auto-run is not active.
+  - "Stop Auto-run" button visible when auto-run is active.
+  - While auto-run is active, manual "Tick" button is disabled OR guarded to prevent overlap (either disable or serialize behind the same loop).
+  - Auto-run state indicator ("Auto-running..." with visual cue) visible while active.
+  - Sequential tick calls only (await each response before next).
+  - Auto-run stops on: navigation/unmount, terminal run status, first tick error.
+  - On error stop: show error inline; manual Tick and "Restart Auto-run" remain available after stop.
 
 ---
 
@@ -219,6 +227,15 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Stop on unmount, on terminal status, or when user disables auto-refresh.
 - [ ] Interval: 750–1500 ms (or exponential backoff); no concurrent requests. *(Aligned with SPEC §4.6; code uses 1 000 ms.)*
 
+### Run auto-run (foreground tick loop)
+- [ ] "Start Auto-run" / "Stop Auto-run" toggle in run detail controls.
+- [ ] Auto-run state indicator visible while active ("Auto-running...").
+- [ ] While auto-run is active, manual "Tick" button is disabled OR guarded to prevent overlap.
+- [ ] Sequential POST /tick calls with maxJobs=1 (no overlap).
+- [ ] Stops on unmount, terminal status, or first tick error.
+- [ ] On error: stop, show error, allow manual Tick or restart auto-run.
+- [ ] Uses `setTimeout` + `AbortController` (same lifecycle pattern as read-only polling).
+
 ---
 
 ## 7) Manual Acceptance Checks
@@ -248,6 +265,11 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Verify last classify card shows status + progress + refresh.
 - [ ] Expand a job inspector and confirm table remains readable.
 - [ ] Verify failed states show code, message, and a next step.
+- [ ] Start auto-run; verify sequential tick calls with visible progress updates.
+- [ ] Verify auto-run stops automatically when run completes (terminal status).
+- [ ] Force a tick error during auto-run; verify auto-run stops and error is displayed.
+- [ ] Navigate away during auto-run; verify it stops cleanly (no orphaned requests).
+- [ ] Verify manual Tick button is disabled or guarded while auto-run is active.
 
 ---
 

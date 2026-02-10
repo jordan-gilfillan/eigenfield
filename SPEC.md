@@ -28,7 +28,8 @@ Explicitly out of scope:
 - Custom category taxonomy editor
 - Automatic prompt rewriting/compilation from user-defined categories
 - Auto-retry with backoff (manual resume only)
-- Automatic / background tick loops (user-driven tick only in Phase 5)
+- Background / always-on tick automation (cron, queues, server-scheduled loops)
+- Foreground auto-run tick loops initiated by the user on the run detail page ARE allowed (see §7.4.2)
 - Parallel job processing in UI (sequential polling only)
 - UI polish / design system work beyond basic layouts (Phase 5 is operability-first)
 
@@ -129,7 +130,7 @@ These are the “physics laws.” Breaking them requires a spec change + explici
 
 ### 4.5 Bounded concurrency
 - Default processing: **1 job per tick**.
-- UI polling must be sequential (wait for tick response before next tick).
+- UI tick calls (manual or auto-run) MUST be sequential: await each tick response before sending the next. No overlapping ticks.
 
 ### 4.6 Foreground polling (allowed) vs background polling (forbidden)
 - **Background polling is forbidden**: no always-on refresh loops, no hidden timers that run when the user is not actively viewing an in-progress operation.
@@ -140,6 +141,8 @@ These are the “physics laws.” Breaking them requires a spec change + explici
   - stop immediately on terminal status (succeeded/failed/cancelled) or on navigation/unmount
   - poll **read-only status endpoints** that do not trigger work
   - use an interval in the 750–1500ms range (or exponential backoff)
+
+**Terminology:** "Polling" in this spec refers exclusively to read-only GET requests against status/progress endpoints (no side effects). The repeated calling of work-triggering endpoints (e.g., POST /tick) is a "foreground auto-run tick loop" governed by §7.4.2, not by the polling rules above.
 
 ---
 
@@ -523,7 +526,7 @@ POST `/api/distill/runs/:runId/tick`
   - If using a pooled ORM client (e.g., Prisma), the implementation MAY use a dedicated Postgres client connection for lock acquire/release to avoid releasing on a different pooled session.
 - If the guard cannot be acquired, return HTTP 409 `{ error: { code: "TICK_IN_PROGRESS", message: "Tick already in progress" } }`.
 
-UI polling MUST follow §4.5 (bounded concurrency) and §4.6 (foreground polling rules).
+UI tick calls MUST follow §4.5 (bounded concurrency). Read-only progress polling MUST follow §4.6. Foreground auto-run tick loops MUST follow §7.4.2.
 
 
 #### 7.4.1 Run status transitions (normative)
@@ -537,6 +540,22 @@ Run.status is a coarse, user-facing summary and MUST follow these rules:
 - Tick MUST NOT transition a cancelled run to any non-terminal status (terminal status rule in 7.6).
 
 Note: `progress` in tick responses is the ground truth for counts; `runStatus` MUST be consistent with it.
+
+#### 7.4.2 Foreground auto-run (normative)
+
+The run detail UI MAY provide a "foreground auto-run" mode that repeatedly calls POST /runs/:runId/tick while the page is open. This is NOT background automation and is NOT polling (§4.6); it is a user-initiated, work-triggering tick loop.
+
+Rules:
+- The user MUST explicitly start auto-run (e.g., "Start Auto-run" button). Auto-run MUST NOT begin automatically on page load.
+- Each tick call MUST use default behavior: `maxJobs` omitted or explicitly `maxJobs=1`. Any future support for `maxJobs > 1` in auto-run requires a spec change.
+- Tick calls MUST be sequential: await each tick response before sending the next. No overlapping ticks (per §4.5).
+- Auto-run MUST stop immediately when:
+  - the user navigates away or the page unmounts
+  - the Run reaches a terminal status (completed, cancelled, failed)
+  - any tick returns an error (stop on first error)
+- **No auto-retry:** on tick error, auto-run MUST stop and surface the error to the user. Auto-run MUST NOT implement backoff or retry loops. The user may manually retry (single tick) or restart auto-run.
+- MUST use `setTimeout` (not `setInterval`) between ticks.
+- MUST cancel in-flight requests via `AbortController` on stop/unmount.
 
 ### 7.5 Inspect (behavioral contract)
 
