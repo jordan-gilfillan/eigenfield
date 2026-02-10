@@ -227,4 +227,32 @@ describe('startPollingLoop', () => {
     loop.stop()
     loop.stop() // no throw
   })
+
+  // 8) Stops on failed terminal status (AUD-050: FAILED is terminal)
+  it('stops polling when status is failed (terminal)', async () => {
+    const fetchFn = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(okResponse({ status: 'failed' }))
+    const onData = vi.fn()
+    const onTerminal = (data: { status: string }) =>
+      data.status === 'completed' || data.status === 'cancelled' || data.status === 'failed'
+
+    const loop = startPollingLoop({
+      url: '/api/poll',
+      intervalMs: 500,
+      onData,
+      onTerminal,
+      fetchFn,
+    })
+
+    // First tick: status=failed → terminal → stops
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+    expect(onData).toHaveBeenCalledWith({ status: 'failed' })
+
+    // No further ticks
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+
+    loop.stop()
+  })
 })

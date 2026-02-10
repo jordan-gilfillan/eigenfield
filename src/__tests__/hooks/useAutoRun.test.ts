@@ -337,4 +337,34 @@ describe('startAutoRunLoop', () => {
     loop.stop()
     expect(onStopped).toHaveBeenCalledTimes(1) // no double-call
   })
+
+  // 11) Stops on failed terminal status (AUD-050: FAILED is terminal)
+  it('stops when run reaches failed status', async () => {
+    const fetchFn = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(okTickResponse('failed'))
+    const onTick = vi.fn()
+    const onStopped = vi.fn()
+
+    startAutoRunLoop({
+      url: '/api/tick',
+      onTick,
+      isTerminal: (data) => {
+        const s = (data as { runStatus: string }).runStatus
+        return s === 'completed' || s === 'cancelled' || s === 'failed'
+      },
+      onError: vi.fn(),
+      onStopped,
+      delayMs: 50,
+      fetchFn,
+    })
+
+    // First tick: runStatus=failed → terminal → stops
+    await vi.advanceTimersByTimeAsync(50)
+    expect(onTick).toHaveBeenCalledTimes(1)
+    expect(onStopped).toHaveBeenCalledTimes(1)
+
+    // No further ticks
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+  })
 })

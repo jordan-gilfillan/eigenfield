@@ -166,13 +166,13 @@ export default function RunDetailPage() {
   }, [fetchRun])
 
   // Auto-poll run detail when non-terminal (queued/running/processing)
-  const isTerminal = run?.status === 'cancelled' || run?.status === 'completed'
+  const isTerminal = run?.status === 'cancelled' || run?.status === 'completed' || run?.status === 'failed'
   usePolling<RunDetail>({
     url: `/api/distill/runs/${runId}`,
     intervalMs: RUN_POLL_INTERVAL_MS,
     enabled: loadingState === 'success' && !!run && !isTerminal,
     onData: (data) => setRun(data),
-    onTerminal: (data) => data.status === 'cancelled' || data.status === 'completed',
+    onTerminal: (data) => data.status === 'cancelled' || data.status === 'completed' || data.status === 'failed',
   })
 
   const fetchLastClassifyStats = useCallback(async () => {
@@ -798,7 +798,7 @@ function RunControls({
   onStartAutoRun: () => void
   onStopAutoRun: () => void
 }) {
-  const isTerminal = run.status === 'cancelled' || run.status === 'completed'
+  const isTerminal = run.status === 'cancelled' || run.status === 'completed' || run.status === 'failed'
   const canTick = !isTerminal && !tickInFlight && !isAutoRunning
   const hasFailedJobs = run.progress.failed > 0
   const canResume = !isTerminal && hasFailedJobs && !resumeInFlight

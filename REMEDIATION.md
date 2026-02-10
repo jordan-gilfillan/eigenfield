@@ -21,12 +21,11 @@ Each entry has:
 
 ## Current top priorities
 
-> Open entries (in priority order): AUD-050 (failed terminal handling), AUD-052 (mixed override rejection), AUD-054 (flake).
+> Open entries (in priority order): AUD-052 (mixed override rejection), AUD-054 (flake).
 
 
 ## Open entries
 
-- AUD-050 — Run detail must treat FAILED as terminal (polling + auto-run)
 - AUD-052 — Reject sourceOverride=mixed in import API (v0.3 reserved)
 - AUD-054 — Flaky test: listImportBatches pagination
 
@@ -996,7 +995,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Controls reflect terminal state consistently
   - Tests added/updated to cover FAILED terminal handling
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `'failed'` to all 3 terminal checks in run detail page (polling enable guard, `usePolling` `onTerminal`, `RunControls` `isTerminal`). Added 2 new tests: `usePolling` stops on `failed` terminal status, `useAutoRun` stops on `failed` terminal status — both using real predicates matching page logic. 670 tests pass.
 
 ### AUD-052 — Reject `sourceOverride=mixed` in import API (v0.3 reserved)
 - **Source**: Stabilization audit (SPEC intent check)
