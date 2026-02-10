@@ -897,6 +897,24 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Changed GET `/api/distill/runs` filter from deprecated `Run.importBatchId` to `runBatches: { some: { importBatchId } }` (Prisma relation filter). Added 3 route-level tests: non-primary batch returns multi-batch run, primary batch still works, unfiltered list unchanged. 654 tests pass.
 
+### AUD-047 — Distill bundles must include USER text only (exclude assistant)
+- **Source**: Audit 2026-02-09 (bundle content review)
+- **Severity**: HIGH
+- **Type**: Correctness bug
+- **Docs cited**: `SPEC.md` §9.1, §7.3 step 6
+- **Code refs**: `src/lib/services/bundle.ts` (buildBundle), `src/lib/services/run.ts` (findEligibleDays)
+- **Problem**: Run input bundles included both user and assistant MessageAtoms. The distiller's purpose is to summarize the user's journal, so bundles MUST only contain role=user messages. Assistant atoms should stay in DB for audit/debug but not appear in the bundle the model sees, and assistant-only days should not make a day eligible.
+- **Decision**: Fix code + update spec
+- **Planned PR**: `fix/AUD-047-user-only-bundles`
+- **Acceptance checks**:
+  - `buildBundle()` filters to `role: 'USER'` before dedup/sort/render.
+  - `findEligibleDays()` only considers `role: 'USER'` atoms.
+  - SPEC.md §9.1 and §7.3 updated to state role=user constraint.
+  - Tests: bundle excludes assistant lines, assistant-only days are not eligible, multi-batch dedup still works.
+  - `npx vitest run` passes.
+- **Status**: Done
+- **Resolution**: Added `role: 'USER'` filter to Prisma queries in `buildBundle()` and `findEligibleDays()`. Updated SPEC.md §9.1 and §7.3 step 6 to require role=user. Updated 6 existing tests with corrected atom counts. Added 3 new tests: bundle excludes assistant atoms, assistant-only day produces empty bundle, assistant-only day not eligible for run creation. 657 tests pass.
+
 ---
 
 ## Notes
