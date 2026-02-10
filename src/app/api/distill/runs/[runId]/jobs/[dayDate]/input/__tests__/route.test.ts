@@ -266,8 +266,8 @@ describe('GET /api/distill/runs/:runId/jobs/:dayDate/input — multi-batch', () 
     const json = await res.json()
 
     expect(json.hasInput).toBe(true)
-    // 4 atoms total: 2 from batch1 (chatgpt) + 2 from batch2 (claude)
-    expect(json.atomCount).toBe(4)
+    // 2 user atoms total: 1 from batch1 (chatgpt) + 1 from batch2 (claude) — assistant excluded per §9.1
+    expect(json.atomCount).toBe(2)
 
     const sources = json.previewItems.map((p: { source: string }) => p.source)
     expect(sources).toContain('chatgpt')
@@ -314,10 +314,10 @@ describe('GET /api/distill/runs/:runId/jobs/:dayDate/input — multi-batch', () 
       filterProfile: { name: `${TEST_PREFIX}-fp`, mode: 'include', categories: ['WORK'] },
     })
 
-    // Old behavior only sees batch1 (chatgpt), so fewer atoms
-    expect(oldBundle.atomCount).toBe(2)
-    // Endpoint now returns 4 atoms (both batches)
-    expect(json.atomCount).toBe(4)
+    // Old behavior only sees batch1 (chatgpt user), so fewer atoms
+    expect(oldBundle.atomCount).toBe(1)
+    // Endpoint now returns 2 user atoms (both batches)
+    expect(json.atomCount).toBe(2)
     // Hashes must differ
     expect(json.bundleHash).not.toBe(oldBundle.bundleHash)
   })
@@ -328,8 +328,8 @@ describe('GET /api/distill/runs/:runId/jobs/:dayDate/input — multi-batch', () 
     const json = await res.json()
 
     expect(json.hasInput).toBe(true)
-    // Only batch1 (chatgpt) atoms
-    expect(json.atomCount).toBe(2)
+    // Only batch1 (chatgpt) user atom — assistant excluded per §9.1
+    expect(json.atomCount).toBe(1)
 
     // Read the run's frozen config from DB (same round-trip the route performs)
     const run = await prisma.run.findUnique({

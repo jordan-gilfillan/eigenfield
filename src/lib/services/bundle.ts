@@ -90,10 +90,12 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
       : { notIn: filterProfile.categories }
 
   // Load eligible atoms with their labels (across all batches)
+  // Only role=USER atoms are included in bundles (SPEC §9.1)
   const rawAtoms = await prisma.messageAtom.findMany({
     where: {
       importBatchId: { in: resolvedBatchIds },
       source: { in: dbSources },
+      role: 'USER',
       dayDate: new Date(dayDate),
       messageLabels: {
         some: {

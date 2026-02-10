@@ -497,7 +497,8 @@ UI: `/distill` dashboard
      - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
      - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   5) Freeze `filterProfileSnapshot`
-  6) Determine eligible days: days where at least one MessageAtom matches
+  6) Determine eligible days: days where at least one **role = user** MessageAtom matches
+     - role = user (assistant atoms do not make a day eligible)
      - importBatchId IN (`importBatchIds`)
      - sources
      - date range
@@ -807,7 +808,8 @@ Bundle construction is invoked by the tick handler (§7.4) for each queued job.
 
 ### 9.1 Bundle ordering
 For a job/day:
-1) Load eligible MessageAtoms (matching sources + date + filter + labelSpec)
+1) Load eligible MessageAtoms (matching **role = user** + sources + date + filter + labelSpec).
+   Assistant atoms are stored in the DB for audit/debug but MUST NOT appear in the bundle the model sees.
    - Multi-batch runs: atoms are loaded from ALL `importBatchIds` for the given day.
    - Cross-batch dedup: if the same `atomStableId` appears in atoms from multiple batches,
      keep only the first occurrence in the canonical sort order below. This is the single

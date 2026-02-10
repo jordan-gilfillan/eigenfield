@@ -325,6 +325,64 @@ describe('run service', () => {
       })
     })
 
+    it('ignores assistant-only days for eligibility (SPEC §7.3 step 6)', async () => {
+      // Delete all atoms and labels for day 2, then create only assistant atoms
+      const day2Atoms = await prisma.messageAtom.findMany({
+        where: {
+          importBatchId: testImportBatchId,
+          dayDate: new Date('2024-01-02'),
+        },
+      })
+      await prisma.messageLabel.deleteMany({
+        where: { messageAtomId: { in: day2Atoms.map((a) => a.id) } },
+      })
+      await prisma.messageAtom.deleteMany({
+        where: { id: { in: day2Atoms.map((a) => a.id) } },
+      })
+
+      // Create assistant-only atoms for day 2
+      for (let j = 0; j < 3; j++) {
+        const atom = await prisma.messageAtom.create({
+          data: {
+            importBatchId: testImportBatchId,
+            source: 'CHATGPT',
+            role: 'ASSISTANT',
+            text: `Assistant-only message day2-${j}`,
+            textHash: `text-hash-${testUniqueId}-assist-only-${j}`,
+            timestampUtc: new Date(new Date('2024-01-02T12:00:00Z').getTime() + j * 1000),
+            dayDate: new Date('2024-01-02'),
+            atomStableId: `test-run-atom-${testUniqueId}-assist-only-${j}`,
+          },
+        })
+        await prisma.messageLabel.create({
+          data: {
+            messageAtomId: atom.id,
+            model: 'stub_v1',
+            promptVersionId: testClassifyPromptVersionId,
+            category: 'PERSONAL',
+            confidence: 1.0,
+          },
+        })
+      }
+
+      const result = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'stub_summarizer_v1',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+      })
+
+      // Day 1 has user atoms → eligible. Day 2 has only assistant atoms → not eligible.
+      expect(result.jobCount).toBe(1)
+      expect(result.eligibleDays).toEqual(['2024-01-01'])
+    })
+
     it('throws NO_ELIGIBLE_DAYS when filter excludes all days', async () => {
       // Update only labels for this test's atoms to WORK (which is excluded by our filter)
       await prisma.messageLabel.updateMany({

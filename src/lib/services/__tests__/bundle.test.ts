@@ -146,10 +146,8 @@ describe('bundle service', () => {
         },
       })
 
-      expect(bundle.atomCount).toBe(5)
-
-      // Verify ordering per SPEC 9.1: source ASC, timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
-      const lines = bundle.bundleText.split('\n').filter(l => l.startsWith('['))
+      // Only user atoms: chatgpt-user-1, claude-user-0 (assistant atoms excluded per §9.1)
+      expect(bundle.atomCount).toBe(2)
 
       // Source ordering: chatgpt before claude (alphabetical)
       expect(bundle.bundleText).toContain('# SOURCE: chatgpt')
@@ -242,7 +240,7 @@ describe('bundle service', () => {
 
       // Should not contain the coding message
       expect(bundle.bundleText).not.toContain('coding message that should be excluded')
-      expect(bundle.atomCount).toBe(5) // Original 5, not 6
+      expect(bundle.atomCount).toBe(2) // Original 2 user atoms, not 3 (coding USER excluded)
     })
 
     it('filters atoms based on INCLUDE mode', async () => {
@@ -261,8 +259,8 @@ describe('bundle service', () => {
         },
       })
 
-      // All atoms have 'PERSONAL' category, so all should be included
-      expect(bundle.atomCount).toBe(5)
+      // All user atoms have 'PERSONAL' category, so both user atoms included (assistant excluded)
+      expect(bundle.atomCount).toBe(2)
     })
 
     it('returns empty bundle when no atoms match', async () => {
@@ -303,17 +301,89 @@ describe('bundle service', () => {
 
       expect(bundle.bundleText).toContain('# SOURCE: chatgpt')
       expect(bundle.bundleText).not.toContain('# SOURCE: claude')
-      expect(bundle.atomCount).toBe(3) // Only chatgpt atoms
+      expect(bundle.atomCount).toBe(1) // Only chatgpt user atom (assistant excluded)
     })
 
-    it('orders user before assistant at same timestamp (SPEC 9.1 guard)', async () => {
-      // This test guards against regression of the role ordering specified in SPEC 9.1:
-      // "role ASC (user before assistant)"
-      // The Prisma enum Role { USER, ASSISTANT } ensures correct ordering in Postgres.
+    it('excludes assistant atoms from bundle (SPEC §9.1: user-only)', async () => {
+      const bundle = await buildBundle({
+        importBatchId: testImportBatchId,
+        dayDate: '2024-01-15',
+        sources: ['chatgpt', 'claude'],
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+        filterProfile: {
+          name: 'Test',
+          mode: 'EXCLUDE',
+          categories: ['WORK'],
+        },
+      })
+
+      // Only user atoms should appear in the bundle
+      // Fixture has: 2 user atoms (chatgpt-user-1, claude-user-0) and 3 assistant atoms
+      expect(bundle.atomCount).toBe(2)
+
+      // Verify no assistant text appears
+      expect(bundle.bundleText).not.toContain('ChatGPT response')
+      expect(bundle.bundleText).not.toContain('ChatGPT early assistant')
+      expect(bundle.bundleText).not.toContain('Claude assistant message')
+
+      // Verify user text does appear
+      expect(bundle.bundleText).toContain('ChatGPT user query')
+      expect(bundle.bundleText).toContain('Claude user message')
+    })
+
+    it('returns empty bundle when day has only assistant atoms', async () => {
+      // Create a day with only an assistant atom
+      const assistantAtom = await prisma.messageAtom.create({
+        data: {
+          importBatchId: testImportBatchId,
+          source: 'CHATGPT',
+          role: 'ASSISTANT',
+          text: 'Only assistant on this day',
+          textHash: `text-hash-${testUniqueId}-assistant-only`,
+          timestampUtc: new Date('2024-01-16T10:00:00.000Z'),
+          dayDate: new Date('2024-01-16'),
+          atomStableId: `${testUniqueId}-assistant-only`,
+        },
+      })
+
+      await prisma.messageLabel.create({
+        data: {
+          messageAtomId: assistantAtom.id,
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+          category: 'PERSONAL',
+          confidence: 1.0,
+        },
+      })
+
+      const bundle = await buildBundle({
+        importBatchId: testImportBatchId,
+        dayDate: '2024-01-16',
+        sources: ['chatgpt'],
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+        filterProfile: {
+          name: 'Test',
+          mode: 'EXCLUDE',
+          categories: [],
+        },
+      })
+
+      expect(bundle.atomCount).toBe(0)
+      expect(bundle.bundleText).toBe('')
+    })
+
+    it('excludes labeled assistant atom at same timestamp as user (SPEC §9.1)', async () => {
+      // Even when an assistant atom is labeled and would pass the filter,
+      // it MUST NOT appear in the bundle (user-only per §9.1).
 
       const sameTimestamp = new Date('2024-01-15T12:00:00.000Z')
 
-      // Create assistant first (to ensure ordering is not insertion-order dependent)
       const assistantAtom = await prisma.messageAtom.create({
         data: {
           importBatchId: testImportBatchId,
@@ -340,7 +410,6 @@ describe('bundle service', () => {
         },
       })
 
-      // Label both atoms
       await prisma.messageLabel.createMany({
         data: [
           {
@@ -375,20 +444,9 @@ describe('bundle service', () => {
         },
       })
 
-      // Extract lines with the role-guard messages
-      const lines = bundle.bundleText.split('\n').filter(
-        (l) => l.includes('role-guard') || l.includes('I am the')
-      )
-
-      // Find user and assistant lines
-      const userLineIndex = lines.findIndex((l) => l.includes('user question'))
-      const assistantLineIndex = lines.findIndex((l) => l.includes('assistant response'))
-
-      expect(userLineIndex).toBeGreaterThanOrEqual(0)
-      expect(assistantLineIndex).toBeGreaterThanOrEqual(0)
-
-      // SPEC 9.1: user before assistant at same timestamp
-      expect(userLineIndex).toBeLessThan(assistantLineIndex)
+      // User atom included, assistant atom excluded
+      expect(bundle.bundleText).toContain('user question')
+      expect(bundle.bundleText).not.toContain('assistant response')
     })
   })
 

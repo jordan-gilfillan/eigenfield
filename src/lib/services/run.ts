@@ -336,11 +336,13 @@ async function findEligibleDays(options: {
       ? { in: filterProfile.categories }
       : { notIn: filterProfile.categories }
 
-  // Find distinct dayDates where atoms exist with matching labels (across all batches)
+  // Find distinct dayDates where USER atoms exist with matching labels (across all batches)
+  // Only role=USER atoms make a day eligible (SPEC §7.3 step 6)
   const atomsWithLabels = await prisma.messageAtom.findMany({
     where: {
       importBatchId: { in: importBatchIds },
       source: { in: dbSources as Source[] },
+      role: 'USER',
       dayDate: {
         gte: new Date(startDate),
         lte: new Date(endDate),

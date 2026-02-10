@@ -441,8 +441,8 @@ describe('multi-batch support', () => {
         },
       })
 
-      // Day 2 has 3 atoms from batch1 (chatgpt) + 3 atoms from batch2 (claude)
-      expect(bundle.atomCount).toBe(6)
+      // Day 2 has 2 user atoms from batch1 (chatgpt) + 2 user atoms from batch2 (claude)
+      expect(bundle.atomCount).toBe(4)
       expect(bundle.bundleText).toContain('# SOURCE: chatgpt')
       expect(bundle.bundleText).toContain('# SOURCE: claude')
     })
@@ -467,12 +467,12 @@ describe('multi-batch support', () => {
         },
       })
 
-      // All 6 atoms should survive the dedup filter (3 chatgpt + 3 claude, all distinct)
-      expect(bundle.atomCount).toBe(6)
+      // All 4 user atoms should survive the dedup filter (2 chatgpt + 2 claude, all distinct)
+      expect(bundle.atomCount).toBe(4)
 
       // Verify all atomStableIds are unique
       const stableIds = bundle.atoms.map((a) => a.atomStableId)
-      expect(new Set(stableIds).size).toBe(6)
+      expect(new Set(stableIds).size).toBe(4)
     })
   })
 

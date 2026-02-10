@@ -466,19 +466,16 @@ describe('Run Inspector - input endpoint logic', () => {
       filterProfile: config.filterProfileSnapshot,
     })
 
-    // Day 1 has 3 WORK atoms: chatgpt user, chatgpt assistant (same time), claude user
-    expect(bundle.atomCount).toBe(3)
+    // Day 1 has 2 WORK user atoms: chatgpt user, claude user (assistant excluded per §9.1)
+    expect(bundle.atomCount).toBe(2)
 
     // Verify deterministic ordering per spec 9.1:
-    // source ASC, timestampUtc ASC, role ASC (user before assistant), atomStableId ASC
+    // source ASC, timestampUtc ASC, atomStableId ASC
     // chatgpt comes before claude (alphabetical)
-    // At same timestamp, user comes before assistant
     expect(bundle.atoms[0].source).toBe('CHATGPT')
     expect(bundle.atoms[0].role).toBe('USER')
-    expect(bundle.atoms[1].source).toBe('CHATGPT')
-    expect(bundle.atoms[1].role).toBe('ASSISTANT')
-    expect(bundle.atoms[2].source).toBe('CLAUDE')
-    expect(bundle.atoms[2].role).toBe('USER')
+    expect(bundle.atoms[1].source).toBe('CLAUDE')
+    expect(bundle.atoms[1].role).toBe('USER')
   })
 
   it('has hash fields present on bundle result', async () => {
@@ -690,11 +687,11 @@ describe('Run Inspector - input endpoint logic', () => {
       filterProfile: cfg.filterProfileSnapshot,
     })
 
-    // Bundle text should have SOURCE headers and formatted atom lines
+    // Bundle text should have SOURCE headers and formatted user lines (no assistant per §9.1)
     expect(bundle.bundleText).toContain('# SOURCE: chatgpt')
     expect(bundle.bundleText).toContain('# SOURCE: claude')
     expect(bundle.bundleText).toContain('user:')
-    expect(bundle.bundleText).toContain('assistant:')
+    expect(bundle.bundleText).not.toContain('assistant:')
 
     // chatgpt section should come before claude (source ASC)
     const chatgptPos = bundle.bundleText.indexOf('# SOURCE: chatgpt')
