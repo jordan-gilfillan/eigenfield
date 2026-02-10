@@ -25,7 +25,7 @@ Each entry has:
 
 ## Open entries
 
-- AUD-046 (P1) — Runs list filtering should respect RunBatch membership (not deprecated Run.importBatchId)
+(none)
 
 ---
 
@@ -894,7 +894,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Test: create multi-batch run where queried batch is not the primary/first; list endpoint still returns that run.
   - Dashboard latest-run behavior continues to work (no regressions).
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Changed GET `/api/distill/runs` filter from deprecated `Run.importBatchId` to `runBatches: { some: { importBatchId } }` (Prisma relation filter). Added 3 route-level tests: non-primary batch returns multi-batch run, primary batch still works, unfiltered list unchanged. 654 tests pass.
 
 ---
 
