@@ -24,16 +24,24 @@ export async function POST(request: NextRequest) {
     const sourceOverride = formData.get('sourceOverride') as string | null
     const timezone = formData.get('timezone') as string | null
 
+    // Validate sourceOverride if provided (before file check so bad source is rejected early)
+    if (sourceOverride) {
+      if (sourceOverride === 'mixed') {
+        return errors.invalidInput(
+          'sourceOverride=mixed is reserved; v0.3 supports single-source imports only',
+          { validSources: SOURCE_VALUES.filter((s) => s !== 'mixed') },
+        )
+      }
+      if (!SOURCE_VALUES.includes(sourceOverride as SourceApi)) {
+        return errors.invalidInput(`Invalid source: ${sourceOverride}`, {
+          validSources: SOURCE_VALUES.filter((s) => s !== 'mixed'),
+        })
+      }
+    }
+
     // Validate file
     if (!file) {
       return errors.invalidInput('No file provided')
-    }
-
-    // Validate sourceOverride if provided
-    if (sourceOverride && !SOURCE_VALUES.includes(sourceOverride as SourceApi)) {
-      return errors.invalidInput(`Invalid source: ${sourceOverride}`, {
-        validSources: SOURCE_VALUES.filter((s) => s !== 'mixed'),
-      })
     }
 
     // Read file content
