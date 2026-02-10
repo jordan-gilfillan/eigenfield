@@ -21,11 +21,14 @@ Each entry has:
 
 ## Current top priorities
 
-> All existing entries are Done. Open entries (if any) are listed below.
+> Open entries (in priority order): AUD-050 (failed terminal handling), AUD-052 (mixed override rejection), AUD-054 (flake).
+
 
 ## Open entries
 
-(none)
+- AUD-050 — Run detail must treat FAILED as terminal (polling + auto-run)
+- AUD-052 — Reject sourceOverride=mixed in import API (v0.3 reserved)
+- AUD-054 — Flaky test: listImportBatches pagination
 
 ---
 
@@ -959,23 +962,72 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `startAutoRunLoop` engine in `src/app/distill/hooks/useAutoRun.ts` and wired into run detail page. Start/Stop Auto-run buttons in RunControls, "Auto-running..." indicator, manual Tick disabled during auto-run, auto-run error display. 10 new tests for the loop engine (sequential calls, stop-on-error, stop-on-terminal, abort-on-stop, idempotent stop). 667 tests pass.
 
-### AUD-051 — Align Run.status transitions with SPEC §7.4.1 (tick semantics)
-- **Source**: Stabilization audit
+
+### AUD-051 — Align Run.status transitions with SPEC §7.4.1
+- **Source**: Stabilization audit after AUD-049
 - **Severity**: HIGH
-- **Type**: Spec/code drift (runtime semantics)
+- **Type**: Contract break
 - **Docs cited**: `SPEC.md` §7.4.1
-- **Problem**: `determineRunStatus()` in `tick.ts` returns `queued` whenever queued jobs remain, even after tick has processed jobs. SPEC §7.4.1 requires `running` once any job is started or completed.
-- **Decision**: Fix `determineRunStatus()` to return `RUNNING` when `queued > 0` and any work has been done (`succeeded + failed + cancelled > 0`)
+- **Code refs**: `src/lib/services/tick.ts`; `src/lib/services/__tests__/tick.test.ts`
+- **Problem**: `determineRunStatus()` returned `QUEUED` whenever queued jobs remained, even after tick had processed jobs (e.g., `{ queued: 1, succeeded: 1 }`), violating SPEC §7.4.1 (“once work begins, non-terminal runs remain RUNNING until terminal”).
+- **Decision**: Fix code
 - **Planned PR**: `fix/AUD-051-run-status-transitions`
 - **Acceptance checks**:
-  - Multi-job run with 1 succeeded + 1 queued → `runStatus = 'running'` (not `queued`).
-  - Terminal transitions unchanged: all succeeded → `completed`; any failed → `failed`.
-  - Cancelled run still returns early with `cancelled` status.
-  - DB run record reflects correct status.
-  - `npx vitest run` passes.
-  - Branch merged to master, clean working tree.
+  - After any successful tick work, `runStatus` is `RUNNING` while queued jobs remain.
+  - Terminal transitions remain correct (`COMPLETED` when all succeeded; `FAILED` when any failed and none queued/running).
+  - Tests updated: existing assertion fixed; new regression test added for multi-job run.
+  - `npx vitest run` passes (flake aside).
 - **Status**: Done
-- **Resolution**: Fixed `determineRunStatus()` in `tick.ts` — when queued jobs remain and any work has been done (succeeded + failed + cancelled > 0), returns `RUNNING` instead of `QUEUED`. Updated 1 existing test assertion, added 1 new test verifying §7.4.1 semantics. 668 tests pass.
+- **Resolution**: Updated `determineRunStatus()` so when `queued > 0` and any work has occurred (`succeeded + failed + cancelled > 0`), it returns `RUNNING` (not `QUEUED`). Updated one existing test assertion and added a new regression test covering multi-job runs. Merged to master (9235de5), clean working tree.
+
+
+### AUD-050 — Run detail must treat FAILED as terminal (polling + auto-run)
+- **Source**: Stabilization audit after AUD-049/AUD-051
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: `SPEC.md` §4.6, §7.4.2; `UX_SPEC.md` §6
+- **Code refs**: `src/app/distill/runs/[runId]/page.tsx`; related terminal checks in `usePolling` / `useAutoRun` if duplicated
+- **Problem**: Run detail UI does not consistently treat `failed` as terminal, so polling and/or auto-run may continue and controls may be inconsistent.
+- **Decision**: Fix code to treat `failed` as terminal everywhere run terminality is checked.
+- **Planned PR**: `fix/AUD-050-run-detail-failed-terminal`
+- **Acceptance checks**:
+  - Run detail polling stops when `run.status === 'FAILED'`
+  - Auto-run stops when run becomes `FAILED`
+  - Controls reflect terminal state consistently
+  - Tests added/updated to cover FAILED terminal handling
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-052 — Reject `sourceOverride=mixed` in import API (v0.3 reserved)
+- **Source**: Stabilization audit (SPEC intent check)
+- **Severity**: MEDIUM
+- **Type**: Contract alignment
+- **Docs cited**: `SPEC.md` §6.1
+- **Code refs**: import route handler validation + `SOURCE_VALUES` in `enums.ts`
+- **Problem**: API accepts `sourceOverride=mixed` even though v0.3 reserves `mixed` for a future multi-file import mode.
+- **Decision**: Fix code to reject `mixed` with `400 INVALID_INPUT` and a clear message.
+- **Planned PR**: `fix/AUD-052-reject-mixed-sourceoverride`
+- **Acceptance checks**:
+  - Import request with `sourceOverride=mixed` returns `400 INVALID_INPUT` with a clear message
+  - Valid overrides (`chatgpt|claude|grok`) unchanged
+  - Route-level tests cover mixed rejection + valid overrides
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-054 — Flaky test: listImportBatches pagination
+- **Source**: Repeated stabilization runs (noted during AUD-051 completion)
+- **Severity**: MEDIUM
+- **Type**: Test/infra
+- **Docs cited**: (none)
+- **Code refs**: listImportBatches pagination test + underlying query ordering
+- **Problem**: A pre-existing pagination test intermittently fails under full-suite execution, undermining red/green confidence.
+- **Decision**: Fix test isolation and/or make ordering deterministic (explicit `orderBy`, stable cursor semantics, per-test cleanup).
+- **Planned PR**: `fix/AUD-054-listImportBatches-pagination-flake`
+- **Acceptance checks**:
+  - `npx vitest run` passes reliably (10 consecutive runs with no flakes in this test)
+  - Assertions remain meaningful (no weakening)
+  - Ordering/cursor assumptions are explicit in code + tests (e.g., `orderBy createdAt,id`)
+- **Status**: Not started
 
 ---
 
