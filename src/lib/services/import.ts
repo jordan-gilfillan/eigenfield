@@ -300,7 +300,7 @@ export async function listImportBatches(options: {
     take: limit + 1, // Fetch one extra to determine if there's more
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0, // Skip the cursor itself
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   })
 
   const hasMore = batches.length > limit

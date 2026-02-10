@@ -311,7 +311,7 @@ describe('Import Service', () => {
     })
 
     it('supports pagination', async () => {
-      // Create 3 batches
+      // Create 3 batches with deterministic ordering (10ms delay between each)
       for (let i = 0; i < 3; i++) {
         const content = createTestExport([
           { id: `msg-${i}`, role: 'user', text: `Batch ${i}`, timestamp: 1705316400 + i * 100, conversationId: `conv-${i}` },
@@ -325,14 +325,43 @@ describe('Import Service', () => {
         await new Promise((r) => setTimeout(r, 10))
       }
 
-      // Get first page
-      const page1 = await listImportBatches({ limit: 2 })
-      expect(page1.items.length).toBe(2)
-      expect(page1.nextCursor).toBeDefined()
+      // Walk pages with limit=2 until all 3 of our batches are found.
+      // Other tests may have created batches, so we stop once we've found ours
+      // rather than exhausting the entire table.
+      const ourIdSet = new Set(createdBatchIds)
+      const allIds: string[] = []
+      const foundOurs: string[] = []
+      let cursor: string | undefined
+      let pages = 0
+      const MAX_PAGES = 50 // safety valve (never need this many)
 
-      // Get second page
-      const page2 = await listImportBatches({ limit: 2, cursor: page1.nextCursor })
-      expect(page2.items.length).toBeGreaterThanOrEqual(1)
+      do {
+        const page = await listImportBatches({ limit: 2, cursor })
+        // Each page respects limit
+        expect(page.items.length).toBeLessThanOrEqual(2)
+        expect(page.items.length).toBeGreaterThanOrEqual(1)
+        for (const item of page.items) {
+          // No duplicate IDs across pages
+          expect(allIds).not.toContain(item.id)
+          allIds.push(item.id)
+          if (ourIdSet.has(item.id)) foundOurs.push(item.id)
+        }
+        // Cursor must advance (not repeat)
+        if (page.nextCursor) {
+          expect(page.nextCursor).not.toBe(cursor)
+        }
+        cursor = page.nextCursor
+        pages++
+      } while (cursor && foundOurs.length < 3 && pages < MAX_PAGES)
+
+      // All 3 of our batches found within the walked pages
+      expect(foundOurs).toHaveLength(3)
+
+      // Our batches appear in correct relative order (desc by createdAt):
+      // batch-2 (newest) before batch-1 before batch-0 (oldest)
+      const ourPositions = createdBatchIds.map((id) => allIds.indexOf(id))
+      expect(ourPositions[2]).toBeLessThan(ourPositions[1]) // batch-2 before batch-1
+      expect(ourPositions[1]).toBeLessThan(ourPositions[0]) // batch-1 before batch-0
     })
   })
 })
