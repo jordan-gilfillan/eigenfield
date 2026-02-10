@@ -935,6 +935,30 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Updated SPEC.md (§2 non-goals, §4.5, §4.6, §7.4, new §7.4.2) and UX_SPEC.md (§4.4, §6, §7.4) to define foreground auto-run tick loop contract. Four clarifications: (1) "polling" reserved for read-only; work-triggering loops are "foreground auto-run tick loop" governed by §7.4.2; (2) auto-run locked to maxJobs=1; (3) stop on first error, no auto-retry; (4) manual Tick disabled or guarded while auto-run active. No code changes.
 
+### AUD-049 — Run detail "Auto-run" foreground tick loop (SPEC §7.4.2)
+- **Source**: UX/operability — manual ticking is tedious for large runs; spec §7.4.2 defines the contract
+- **Severity**: LOW
+- **Type**: Feature implementation
+- **Docs cited**: `SPEC.md` §7.4.2; `UX_SPEC.md` §4.4, §6, §7.4
+- **Problem**: Spec and UX spec define foreground auto-run tick loop but no implementation exists.
+- **Decision**: Implement auto-run loop engine + run detail UI controls
+- **Planned PR**: `feat/AUD-049-run-detail-autorun`
+- **Acceptance checks**:
+  - Start/Stop Auto-run buttons on run detail page.
+  - Auto-run calls POST /tick sequentially (no overlapping ticks), maxJobs=1.
+  - Stops on terminal status (completed/cancelled/failed).
+  - Stops on first tick error, no auto-retry.
+  - Abort in-flight request on stop/unmount.
+  - Manual Tick disabled while auto-run is active.
+  - "Auto-running..." indicator visible while active.
+  - Auto-run error displayed inline on stop.
+  - Uses setTimeout (not setInterval) + AbortController.
+  - No new API routes, no Prisma/schema changes.
+  - `npx vitest run` passes.
+  - Branch merged to master, clean working tree.
+- **Status**: Done
+- **Resolution**: Added `startAutoRunLoop` engine in `src/app/distill/hooks/useAutoRun.ts` and wired into run detail page. Start/Stop Auto-run buttons in RunControls, "Auto-running..." indicator, manual Tick disabled during auto-run, auto-run error display. 10 new tests for the loop engine (sequential calls, stop-on-error, stop-on-terminal, abort-on-stop, idempotent stop). 667 tests pass.
+
 ---
 
 ## Notes

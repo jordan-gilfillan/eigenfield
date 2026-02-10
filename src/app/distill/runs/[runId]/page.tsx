@@ -1,10 +1,11 @@
 'use client'
 
 import { useParams } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { OutputViewer } from './components/OutputViewer'
 import { InputViewer } from './components/InputViewer'
 import { usePolling } from '../../hooks/usePolling'
+import { startAutoRunLoop } from '../../hooks/useAutoRun'
 import { getClassifyStatusColor, getStatusColor, getJobStatusColor, formatProgressPercent } from '../../lib/ui-utils'
 import type { LastClassifyStats } from '../../lib/types'
 
@@ -126,6 +127,11 @@ export default function RunDetailPage() {
   const [cancelInFlight, setCancelInFlight] = useState(false)
   const [lastCancelResult, setLastCancelResult] = useState<{ jobsCancelled: number; status: string } | null>(null)
   const [lastCancelError, setLastCancelError] = useState<TickError | null>(null)
+
+  // Auto-run state (SPEC §7.4.2)
+  const [isAutoRunning, setIsAutoRunning] = useState(false)
+  const [autoRunError, setAutoRunError] = useState<TickError | null>(null)
+  const autoRunRef = useRef<{ stop: () => void } | null>(null)
 
   // Last classify stats (same shared endpoint as dashboard)
   const [lastClassifyStats, setLastClassifyStats] = useState<LastClassifyStats | null>(null)
@@ -347,6 +353,45 @@ export default function RunDetailPage() {
     }
   }
 
+  const handleStartAutoRun = useCallback(() => {
+    if (isAutoRunning || tickInFlight) return
+
+    setAutoRunError(null)
+    setLastTickError(null)
+    setIsAutoRunning(true)
+
+    autoRunRef.current = startAutoRunLoop({
+      url: `/api/distill/runs/${runId}/tick`,
+      onTick: (data) => {
+        setLastTickResult(data as TickResult)
+        setLastTickError(null)
+        fetchRun()
+      },
+      isTerminal: (data) => {
+        const status = (data as { runStatus: string }).runStatus
+        return status === 'completed' || status === 'cancelled' || status === 'failed'
+      },
+      onError: (err) => {
+        setAutoRunError({ code: err.code, message: err.message })
+      },
+      onStopped: () => {
+        setIsAutoRunning(false)
+        autoRunRef.current = null
+      },
+    })
+  }, [isAutoRunning, tickInFlight, runId, fetchRun])
+
+  const handleStopAutoRun = useCallback(() => {
+    autoRunRef.current?.stop()
+  }, [])
+
+  // Cleanup auto-run on unmount
+  useEffect(() => {
+    return () => {
+      autoRunRef.current?.stop()
+    }
+  }, [])
+
   if (loadingState === 'loading') {
     return (
       <main className="min-h-screen p-8 max-w-6xl mx-auto">
@@ -429,6 +474,10 @@ export default function RunDetailPage() {
         lastCancelResult={lastCancelResult}
         lastCancelError={lastCancelError}
         onCancel={handleCancel}
+        isAutoRunning={isAutoRunning}
+        autoRunError={autoRunError}
+        onStartAutoRun={handleStartAutoRun}
+        onStopAutoRun={handleStopAutoRun}
       />
 
       {/* Frozen Config (collapsible — starts expanded) */}
@@ -726,6 +775,10 @@ function RunControls({
   lastCancelResult,
   lastCancelError,
   onCancel,
+  isAutoRunning,
+  autoRunError,
+  onStartAutoRun,
+  onStopAutoRun,
 }: {
   run: RunDetail
   tickInFlight: boolean
@@ -740,12 +793,17 @@ function RunControls({
   lastCancelResult: { jobsCancelled: number; status: string } | null
   lastCancelError: TickError | null
   onCancel: () => void
+  isAutoRunning: boolean
+  autoRunError: TickError | null
+  onStartAutoRun: () => void
+  onStopAutoRun: () => void
 }) {
   const isTerminal = run.status === 'cancelled' || run.status === 'completed'
-  const canTick = !isTerminal && !tickInFlight
+  const canTick = !isTerminal && !tickInFlight && !isAutoRunning
   const hasFailedJobs = run.progress.failed > 0
   const canResume = !isTerminal && hasFailedJobs && !resumeInFlight
   const canCancel = !isTerminal && !cancelInFlight
+  const canStartAutoRun = !isTerminal && !isAutoRunning && !tickInFlight
 
   return (
     <div className="mt-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
@@ -754,6 +812,12 @@ function RunControls({
       {isTerminal && (
         <div className="mb-3 text-sm text-gray-500">
           Run is {run.status} — controls are disabled.
+        </div>
+      )}
+
+      {isAutoRunning && (
+        <div className="mb-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded text-sm text-indigo-700 font-medium">
+          Auto-running\u2026 Sequential tick calls in progress.
         </div>
       )}
 
@@ -771,7 +835,36 @@ function RunControls({
           >
             {tickInFlight ? 'Processing...' : 'Tick'}
           </button>
-          <span className="text-xs text-gray-500">Process the next batch of queued jobs</span>
+          <span className="text-xs text-gray-500">
+            {isAutoRunning ? 'Disabled during auto-run' : 'Process the next batch of queued jobs'}
+          </span>
+        </div>
+
+        {/* Auto-run Start/Stop */}
+        <div className="flex flex-col items-start gap-1">
+          {isAutoRunning ? (
+            <button
+              onClick={onStopAutoRun}
+              className="px-4 py-2 rounded font-medium bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              Stop Auto-run
+            </button>
+          ) : (
+            <button
+              onClick={onStartAutoRun}
+              disabled={!canStartAutoRun}
+              className={`px-4 py-2 rounded font-medium ${
+                canStartAutoRun
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              Start Auto-run
+            </button>
+          )}
+          <span className="text-xs text-gray-500">
+            {isAutoRunning ? 'Click to stop auto-run' : 'Repeatedly tick until complete or error'}
+          </span>
         </div>
 
         {/* Resume */}
@@ -821,6 +914,15 @@ function RunControls({
       {cancelInFlight && (
         <div className="mt-3 text-sm text-red-600">
           Cancel in progress — stopping queued jobs...
+        </div>
+      )}
+
+      {/* Auto-run error */}
+      {autoRunError && (
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-sm">
+          <span className="font-medium text-red-700">Auto-run stopped:</span>{' '}
+          <code className="text-red-600">{autoRunError.code}</code>
+          <span className="text-red-700"> — {autoRunError.message}</span>
         </div>
       )}
 
