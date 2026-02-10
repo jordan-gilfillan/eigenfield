@@ -2,20 +2,6 @@
 
 > This document is the single source of truth. If code, README, or UI disagree with this spec, the spec wins.
 
-## 0) Bottleneck → Spec → Lever
-
-**Bottleneck:** project drift + silent footguns (non-determinism, dedupe/data loss, unpinned prompt/label versions, polling pile-ups).
-
-**Spec:** this file defines the stable contracts (IDs, schemas, API behavior, deterministic bundling, UI affordances).
-
-**Levers (highest ROI):**
-1) **Stable IDs** for atoms/bundles/outputs (referential backbone).
-2) **Pinned versions** (prompt versions + label spec) for reproducibility.
-3) **Sequential tick** (default 1 job/tick; no overlapping polls) for reliability.
-4) **Search + inspector UI** to view “before/after” and debug quickly.
-
----
-
 ## 1) Purpose
 
 Journal Distiller converts AI conversation exports (ChatGPT / Claude / Grok) into:
@@ -46,8 +32,11 @@ Explicitly out of scope:
 - Parallel job processing in UI (sequential polling only)
 - UI polish / design system work beyond basic layouts (Phase 5 is operability-first)
 
+---
 
-## 2.1 Implementation stack and local dev (normative for this repo)
+## 2.1) Implementation stack and local dev (normative)
+
+> Note: These subsections define positive constraints on the implementation stack. They are grouped under §2 for numbering stability but are normative requirements, not non-goals.
 
 To reduce drift, v0.3 pins the implementation stack used by this repository:
 - **Web**: Next.js (App Router) + TypeScript
@@ -109,6 +98,10 @@ Notes:
 - **Run**: a frozen config snapshot for producing Outputs.
 - **Job**: one per (Run, dayDate) eligible day.
 - **Output**: model output for a Job and stage (summarize/redact).
+- **Terminal status**: a status from which no further state transitions occur. Terminal states are entity-specific:
+  - Run: `completed`, `cancelled`, `failed` (see §6.8)
+  - Job: `succeeded`, `failed`, `cancelled` (see §6.9)
+  - ClassifyRun: `succeeded`, `failed` (see §7.2.1)
 
 ---
 
@@ -193,9 +186,13 @@ Two hashes are used for clarity:
 
   ```
   sha256(
-    "bundle_ctx_v1|" + importBatchId + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson
+    "bundle_ctx_v1|" + importBatchIdsCsv + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson
   )
   ```
+
+  Notes on CSV fields:
+  - `importBatchIdsCsv`: batch IDs sorted lexicographically, joined with `,`. For single-batch runs this equals the single ID (backward compatible).
+  - `sourcesCsv`: source names sorted lexicographically, joined with `,`.
 
 Notes:
 - It is acceptable for different configs to produce identical `stableBundleText`; in that case `bundleHash` matches but `bundleContextHash` differs.
@@ -222,7 +219,8 @@ Minimum fields:
 
 **ImportBatch.source semantics (v0.3):**
 - v0.3 import accepts **one file per ImportBatch** and that file MUST parse as exactly one source (chatgpt OR claude OR grok). In this common case, `ImportBatch.source` equals the detected parser.
-- `mixed` is reserved for a future “multi-file” import mode (zip or multiple uploads in one request). If `mixed` is ever used, each MessageAtom still carries its real `source`.
+- v0.3 import does not produce `mixed`; it is reserved. The API SHOULD reject `mixed` as a `sourceOverride` value (TODO: enforce at API validation layer).
+- `mixed` is reserved for a future "multi-file" import mode (zip or multiple uploads in one request). If `mixed` is ever used, each MessageAtom still carries its real `source`.
 
 ### 6.2 MessageAtom
 Minimum fields:
@@ -323,15 +321,15 @@ Rules:
 - Runs MUST record the exact PromptVersion IDs used.
 
 ### 6.8 Run
+
+**Terminal states:** `completed`, `cancelled`, `failed`.
+
 Fields:
 - id
 - status (queued|running|completed|cancelled|failed)
 - importBatchIds (FK[], via RunBatch junction table; see §6.8a)
   - At least one required.
   - All referenced ImportBatches MUST share the same timezone.
-  - API backward compat: accepts singular `importBatchId` (normalized to `importBatchIds: [id]`).
-- importBatchId (deprecated) — retained on the Run row for backward compatibility.
-  Equals `importBatchIds[0]` for single-batch runs. New code SHOULD read from RunBatch junction.
 - startDate, endDate
 - sources[]
 - filterProfileId (FK)
@@ -341,13 +339,15 @@ Fields:
 - createdAt, updatedAt
 
 `configJson` **must include**:
-- `promptVersionIds`: { summarize: <id> } plus:
-  - `redact: <id>` only if the run includes a redact stage (not used in v0.3 processing)
-  - `classify: <id>` only if the run triggers classification as part of run creation (optional; usually absent in v0.3)
+- `promptVersionIds`: v0.3 contains only `{ summarize: <id> }`. The `redact` and `classify` keys are reserved for future stages and MUST NOT be present in v0.3 configJson.
 - `labelSpec`: `{ model: <string>, promptVersionId: <id> }` (used for filtering)
 - `filterProfileSnapshot`: `{ name, mode, categories[] }`
 - `timezone` (MUST equal ImportBatch.timezone; runs may not override)
 - `importBatchIds`: `string[]` (frozen list of selected batch IDs at run creation)
+
+**Migration notes (backward compatibility):**
+- The API accepts singular `importBatchId` (normalized to `importBatchIds: [id]`). See §7.3 input rules.
+- `importBatchId` column is retained on the Run row for backward compatibility. Equals `importBatchIds[0]` for single-batch runs. New code SHOULD read from the RunBatch junction (§6.8a).
 
 ### 6.8a RunBatch (junction)
 Fields:
@@ -360,6 +360,9 @@ Constraints:
 - Both FKs cascade on delete.
 
 ### 6.9 Job
+
+**Terminal states:** `succeeded`, `failed`, `cancelled`.
+
 Fields:
 - id
 - runId (FK)
@@ -444,7 +447,7 @@ Endpoints:
 - `POST /api/distill/classify` returns `classifyRunId`.
 - `GET /api/distill/classify-runs/:id` returns progress/status for that classify run.
 
-`ClassifyRun.status` is: `running|succeeded|failed`.
+`ClassifyRun.status` is: `running|succeeded|failed`. **Terminal states:** `succeeded`, `failed`.
 
 Status endpoint response (normative):
 ```json
@@ -484,27 +487,29 @@ UI: `/distill` dashboard
   - Exactly one must be provided; both → HTTP 400 `INVALID_INPUT`; neither → HTTP 400 `INVALID_INPUT`.
   - If `importBatchId` provided alone → normalized to `importBatchIds: [importBatchId]`.
   - `importBatchIds` must be non-empty and contain unique elements; else HTTP 400 `INVALID_INPUT`.
+  - `maxInputTokens` is optional; defaults to `12000` (see §9.2 for segmentation rules).
 - Behavior:
-  0a) Resolve `importBatchIds` (see Input rules above). All referenced ImportBatches MUST exist; else HTTP 404 `NOT_FOUND`.
-  0b) Timezone uniformity: all selected batches must share the same timezone. If not → HTTP 400 `TIMEZONE_MISMATCH` `{ message, timezones: string[], batchIds: string[] }`.
-  1) Freeze `promptVersionIds` for summarize/redact (and classify if needed)
-  2) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
+  1) Resolve `importBatchIds` (see Input rules above). All referenced ImportBatches MUST exist; else HTTP 404 `NOT_FOUND`.
+  2) Timezone uniformity: all selected batches must share the same timezone. If not → HTTP 400 `TIMEZONE_MISMATCH` `{ message, timezones: string[], batchIds: string[] }`.
+  3) Freeze `promptVersionIds` for summarize (and redact/classify when those stages are added).
+  4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
      - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
      - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
      - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
-  3) Freeze `filterProfileSnapshot`
-  4) Determine eligible days: days where at least one MessageAtom matches
+  5) Freeze `filterProfileSnapshot`
+  6) Determine eligible days: days where at least one MessageAtom matches
      - importBatchId IN (`importBatchIds`)
      - sources
      - date range
      - has a MessageLabel matching **labelSpec**
      - passes filter profile
-  5) Create one Job per eligible day
-  6) If 0 eligible days → return HTTP 400 with a structured error (see 7.7 Error conventions).
+  7) Create one Job per eligible day
+  8) If 0 eligible days → return HTTP 400 with a structured error (see §7.8 Error conventions).
 
 ### 7.4 Process (tick loop)
 POST `/api/distill/runs/:runId/tick`
 - Default processes **up to N queued jobs, N=1**.
+- Each job is processed by constructing a deterministic day bundle (§9) and passing it to the summarizer.
 - Must be safe under repeated calls and concurrency:
   - a job cannot be started twice
   - a run cannot have overlapping active ticks
@@ -517,10 +522,7 @@ POST `/api/distill/runs/:runId/tick`
   - If using a pooled ORM client (e.g., Prisma), the implementation MAY use a dedicated Postgres client connection for lock acquire/release to avoid releasing on a different pooled session.
 - If the guard cannot be acquired, return HTTP 409 `{ error: { code: "TICK_IN_PROGRESS", message: "Tick already in progress" } }`.
 
-UI polling:
-- sequential: wait for each tick response before next tick
-- no `setInterval` fire-and-forget
-- The UI MUST NOT use setInterval for tick; it must be a sequential loop (manual or controlled play button).
+UI polling MUST follow §4.5 (bounded concurrency) and §4.6 (foreground polling rules).
 
 
 #### 7.4.1 Run status transitions (normative)
@@ -535,7 +537,10 @@ Run.status is a coarse, user-facing summary and MUST follow these rules:
 
 Note: `progress` in tick responses is the ground truth for counts; `runStatus` MUST be consistent with it.
 
-### 7.5 Inspect
+### 7.5 Inspect (behavioral contract)
+
+> §7.5 defines **what** the run detail page must display. §7.5.1 defines the Phase 5 minimum implementation.
+
 UI: `/distill/runs/:runId`
 Must show:
 - run config snapshot (import + prompts + labelSpec + filter snapshot)
@@ -798,6 +803,8 @@ This prevents stale labels from leaking into new runs.
 
 ## 9) Deterministic day bundle construction
 
+Bundle construction is invoked by the tick handler (§7.4) for each queued job.
+
 ### 9.1 Bundle ordering
 For a job/day:
 1) Load eligible MessageAtoms (matching sources + date + filter + labelSpec)
@@ -840,7 +847,7 @@ Segment outputs (v0.3 behavior):
 
 ---
 
-## 10) New v0.3 features
+## 10) Search & Inspector
 
 ### 10.1 Search (lexical, not embeddings)
 Rationale: deterministic, cheap, inspectable.
@@ -932,6 +939,20 @@ Any change that affects invariants, stable IDs, schemas, or API behavior must:
 
 - Timezone choice affects day bucketing; changing timezone requires re-import.
 - Large RawEntry text is acceptable for local-first demo.
+
+---
+
+## Appendix A) Design philosophy
+
+> This section captures the project's design rationale. It is informative, not normative.
+
+**Core levers (highest ROI):**
+1) **Stable IDs** for atoms/bundles/outputs (referential backbone).
+2) **Pinned versions** (prompt versions + label spec) for reproducibility.
+3) **Sequential tick** (default 1 job/tick; no overlapping polls) for reliability.
+4) **Search + inspector UI** to view "before/after" and debug quickly.
+
+These levers address the recurring risks of non-determinism, silent data loss, unpinned prompt/label versions, and polling pile-ups.
 
 ---
 
