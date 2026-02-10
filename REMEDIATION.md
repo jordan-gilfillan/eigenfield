@@ -21,12 +21,11 @@ Each entry has:
 
 ## Current top priorities
 
-> Open entries (in priority order): AUD-052 (mixed override rejection), AUD-054 (flake).
+> Open entries (in priority order): AUD-054 (flake).
 
 
 ## Open entries
 
-- AUD-052 — Reject sourceOverride=mixed in import API (v0.3 reserved)
 - AUD-054 — Flaky test: listImportBatches pagination
 
 ---
@@ -1012,7 +1011,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Valid overrides (`chatgpt|claude|grok`) unchanged
   - Route-level tests cover mixed rejection + valid overrides
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added explicit `mixed` rejection before general `SOURCE_VALUES.includes()` check in `src/app/api/distill/import/route.ts`. Reordered validations so sourceOverride is checked before file presence (enables DB-free tests). Added 3 route-level tests in `src/app/api/distill/import/__tests__/route.test.ts`: mixed→400 with `validSources` excluding mixed, bogus→400, chatgpt passes source validation (falls through to file-missing check). 673 tests pass.
 
 ### AUD-054 — Flaky test: listImportBatches pagination
 - **Source**: Repeated stabilization runs (noted during AUD-051 completion)
