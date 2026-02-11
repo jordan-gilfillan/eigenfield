@@ -35,6 +35,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# DigitalOcean (use .do/app.yaml.example as template)
+.do/app.yaml
+
 # Vercel
 .vercel
 
