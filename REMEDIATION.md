@@ -21,12 +21,14 @@ Each entry has:
 
 ## Current top priorities
 
-> No open entries. All remediation items resolved.
+> Studio UX: AUD-055 (inspect panel), AUD-056 (status bar), AUD-057 (prompt versions)
 
 
 ## Open entries
 
-(none)
+- AUD-055 — Studio inspect panel (collapsible input/output view)
+- AUD-056 — Studio status bar + cost anomaly badges
+- AUD-057 — Journal-friendly summarize prompt versions (seed data)
 
 ---
 
@@ -67,6 +69,9 @@ Each entry has:
 - AUD-018
 - AUD-019
 - AUD-043
+- AUD-055
+- AUD-056
+- AUD-057
 
 ---
 
@@ -1029,6 +1034,62 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Ordering/cursor assumptions are explicit in code + tests (e.g., `orderBy createdAt,id`)
 - **Status**: Done
 - **Resolution**: Added `id` as secondary sort key (`orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]`) in `listImportBatches` for deterministic cursor pagination. Rewrote pagination test as a page-walk with strict invariants: no duplicate IDs across pages, cursor advances each page, all 3 test batches found, correct relative order (desc by createdAt). Stops early once all test batches are found (avoids exhausting table when parallel tests create many records). 5 consecutive full-suite runs with 0 flakes (673 tests each).
+
+
+### AUD-055 — Studio inspect panel (collapsible input/output view)
+- **Source**: Studio UX redesign plan §3d
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Problem**: Studio shows journal output but no way to inspect what the model saw (input bundle) or compare input/output side-by-side.
+- **Decision**: Implement collapsible inspect panel below journal entry
+- **Planned PR**: `feat/AUD-055-studio-inspect-panel`
+- **Acceptance checks**:
+  - "Inspect" toggle below journal entry metadata opens/closes panel.
+  - Panel lazy-fetches `GET /runs/:runId/jobs/:dayDate/input` on open (not before).
+  - Left column: bundle preview text (monospace), atom count, bundle hash (truncated).
+  - Right column: output markdown + output hash, segmentation metadata.
+  - Raw JSON collapsible in each column (collapsed by default).
+  - Panel closes when switching days.
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+
+### AUD-056 — Studio status bar + cost anomaly badges
+- **Source**: Studio UX redesign plan §3e, §3i, §3j
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Problem**: Studio has no run progress visibility, no tick/auto-run/resume controls, and no cost anomaly detection.
+- **Decision**: Implement bottom status bar with progress + controls; add cost anomaly badges to day sidebar
+- **Planned PR**: `feat/AUD-056-studio-status-bar`
+- **Acceptance checks**:
+  - Status bar shows segmented progress bar + counters (succeeded/failed/total/cost).
+  - Tick button processes a job, status bar updates via `refreshRun()`.
+  - Auto-run imports `startAutoRunLoop` from existing hook — no duplication.
+  - Auto-run starts → polling stops; auto-run stops → polling resumes (if non-terminal).
+  - Manual Tick disabled during auto-run.
+  - Resume button visible when `run.progress.failed > 0`; requeues failed jobs.
+  - Terminal runs (`completed`, `cancelled`, `failed`) disable all buttons and stop all refresh.
+  - Cost anomaly badges: amber `$` on days with `costUsd > 2 * median` (≥3 succeeded costs with costUsd > 0).
+  - Unit test for `getMedianCost` + anomaly threshold logic.
+  - `npx vitest run` passes.
+- **Status**: Not started
+
+
+### AUD-057 — Journal-friendly summarize prompt versions (seed data)
+- **Source**: Studio UX redesign plan §4
+- **Severity**: LOW
+- **Type**: UX roadmap
+- **Problem**: The only summarize prompt (`v1`) produces report-style output. Need journal-friendly alternatives.
+- **Decision**: Add 3 inactive PromptVersion rows via seed upsert (`journal_v1`, `journal_v2`, `journal_v3`)
+- **Planned PR**: `feat/AUD-057-journal-prompt-versions`
+- **Acceptance checks**:
+  - `npx prisma db seed` succeeds without error.
+  - Post-seed invariant validation passes (≤1 active per stage).
+  - 3 new SUMMARIZE versions appear (all `isActive: false`).
+  - Re-running seed is idempotent (no duplicates, no errors).
+  - Existing `v1` (active) is unaffected.
+  - `npx vitest run` passes.
+- **Status**: Not started
 
 ---
 
