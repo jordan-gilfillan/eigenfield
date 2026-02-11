@@ -10,7 +10,7 @@ import { prisma } from '../db'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
-import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget } from '../llm'
+import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget, RateLimiter, getMinDelayMs } from '../llm'
 import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import type { JobStatus, RunStatus } from '@prisma/client'
 
@@ -90,6 +90,9 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
       pricingSnapshot?: PricingSnapshot
     }
 
+    // Create rate limiter shared across all jobs in this tick
+    const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
+
     // Load budget policy and existing run spend for budget enforcement
     const budgetPolicy = getSpendCaps()
     const existingSpendAgg = await prisma.job.aggregate({
@@ -150,6 +153,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
         config,
         spentUsdSoFar: existingRunSpend + tickSpentUsd,
         budgetPolicy,
+        rateLimiter,
       })
       processedJobs.push(jobResult)
       tickSpentUsd += jobResult.costUsd ?? 0
@@ -187,9 +191,10 @@ async function processJob(
     }
     spentUsdSoFar: number
     budgetPolicy: BudgetPolicy
+    rateLimiter: RateLimiter
   }
 ): Promise<TickResult['jobs'][0]> {
-  const { importBatchIds, sources, model, config, spentUsdSoFar, budgetPolicy } = context
+  const { importBatchIds, sources, model, config, spentUsdSoFar, budgetPolicy, rateLimiter } = context
 
   // Mark job as running
   const job = await prisma.job.update({
@@ -261,6 +266,9 @@ async function processJob(
       const segmentSummaries: string[] = []
 
       for (const segment of segmentation.segments) {
+        // Rate limit for non-stub models
+        if (!model.startsWith('stub')) await rateLimiter.acquire()
+
         // Pre-call budget check: block if already exceeded
         assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
 
@@ -290,6 +298,9 @@ async function processJob(
       }
     } else {
       // No segmentation needed - process as single bundle
+      // Rate limit for non-stub models
+      if (!model.startsWith('stub')) await rateLimiter.acquire()
+
       // Pre-call budget check: block if already exceeded
       assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar, policy: budgetPolicy })
 
