@@ -21,12 +21,12 @@ Each entry has:
 
 ## Current top priorities
 
-> Studio UX: AUD-057 (prompt versions)
+> All Studio UX PRs complete (AUD-055, AUD-056, AUD-057).
 
 
 ## Open entries
 
-- AUD-057 — Journal-friendly summarize prompt versions (seed data)
+(none)
 
 ---
 
@@ -1089,7 +1089,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Re-running seed is idempotent (no duplicates, no errors).
   - Existing `v1` (active) is unaffected.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added 3 journal-friendly PromptVersion upserts (`journal_v1`, `journal_v2`, `journal_v3`) to `prisma/seed.ts` under existing `default-summarizer` Prompt. All created with `isActive: false`. `update: { templateText }` allows re-seed to update text without touching `isActive`. Post-seed invariant check passes (1 active SUMMARIZE version unchanged).
 
 ---
 
