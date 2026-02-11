@@ -1124,7 +1124,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `LLM_MIN_DELAY_MS=0` preserves no-delay behavior.
   - Tests verify delay enforcement with fake clock and no-delay mode.
   - `npx vitest run` passes.
-- **Status**: Open
+- **Status**: Done
+- **Resolution**: `RateLimiter` created in `processTick()` with `getMinDelayMs()`, shared across all jobs in one tick, passed into `processJob()` context. Non-stub models call `rateLimiter.acquire()` before each `summarize()` (both single-bundle and segmented paths). Ordering: rate limit → budget check → summarize. 5 new integration tests in `tick-rate-limit.test.ts` (→ 702 total).
 
 ### AUD-060 — Correct `LLM_MAX_USD_PER_DAY` semantics to calendar-day spend
 - **Source**: README accuracy audit 2026-02-11
