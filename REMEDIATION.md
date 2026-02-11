@@ -1141,7 +1141,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Day boundary behavior is deterministic and documented (timezone basis explicitly defined).
   - Tests verify per-day reset behavior and independence from per-run cap.
   - `npx vitest run` passes.
-- **Status**: Open
+- **Status**: Done
+- **Resolution**: Split `BudgetCheckInput.spentUsdSoFar` into `spentUsdRunSoFar` + `spentUsdDaySoFar`. New `budget-queries.ts` provides `getCalendarDaySpendUsd()` which sums Job + ClassifyRun `costUsd` for the UTC calendar day. `tick.ts` and `classify.ts` both query day spend at start and pass both dimensions to `assertWithinBudget()`. Day boundary uses UTC (deterministic). 17 budget unit tests (5 new independence tests) + 7 integration tests for day-spend query (→ 710 total).
 
 ---
 
