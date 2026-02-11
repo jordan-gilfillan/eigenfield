@@ -1092,6 +1092,55 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added 3 journal-friendly PromptVersion upserts (`journal_v1`, `journal_v2`, `journal_v3`) to `prisma/seed.ts` under existing `default-summarizer` Prompt. All created with `isActive: false`. `update: { templateText }` allows re-seed to update text without touching `isActive`. Post-seed invariant check passes (1 active SUMMARIZE version unchanged).
 
+### AUD-058 — Enforce spend caps during summarize/tick execution
+- **Source**: README accuracy audit 2026-02-11
+- **Severity**: HIGH
+- **Type**: Correctness / safety control gap
+- **Code refs**: `src/lib/services/tick.ts`, `src/lib/services/summarizer.ts`, `src/lib/llm/budget.ts`, `src/lib/llm/config.ts`
+- **Problem**: Spend caps are enforced in classify real mode but not in summarize/tick execution. In real mode, long runs can call providers without budget checks, which conflicts with the intended server-side spend guardrails.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-058-summarize-spend-cap-enforcement`
+- **Acceptance checks**:
+  - Budget checks run before every summarize LLM call in tick processing (single bundle and segmented paths).
+  - Enforcement applies across the full run, not only per-segment.
+  - Exceeded cap results in `BUDGET_EXCEEDED` with `retriable=false` on job failure payload.
+  - Existing classify budget behavior remains unchanged.
+  - Integration tests cover: within cap succeeds; cap exceeded in non-segmented flow; cap exceeded mid-segmentation.
+  - `npx vitest run` passes.
+- **Status**: Open
+
+### AUD-059 — Apply `LLM_MIN_DELAY_MS` rate limiting to summarize/tick path
+- **Source**: README accuracy audit 2026-02-11
+- **Severity**: MEDIUM
+- **Type**: Operational safety / throttling gap
+- **Code refs**: `src/lib/services/tick.ts`, `src/lib/services/summarizer.ts`, `src/lib/llm/rateLimit.ts`, `src/lib/llm/config.ts`
+- **Problem**: Rate limiting is currently applied in classify real mode, but summarize/tick calls can execute back-to-back without honoring `LLM_MIN_DELAY_MS`.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-059-summarize-rate-limit`
+- **Acceptance checks**:
+  - Summarize provider calls are serialized through `RateLimiter` using configured `LLM_MIN_DELAY_MS`.
+  - Delay enforcement applies across multiple jobs in one tick and across segments within a job.
+  - `LLM_MIN_DELAY_MS=0` preserves no-delay behavior.
+  - Tests verify delay enforcement with fake clock and no-delay mode.
+  - `npx vitest run` passes.
+- **Status**: Open
+
+### AUD-060 — Correct `LLM_MAX_USD_PER_DAY` semantics to calendar-day spend
+- **Source**: README accuracy audit 2026-02-11
+- **Severity**: HIGH
+- **Type**: Contract / semantics bug
+- **Code refs**: `src/lib/llm/budget.ts`, `src/lib/services/classify.ts`, `src/lib/services/tick.ts`
+- **Problem**: Current `per_day` budget checks reuse a generic running spend total, so "per day" is not enforced as actual calendar-day spend. This can over-block or under-block depending on run shape and duration.
+- **Decision**: Fix code + align explicit semantics in docs/spec as needed
+- **Planned PR**: `fix/AUD-060-true-per-day-budget`
+- **Acceptance checks**:
+  - Budget guard accepts distinct run-level and day-level spend inputs.
+  - `LLM_MAX_USD_PER_DAY` compares against spend accumulated for the same calendar day only.
+  - Day boundary behavior is deterministic and documented (timezone basis explicitly defined).
+  - Tests verify per-day reset behavior and independence from per-run cap.
+  - `npx vitest run` passes.
+- **Status**: Open
+
 ---
 
 ## Notes
