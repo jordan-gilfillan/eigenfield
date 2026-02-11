@@ -21,12 +21,11 @@ Each entry has:
 
 ## Current top priorities
 
-> Studio UX: AUD-056 (status bar), AUD-057 (prompt versions)
+> Studio UX: AUD-057 (prompt versions)
 
 
 ## Open entries
 
-- AUD-056 — Studio status bar + cost anomaly badges
 - AUD-057 — Journal-friendly summarize prompt versions (seed data)
 
 ---
@@ -1072,7 +1071,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Cost anomaly badges: amber `$` on days with `costUsd > 2 * median` (≥3 succeeded costs with costUsd > 0).
   - Unit test for `getMedianCost` + anomaly threshold logic.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `StatusBar.tsx` (segmented progress bar, tick/auto-run/resume controls using existing hooks). Updated `page.tsx` with `refreshRun()`, `usePolling`, anomaly detection via `useMemo`. Added `anomaly.ts` pure functions (`getMedianCost`, `getAnomalousDays`) + amber `$` badges on `DaySidebar`. 12 unit tests (685 total).
 
 
 ### AUD-057 — Journal-friendly summarize prompt versions (seed data)
