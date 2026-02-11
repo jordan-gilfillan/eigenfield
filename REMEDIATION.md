@@ -21,12 +21,11 @@ Each entry has:
 
 ## Current top priorities
 
-> Studio UX: AUD-055 (inspect panel), AUD-056 (status bar), AUD-057 (prompt versions)
+> Studio UX: AUD-056 (status bar), AUD-057 (prompt versions)
 
 
 ## Open entries
 
-- AUD-055 — Studio inspect panel (collapsible input/output view)
 - AUD-056 — Studio status bar + cost anomaly badges
 - AUD-057 — Journal-friendly summarize prompt versions (seed data)
 
@@ -1051,7 +1050,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Raw JSON collapsible in each column (collapsed by default).
   - Panel closes when switching days.
   - `npx vitest run` passes.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `InspectPanel.tsx` (two-column input/output view with lazy-fetch, collapsible raw JSON, hash/atom metadata). Modified `JournalEntry.tsx` to add Inspect toggle + expanded OutputData. Panel closes on day switch via `useEffect([dayDate])`. 673 tests pass.
 
 
 ### AUD-056 — Studio status bar + cost anomaly badges
