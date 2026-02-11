@@ -60,7 +60,7 @@ export async function GET(
     }
 
     // Extract frozen config from run
-    const config = run.configJson as RunConfig & { importBatchIds?: string[] }
+    const config = run.configJson as unknown as RunConfig & { importBatchIds?: string[] }
     const sources = (run.sources as string[]).map((s) => s.toLowerCase())
 
     // Resolve importBatchIds from RunBatch junction (canonical source per §6.8a),
