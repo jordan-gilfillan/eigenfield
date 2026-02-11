@@ -1107,7 +1107,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Existing classify budget behavior remains unchanged.
   - Integration tests cover: within cap succeeds; cap exceeded in non-segmented flow; cap exceeded mid-segmentation.
   - `npx vitest run` passes.
-- **Status**: Open
+- **Status**: Done
+- **Resolution**: Two-phase budget enforcement in `processJob()` (tick.ts): pre-call `assertWithinBudget({nextCostUsd:0})` blocks if already exceeded; post-call check uses actual cost to stop remaining segments/jobs. `processTick()` queries existing run spend from DB and accumulates `tickSpentUsd` across jobs in one tick. 8 new integration tests in `tick-budget.test.ts` (→ 700 total).
 
 ### AUD-059 — Apply `LLM_MIN_DELAY_MS` rate limiting to summarize/tick path
 - **Source**: README accuracy audit 2026-02-11
