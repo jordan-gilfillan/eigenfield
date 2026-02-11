@@ -2,12 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import InspectPanel from './InspectPanel'
 
 interface OutputData {
   outputText: string
   model: string
   promptVersionId: string
   createdAt: string
+  bundleHash: string
+  bundleContextHash: string
+  segmented: boolean
+  segmentCount: number | null
+  atomCount: number | null
+  rawOutputJson: object | null
 }
 
 interface JournalEntryProps {
@@ -83,6 +90,12 @@ export default function JournalEntry({
   const [output, setOutput] = useState<OutputData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [inspectOpen, setInspectOpen] = useState(false)
+
+  // Close inspect panel when switching days
+  useEffect(() => {
+    setInspectOpen(false)
+  }, [dayDate])
 
   useEffect(() => {
     if (jobStatus !== 'succeeded') {
@@ -113,6 +126,12 @@ export default function JournalEntry({
           model: data.output.model,
           promptVersionId: data.output.promptVersionId,
           createdAt: data.output.createdAt,
+          bundleHash: data.output.bundleHash ?? '',
+          bundleContextHash: data.output.bundleContextHash ?? '',
+          segmented: data.output.segmented ?? false,
+          segmentCount: data.output.segmentCount ?? null,
+          atomCount: data.output.atomCount ?? null,
+          rawOutputJson: data.output.rawOutputJson ?? null,
         })
       } else {
         setError('No output available for this day.')
@@ -153,7 +172,19 @@ export default function JournalEntry({
             <div>
               prompt: {output.promptVersionId.slice(0, 7)}&hellip; &middot; generated {new Date(output.createdAt).toLocaleString()}
             </div>
+            <button
+              onClick={() => setInspectOpen(!inspectOpen)}
+              className="text-sm text-blue-600 hover:underline cursor-pointer mt-2 block"
+            >
+              {inspectOpen ? 'Close Inspect' : 'Inspect'}
+            </button>
           </div>
+
+          {inspectOpen && (
+            <div className="max-w-full">
+              <InspectPanel runId={runId} dayDate={dayDate} output={output} />
+            </div>
+          )}
         </>
       )}
 
