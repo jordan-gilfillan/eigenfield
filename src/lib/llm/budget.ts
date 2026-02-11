@@ -14,23 +14,24 @@ export interface BudgetPolicy {
 
 export interface BudgetCheckInput {
   nextCostUsd: number
-  spentUsdSoFar: number
+  spentUsdRunSoFar: number
+  spentUsdDaySoFar: number
   policy: BudgetPolicy
 }
 
 /**
  * Throws BudgetExceededError if the next call would exceed a spend cap.
- * Checks per-run limit against spentUsdSoFar.
+ * Checks per-run limit against spentUsdRunSoFar and per-day limit against spentUsdDaySoFar.
  */
 export function assertWithinBudget(input: BudgetCheckInput): void {
-  const { nextCostUsd, spentUsdSoFar, policy } = input
+  const { nextCostUsd, spentUsdRunSoFar, spentUsdDaySoFar, policy } = input
 
   if (policy.maxUsdPerRun !== undefined) {
-    const projectedTotal = spentUsdSoFar + nextCostUsd
+    const projectedTotal = spentUsdRunSoFar + nextCostUsd
     if (projectedTotal > policy.maxUsdPerRun) {
       throw new BudgetExceededError(
         nextCostUsd,
-        spentUsdSoFar,
+        spentUsdRunSoFar,
         policy.maxUsdPerRun,
         'per_run'
       )
@@ -38,11 +39,11 @@ export function assertWithinBudget(input: BudgetCheckInput): void {
   }
 
   if (policy.maxUsdPerDay !== undefined) {
-    const projectedTotal = spentUsdSoFar + nextCostUsd
+    const projectedTotal = spentUsdDaySoFar + nextCostUsd
     if (projectedTotal > policy.maxUsdPerDay) {
       throw new BudgetExceededError(
         nextCostUsd,
-        spentUsdSoFar,
+        spentUsdDaySoFar,
         policy.maxUsdPerDay,
         'per_day'
       )

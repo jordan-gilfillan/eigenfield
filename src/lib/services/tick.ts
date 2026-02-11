@@ -13,6 +13,7 @@ import { summarize } from './summarizer'
 import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget, RateLimiter, getMinDelayMs } from '../llm'
 import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import type { JobStatus, RunStatus } from '@prisma/client'
+import { getCalendarDaySpendUsd } from './budget-queries'
 
 /** Default number of jobs to process per tick */
 const DEFAULT_JOBS_PER_TICK = 1
@@ -93,12 +94,15 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     // Create rate limiter shared across all jobs in this tick
     const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
 
-    // Load budget policy and existing run spend for budget enforcement
+    // Load budget policy and existing spend for budget enforcement
     const budgetPolicy = getSpendCaps()
-    const existingSpendAgg = await prisma.job.aggregate({
-      where: { runId },
-      _sum: { costUsd: true },
-    })
+    const [existingSpendAgg, daySpendAtStart] = await Promise.all([
+      prisma.job.aggregate({
+        where: { runId },
+        _sum: { costUsd: true },
+      }),
+      getCalendarDaySpendUsd(),
+    ])
     const existingRunSpend = existingSpendAgg._sum.costUsd ?? 0
     let tickSpentUsd = 0
 
@@ -151,7 +155,8 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
         sources: (currentRun.sources as string[]).map((s) => s.toLowerCase()),
         model: currentRun.model,
         config,
-        spentUsdSoFar: existingRunSpend + tickSpentUsd,
+        spentUsdRunSoFar: existingRunSpend + tickSpentUsd,
+        spentUsdDaySoFar: daySpendAtStart + tickSpentUsd,
         budgetPolicy,
         rateLimiter,
       })
@@ -189,12 +194,13 @@ async function processJob(
       maxInputTokens: number
       pricingSnapshot?: PricingSnapshot
     }
-    spentUsdSoFar: number
+    spentUsdRunSoFar: number
+    spentUsdDaySoFar: number
     budgetPolicy: BudgetPolicy
     rateLimiter: RateLimiter
   }
 ): Promise<TickResult['jobs'][0]> {
-  const { importBatchIds, sources, model, config, spentUsdSoFar, budgetPolicy, rateLimiter } = context
+  const { importBatchIds, sources, model, config, spentUsdRunSoFar, spentUsdDaySoFar, budgetPolicy, rateLimiter } = context
 
   // Mark job as running
   const job = await prisma.job.update({
@@ -270,7 +276,7 @@ async function processJob(
         if (!model.startsWith('stub')) await rateLimiter.acquire()
 
         // Pre-call budget check: block if already exceeded
-        assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
+        assertWithinBudget({ nextCostUsd: 0, spentUsdRunSoFar: spentUsdRunSoFar + totalCostUsd, spentUsdDaySoFar: spentUsdDaySoFar + totalCostUsd, policy: budgetPolicy })
 
         const segmentResult = await summarize({
           bundleText: segment.text,
@@ -284,7 +290,7 @@ async function processJob(
         totalCostUsd += segmentResult.costUsd ?? 0
 
         // Post-call budget check: stop remaining segments if actual cost exceeded cap
-        assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
+        assertWithinBudget({ nextCostUsd: 0, spentUsdRunSoFar: spentUsdRunSoFar + totalCostUsd, spentUsdDaySoFar: spentUsdDaySoFar + totalCostUsd, policy: budgetPolicy })
       }
 
       // Concatenate segment summaries per spec 9.2
@@ -302,7 +308,7 @@ async function processJob(
       if (!model.startsWith('stub')) await rateLimiter.acquire()
 
       // Pre-call budget check: block if already exceeded
-      assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar, policy: budgetPolicy })
+      assertWithinBudget({ nextCostUsd: 0, spentUsdRunSoFar, spentUsdDaySoFar, policy: budgetPolicy })
 
       const summaryResult = await summarize({
         bundleText: bundle.bundleText,
@@ -316,7 +322,7 @@ async function processJob(
       totalCostUsd = summaryResult.costUsd ?? 0
 
       // Post-call budget check: stop if actual cost exceeded cap
-      assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
+      assertWithinBudget({ nextCostUsd: 0, spentUsdRunSoFar: spentUsdRunSoFar + totalCostUsd, spentUsdDaySoFar: spentUsdDaySoFar + totalCostUsd, policy: budgetPolicy })
 
       outputMeta = {
         segmented: false,

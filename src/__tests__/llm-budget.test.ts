@@ -7,7 +7,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 1.0,
-        spentUsdSoFar: 100.0,
+        spentUsdRunSoFar: 100.0,
+        spentUsdDaySoFar: 100.0,
         policy: {},
       })
     ).not.toThrow()
@@ -17,7 +18,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.10,
-        spentUsdSoFar: 4.80,
+        spentUsdRunSoFar: 4.80,
+        spentUsdDaySoFar: 0,
         policy: { maxUsdPerRun: 5.0 },
       })
     ).not.toThrow()
@@ -27,7 +29,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.10,
-        spentUsdSoFar: 4.90,
+        spentUsdRunSoFar: 4.90,
+        spentUsdDaySoFar: 0,
         policy: { maxUsdPerRun: 5.0 },
       })
     ).not.toThrow()
@@ -37,7 +40,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.20,
-        spentUsdSoFar: 4.90,
+        spentUsdRunSoFar: 4.90,
+        spentUsdDaySoFar: 0,
         policy: { maxUsdPerRun: 5.0 },
       })
     ).toThrow(BudgetExceededError)
@@ -47,7 +51,8 @@ describe('assertWithinBudget', () => {
     try {
       assertWithinBudget({
         nextCostUsd: 0.20,
-        spentUsdSoFar: 4.90,
+        spentUsdRunSoFar: 4.90,
+        spentUsdDaySoFar: 0,
         policy: { maxUsdPerRun: 5.0 },
       })
       expect.fail('should have thrown')
@@ -64,7 +69,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.50,
-        spentUsdSoFar: 9.0,
+        spentUsdRunSoFar: 0,
+        spentUsdDaySoFar: 9.0,
         policy: { maxUsdPerDay: 10.0 },
       })
     ).not.toThrow()
@@ -74,7 +80,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 1.50,
-        spentUsdSoFar: 9.0,
+        spentUsdRunSoFar: 0,
+        spentUsdDaySoFar: 9.0,
         policy: { maxUsdPerDay: 10.0 },
       })
     ).toThrow(BudgetExceededError)
@@ -84,7 +91,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.20,
-        spentUsdSoFar: 4.90,
+        spentUsdRunSoFar: 4.90,
+        spentUsdDaySoFar: 1.0,
         policy: { maxUsdPerRun: 5.0, maxUsdPerDay: 100.0 },
       })
     ).toThrow(BudgetExceededError)
@@ -94,7 +102,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 1.50,
-        spentUsdSoFar: 9.0,
+        spentUsdRunSoFar: 1.0,
+        spentUsdDaySoFar: 9.0,
         policy: { maxUsdPerRun: 100.0, maxUsdPerDay: 10.0 },
       })
     ).toThrow(BudgetExceededError)
@@ -104,7 +113,8 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.10,
-        spentUsdSoFar: 1.0,
+        spentUsdRunSoFar: 1.0,
+        spentUsdDaySoFar: 1.0,
         policy: { maxUsdPerRun: 5.0, maxUsdPerDay: 10.0 },
       })
     ).not.toThrow()
@@ -114,19 +124,96 @@ describe('assertWithinBudget', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0,
-        spentUsdSoFar: 5.0,
+        spentUsdRunSoFar: 5.0,
+        spentUsdDaySoFar: 5.0,
         policy: { maxUsdPerRun: 5.0 },
       })
     ).not.toThrow()
   })
 
-  it('handles zero spentUsdSoFar', () => {
+  it('handles zero spend', () => {
     expect(() =>
       assertWithinBudget({
         nextCostUsd: 0.10,
-        spentUsdSoFar: 0,
+        spentUsdRunSoFar: 0,
+        spentUsdDaySoFar: 0,
         policy: { maxUsdPerRun: 5.0 },
       })
     ).not.toThrow()
+  })
+
+  describe('per-day vs per-run independence', () => {
+    it('per-day exceeded while per-run OK → throws with per_day limitType', () => {
+      try {
+        assertWithinBudget({
+          nextCostUsd: 0.10,
+          spentUsdRunSoFar: 1.0,
+          spentUsdDaySoFar: 9.95,
+          policy: { maxUsdPerRun: 50.0, maxUsdPerDay: 10.0 },
+        })
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(BudgetExceededError)
+        const e = err as BudgetExceededError
+        expect(e.details?.limitType).toBe('per_day')
+        expect(e.details?.limitUsd).toBe(10.0)
+      }
+    })
+
+    it('per-run exceeded while per-day OK → throws with per_run limitType', () => {
+      try {
+        assertWithinBudget({
+          nextCostUsd: 0.20,
+          spentUsdRunSoFar: 4.90,
+          spentUsdDaySoFar: 1.0,
+          policy: { maxUsdPerRun: 5.0, maxUsdPerDay: 100.0 },
+        })
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(BudgetExceededError)
+        const e = err as BudgetExceededError
+        expect(e.details?.limitType).toBe('per_run')
+        expect(e.details?.limitUsd).toBe(5.0)
+      }
+    })
+
+    it('both OK → passes', () => {
+      expect(() =>
+        assertWithinBudget({
+          nextCostUsd: 0.10,
+          spentUsdRunSoFar: 2.0,
+          spentUsdDaySoFar: 5.0,
+          policy: { maxUsdPerRun: 5.0, maxUsdPerDay: 10.0 },
+        })
+      ).not.toThrow()
+    })
+
+    it('per-run uses spentUsdRunSoFar not spentUsdDaySoFar', () => {
+      // Run spend is high, day spend is low
+      // per-run cap of 5.0; run spend 4.90 + next 0.20 = 5.10 > 5.0 → throw
+      // even though day spend is only 0.50
+      expect(() =>
+        assertWithinBudget({
+          nextCostUsd: 0.20,
+          spentUsdRunSoFar: 4.90,
+          spentUsdDaySoFar: 0.50,
+          policy: { maxUsdPerRun: 5.0 },
+        })
+      ).toThrow(BudgetExceededError)
+    })
+
+    it('per-day uses spentUsdDaySoFar not spentUsdRunSoFar', () => {
+      // Day spend is high, run spend is low
+      // per-day cap of 10.0; day spend 9.50 + next 1.0 = 10.50 > 10.0 → throw
+      // even though run spend is only 2.0
+      expect(() =>
+        assertWithinBudget({
+          nextCostUsd: 1.0,
+          spentUsdRunSoFar: 2.0,
+          spentUsdDaySoFar: 9.50,
+          policy: { maxUsdPerDay: 10.0 },
+        })
+      ).toThrow(BudgetExceededError)
+    })
   })
 })

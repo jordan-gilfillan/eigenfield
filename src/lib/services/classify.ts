@@ -21,6 +21,7 @@ import {
   BudgetExceededError,
 } from '../llm'
 import type { ProviderId, LlmCallContext } from '../llm'
+import { getCalendarDaySpendUsd } from './budget-queries'
 
 /**
  * Thrown when classify request parameters are invalid per spec 7.2 guardrails.
@@ -767,7 +768,8 @@ async function classifyBatchReal(
   const provider = inferProvider(model)
   const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
   const budgetPolicy = getSpendCaps()
-  let spentUsdSoFar = progress.costUsd
+  const daySpendAtStart = await getCalendarDaySpendUsd()
+  let sessionSpentUsd = progress.costUsd
   const badCategorySamples: string[] = []
   const aliasedCategorySamples: string[] = []
   let cursor: string | undefined
@@ -798,7 +800,7 @@ async function classifyBatchReal(
       await rateLimiter.acquire()
 
       const ctx: LlmCallContext = {
-        spentUsdSoFar,
+        spentUsdSoFar: sessionSpentUsd,
         simulateCost: true,
       }
 
@@ -807,7 +809,8 @@ async function classifyBatchReal(
       const estimatedNextCost = 0.001
       assertWithinBudget({
         nextCostUsd: estimatedNextCost,
-        spentUsdSoFar,
+        spentUsdRunSoFar: sessionSpentUsd,
+        spentUsdDaySoFar: daySpendAtStart + sessionSpentUsd,
         policy: budgetPolicy,
       })
 
@@ -834,7 +837,7 @@ async function classifyBatchReal(
       progress.tokensIn += response.tokensIn
       progress.tokensOut += response.tokensOut
       progress.costUsd += response.costUsd
-      spentUsdSoFar += response.costUsd
+      sessionSpentUsd += response.costUsd
 
       let parsed: { category: Category; confidence: number; aliasedFrom?: string }
       try {
