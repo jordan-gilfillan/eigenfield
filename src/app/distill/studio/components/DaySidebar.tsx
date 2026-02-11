@@ -13,6 +13,7 @@ interface DaySidebarProps {
   jobs: Job[]
   selectedDay: string | null
   onDaySelect: (dayDate: string) => void
+  anomalousDays?: Set<string>
 }
 
 const STATUS_GLYPHS: Record<string, { glyph: string; color: string }> = {
@@ -33,7 +34,7 @@ function formatDayLabel(dayDate: string): string {
   })
 }
 
-export default function DaySidebar({ jobs, selectedDay, onDaySelect }: DaySidebarProps) {
+export default function DaySidebar({ jobs, selectedDay, onDaySelect, anomalousDays }: DaySidebarProps) {
   const sorted = [...jobs].sort((a, b) => b.dayDate.localeCompare(a.dayDate))
 
   if (sorted.length === 0) {
@@ -50,6 +51,8 @@ export default function DaySidebar({ jobs, selectedDay, onDaySelect }: DaySideba
         const isSelected = job.dayDate === selectedDay
         const { glyph, color } = STATUS_GLYPHS[job.status] ?? STATUS_GLYPHS.queued
 
+        const isAnomalous = anomalousDays?.has(job.dayDate) ?? false
+
         return (
           <button
             key={job.dayDate}
@@ -62,6 +65,9 @@ export default function DaySidebar({ jobs, selectedDay, onDaySelect }: DaySideba
           >
             <span className={`${color} text-xs inline-block w-4 text-center`}>{glyph}</span>
             <span>{formatDayLabel(job.dayDate)}</span>
+            {isAnomalous && (
+              <span className="text-amber-500 text-xs font-medium ml-auto" title="Cost anomaly">$</span>
+            )}
           </button>
         )
       })}
