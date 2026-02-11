@@ -10,8 +10,8 @@ import { prisma } from '../db'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
-import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError } from '../llm'
-import type { PricingSnapshot } from '../llm'
+import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget } from '../llm'
+import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import type { JobStatus, RunStatus } from '@prisma/client'
 
 /** Default number of jobs to process per tick */
@@ -90,6 +90,15 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
       pricingSnapshot?: PricingSnapshot
     }
 
+    // Load budget policy and existing run spend for budget enforcement
+    const budgetPolicy = getSpendCaps()
+    const existingSpendAgg = await prisma.job.aggregate({
+      where: { runId },
+      _sum: { costUsd: true },
+    })
+    const existingRunSpend = existingSpendAgg._sum.costUsd ?? 0
+    let tickSpentUsd = 0
+
     // Get queued jobs
     const queuedJobs = await prisma.job.findMany({
       where: {
@@ -139,8 +148,11 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
         sources: (currentRun.sources as string[]).map((s) => s.toLowerCase()),
         model: currentRun.model,
         config,
+        spentUsdSoFar: existingRunSpend + tickSpentUsd,
+        budgetPolicy,
       })
       processedJobs.push(jobResult)
+      tickSpentUsd += jobResult.costUsd ?? 0
     }
 
     // Get updated progress
@@ -173,9 +185,11 @@ async function processJob(
       maxInputTokens: number
       pricingSnapshot?: PricingSnapshot
     }
+    spentUsdSoFar: number
+    budgetPolicy: BudgetPolicy
   }
 ): Promise<TickResult['jobs'][0]> {
-  const { importBatchIds, sources, model, config } = context
+  const { importBatchIds, sources, model, config, spentUsdSoFar, budgetPolicy } = context
 
   // Mark job as running
   const job = await prisma.job.update({
@@ -247,6 +261,9 @@ async function processJob(
       const segmentSummaries: string[] = []
 
       for (const segment of segmentation.segments) {
+        // Pre-call budget check: block if already exceeded
+        assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
+
         const segmentResult = await summarize({
           bundleText: segment.text,
           model,
@@ -257,6 +274,9 @@ async function processJob(
         totalTokensIn += segmentResult.tokensIn ?? 0
         totalTokensOut += segmentResult.tokensOut ?? 0
         totalCostUsd += segmentResult.costUsd ?? 0
+
+        // Post-call budget check: stop remaining segments if actual cost exceeded cap
+        assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
       }
 
       // Concatenate segment summaries per spec 9.2
@@ -270,6 +290,9 @@ async function processJob(
       }
     } else {
       // No segmentation needed - process as single bundle
+      // Pre-call budget check: block if already exceeded
+      assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar, policy: budgetPolicy })
+
       const summaryResult = await summarize({
         bundleText: bundle.bundleText,
         model,
@@ -280,6 +303,10 @@ async function processJob(
       totalTokensIn = summaryResult.tokensIn ?? 0
       totalTokensOut = summaryResult.tokensOut ?? 0
       totalCostUsd = summaryResult.costUsd ?? 0
+
+      // Post-call budget check: stop if actual cost exceeded cap
+      assertWithinBudget({ nextCostUsd: 0, spentUsdSoFar: spentUsdSoFar + totalCostUsd, policy: budgetPolicy })
+
       outputMeta = {
         segmented: false,
         atomCount: bundle.atomCount,
