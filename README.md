@@ -196,10 +196,12 @@ docker run --rm \
 The `migrate` job in `.do/app.yaml` runs before every deployment:
 
 ```
-npx prisma migrate deploy && npx prisma db seed
+npm run db:deploy
 ```
 
 This applies pending migrations and upserts seed data (filter profiles, prompt versions). The seed is idempotent.
+
+If your app was created outside spec sync workflows, update the pre-deploy job command in the DigitalOcean dashboard (or via `doctl apps update`) to match `npm run db:deploy`.
 
 ### Port binding
 

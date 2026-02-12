@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest",
     "test:run": "vitest run",
+    "db:deploy": "prisma migrate deploy && prisma db seed",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset"

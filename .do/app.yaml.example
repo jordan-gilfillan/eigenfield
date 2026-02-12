@@ -38,4 +38,4 @@ jobs:
       - key: DATABASE_URL
         scope: RUN_TIME
         value: ${db.DATABASE_URL}
-    run_command: npx prisma migrate deploy && npx prisma db seed
+    run_command: npm run db:deploy
