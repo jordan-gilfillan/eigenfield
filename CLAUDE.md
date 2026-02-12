@@ -1,7 +1,26 @@
 # CLAUDE.md — Journal Distiller Agent Operating Guide
 
-This repo uses a strict remediation workflow to preserve conceptual control and prevent scope creep.
+This repo uses a strict remediation workflow to preserve conceptual control, prevent scope creep, and keep documentation from drifting.
 
+## Documentation discipline (single sources of truth)
+Keep public-facing content in `README.md`. Avoid creating new “control docs.”
+
+Doc ownership (what is canonical):
+- `SPEC.md` — product/behavior contract (requirements, invariants). If two docs disagree about behavior, SPEC wins.
+- `UX_SPEC.md` — user-facing UX behavior and UI rules. Must not restate backend contracts; link to SPEC instead.
+- `REMEDIATION.md` — the only canonical task/todo source (AUD entries). No other TODO lists.
+- `DECISIONS.md` — ADRs only (why we chose something). No requirements.
+- `CHANGELOG.md` — release notes only (what changed), no “current status” facts.
+- `CONTEXT_PACK.md` — agent context + volatile snapshot only (allowed to drift; keep short; prefer links/commands over facts).
+- `EXECUTION_PLAN.md` and `ACCEPTANCE.md` — historical/supporting docs. Prefer archiving to `/docs/archive/` once the phase is complete.
+
+Drift rules (hard):
+- Do not duplicate volatile facts (test counts, status, PR lists) across multiple docs.
+- If a doc needs a fact that changes, prefer a command (“run `npx vitest run`”) or a link to the single owning place.
+- When adding or changing behavior: update SPEC first, then tests, then any links.
+
+Doc changes per PR:
+- Aim to update at most 1–2 docs per PR (plus tests/code). If you must touch more, stop and split work.
 
 ## Canonical task source
 - `REMEDIATION.md` is the single source of truth for remediation work.
@@ -22,7 +41,7 @@ Branch:
 Goal:
 - <1–2 sentences: what “done” means>
 
-Files to change (allowed scope):
+Files to change (allowed scope): (include docs only if required by the owning-doc rules)
 - <explicit list>
 
 Acceptance checks (from REMEDIATION.md):
@@ -31,6 +50,7 @@ Acceptance checks (from REMEDIATION.md):
 Verify:
 - npx vitest run
 - <any extra commands: migrations/lint/etc>
+- <if docs changed: run doc drift check script if present>
 
 Stop:
 - Update REMEDIATION.md (Status=Done + Resolution), commit, merge to master, return to clean master.
@@ -86,6 +106,20 @@ Merge requirement:
 Stop once acceptance checks pass and `REMEDIATION.md` is updated.
 Do not continue “improving” things beyond the single AUD.
 If you are unsure whether a change is in-scope, assume it is out-of-scope and STOP.
+
+## Doc consolidation / archiving playbook
+Use this when a phase wraps up and docs have multiplied.
+
+1) Choose keepers (active canon): SPEC, UX_SPEC, REMEDIATION, DECISIONS, README, CHANGELOG, CONTEXT_PACK.
+2) For any non-keeper doc:
+   - If it contains timeless rules/definitions → move that content into the owning doc above, then delete it from the old doc.
+   - If it’s mostly historical planning/logs → move the whole file to `/docs/archive/<YYYY-MM-DD>-<name>.md` and add a short banner at top: “ARCHIVED: historical reference; not canonical.”
+3) Replace removed content with links:
+   - In README: link to SPEC/UX_SPEC/REMEDIATION/DECISIONS.
+   - In archived docs: link forward to the new owning doc.
+4) Run a quick drift scan:
+   - search for duplicated “single source of truth” claims
+   - search for volatile facts (test counts, statuses) and keep them in only one place (prefer CONTEXT_PACK or CI).
 
 ## Definition of done
 - Only the single targeted AUD was addressed; no unrelated changes.
