@@ -54,6 +54,7 @@ Each entry has:
 - AUD-013
 - AUD-024
 - AUD-025
+- AUD-061
 
 ### Bucket B+ — Contract alignment (P1)
 - AUD-022
@@ -1143,6 +1144,22 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` passes.
 - **Status**: Done
 - **Resolution**: Split `BudgetCheckInput.spentUsdSoFar` into `spentUsdRunSoFar` + `spentUsdDaySoFar`. New `budget-queries.ts` provides `getCalendarDaySpendUsd()` which sums Job + ClassifyRun `costUsd` for the UTC calendar day. `tick.ts` and `classify.ts` both query day spend at start and pass both dimensions to `assertWithinBudget()`. Day boundary uses UTC (deterministic). 17 budget unit tests (5 new independence tests) + 7 integration tests for day-spend query (→ 710 total).
+
+### AUD-061 — Docs reckoning: archive stale docs, fix volatile facts, slim ACCEPTANCE
+- **Source**: Doc drift audit 2026-02-12
+- **Severity**: LOW
+- **Type**: Doc drift
+- **Problem**: CONTEXT_PACK.md cites 616 tests (actual: 710), UX_SPEC.md §8 status markers lag behind completed AUDs, EXECUTION_PLAN.md is fully historical, ACCEPTANCE.md restates SPEC requirements verbatim.
+- **Decision**: Fix docs — archive EXECUTION_PLAN.md, fix volatile facts, slim ACCEPTANCE.md, add README docs table
+- **Planned PR**: `docs/AUD-061-docs-reckoning`
+- **Acceptance checks**:
+  - EXECUTION_PLAN.md archived to `docs/archive/`; root file is redirect stub.
+  - CONTEXT_PACK.md test count is dated and has reproduction command; no other doc contains test counts.
+  - UX_SPEC.md §8 status markers reflect completed AUDs.
+  - ACCEPTANCE.md contains commands + checklists only; no restated requirements.
+  - README.md has navigational docs table (no volatile claims).
+  - `npx vitest run` passes.
+- **Status**: In progress
 
 ---
 
