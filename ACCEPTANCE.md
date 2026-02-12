@@ -1,6 +1,8 @@
-# Journal Distiller — Acceptance Criteria
+# Journal Distiller — Acceptance Checks
 
-> How you know it works. Each criterion is testable—either via automated tests or manual verification steps.
+> Verification commands and checklists only.
+> Requirements: [SPEC.md §11](SPEC.md).
+> Audit ledger: [REMEDIATION.md](REMEDIATION.md).
 
 ---
 
@@ -104,16 +106,9 @@ npm test -- --watch
 
 ### AC-01: No Silent Data Loss on Import
 
-**Requirement:** Importing a file with two identical messages at different timestamps stores both messages.
+**Spec ref:** SPEC.md §11.1
 
-**Test:**
-```typescript
-// In parsers/__tests__/chatgpt.test.ts
-it('preserves duplicate messages with different timestamps', async () => {
-  const result = await parseAndImport(fileWithDuplicateTexts)
-  expect(result.messageAtoms.length).toBe(2) // Both stored
-})
-```
+**Tested in:** `src/__tests__/services/import.test.ts`
 
 **Manual verification:**
 1. Create a test export with two "Hello" messages at different times
@@ -124,17 +119,9 @@ it('preserves duplicate messages with different timestamps', async () => {
 
 ### AC-02: Deterministic atomStableId
 
-**Requirement:** The same message always produces the same atomStableId, regardless of import order or database state.
+**Spec ref:** SPEC.md §11.2
 
-**Test:**
-```typescript
-// In src/__tests__/stableId.test.ts
-it('produces same atomStableId for identical inputs', () => {
-  const id1 = computeAtomStableId(input)
-  const id2 = computeAtomStableId(input)
-  expect(id1).toBe(id2)
-})
-```
+**Tested in:** `src/__tests__/stableId.test.ts`
 
 **Manual verification:**
 1. Import a file
@@ -147,17 +134,9 @@ it('produces same atomStableId for identical inputs', () => {
 
 ### AC-03: Frozen Run Config
 
-**Requirement:** Changing the active summarize prompt after run creation does not affect that run's outputs.
+**Spec ref:** SPEC.md §11.2
 
-**Test:**
-```typescript
-// In services/__tests__/run.test.ts
-it('creates a run with frozen config', async () => {
-  const result = await createRun(options)
-  expect(result.config.promptVersionIds.summarize).toBeDefined()
-  // Config is frozen at creation time
-})
-```
+**Tested in:** `src/lib/services/__tests__/run.test.ts`
 
 **Manual verification:**
 1. Create a run with the current active summarize prompt
@@ -170,17 +149,9 @@ it('creates a run with frozen config', async () => {
 
 ### AC-04: Label Spec Filtering
 
-**Requirement:** Run filtering uses only labels matching the run's labelSpec, ignoring labels from other classifiers.
+**Spec ref:** SPEC.md §11.2
 
-**Test:**
-```typescript
-// In services/__tests__/bundle.test.ts
-it('filters atoms based on labelSpec', async () => {
-  // Create atoms with labels from different classifiers
-  // Build bundle with specific labelSpec
-  // Only matching labels affect filtering
-})
-```
+**Tested in:** `src/lib/services/__tests__/bundle.test.ts`
 
 **Manual verification:**
 1. Import a file
@@ -194,16 +165,9 @@ it('filters atoms based on labelSpec', async () => {
 
 ### AC-05: Sequential Tick Processing
 
-**Requirement:** Only one tick can run at a time per run. Concurrent requests return 409.
+**Spec ref:** SPEC.md §11.3
 
-**Test:**
-```typescript
-// In services/__tests__/advisory-lock.test.ts
-it('prevents concurrent ticks via advisory lock', async () => {
-  // Acquire lock
-  // Second acquire attempt fails
-})
-```
+**Tested in:** `src/lib/services/__tests__/advisory-lock.test.ts`
 
 **Manual verification:**
 1. Create a run with multiple jobs
@@ -215,17 +179,9 @@ it('prevents concurrent ticks via advisory lock', async () => {
 
 ### AC-06: Deterministic Bundle Ordering
 
-**Requirement:** Given the same inputs and config, bundle construction produces identical bytes.
+**Spec ref:** SPEC.md §11.2
 
-**Test:**
-```typescript
-// In services/__tests__/bundle.test.ts
-it('generates stable bundleHash', async () => {
-  const bundle1 = await buildBundle(options)
-  const bundle2 = await buildBundle(options)
-  expect(bundle1.bundleHash).toBe(bundle2.bundleHash)
-})
-```
+**Tested in:** `src/lib/services/__tests__/bundle.test.ts`
 
 **Manual verification:**
 1. Create a run
@@ -239,13 +195,9 @@ it('generates stable bundleHash', async () => {
 
 ### AC-07: RawEntry Per Source Per Day
 
-**Requirement:** Mixed-source days create one RawEntry per source.
+**Spec ref:** SPEC.md §11.1
 
-**Test:**
-```typescript
-// Create atoms from both ChatGPT and Claude on the same day
-// Verify two RawEntries exist: one for chatgpt, one for claude
-```
+**Tested in:** `src/__tests__/services/import.test.ts`
 
 **Manual verification:**
 1. Import a ChatGPT file covering Jan 15
@@ -256,27 +208,17 @@ it('generates stable bundleHash', async () => {
 
 ### AC-08: Run Status Transitions
 
-**Requirement:** Run status follows the state machine:
-- `queued` → `running` (when first job starts)
-- `running` → `completed` (when all jobs succeed)
-- `running` → `failed` (when any job fails)
-- `cancelled` is terminal (never transitions to another state)
+**Spec ref:** SPEC.md §11.3
 
-**Test:**
-```typescript
-// In services/__tests__/tick.test.ts
-it('transitions run from queued to running to completed', async () => {
-  // Create run (queued)
-  // Process first tick (running)
-  // Process until all done (completed)
-})
-```
+**Tested in:** `src/lib/services/__tests__/tick.test.ts`
 
 ---
 
 ### AC-09: Job Reset and Reprocess
 
-**Requirement:** Resetting a succeeded job allows reprocessing without affecting other jobs.
+**Spec ref:** SPEC.md §11.3
+
+**Tested in:** `src/lib/services/__tests__/run-controls.test.ts`
 
 **Manual verification:**
 1. Create a run with 3 days
@@ -290,23 +232,9 @@ it('transitions run from queued to running to completed', async () => {
 
 ### AC-10: Run Control Idempotency
 
-**Requirement:** Run control operations are safe to call multiple times.
+**Spec ref:** SPEC.md §11.3
 
-**Tests:**
-```typescript
-// In services/__tests__/run-controls.test.ts
-it('cancel is idempotent on already-cancelled run', async () => {
-  // Second cancel returns status='cancelled', jobsCancelled=0
-})
-
-it('resume is safe when no jobs are FAILED (no-op)', async () => {
-  // Returns jobsRequeued=0, run status unchanged
-})
-
-it('reset is safe on already-QUEUED job', async () => {
-  // Succeeds but increments attempt counter
-})
-```
+**Tested in:** `src/lib/services/__tests__/run-controls.test.ts`
 
 **Error codes:**
 - Cancel on completed run: 400 `ALREADY_COMPLETED`
@@ -318,25 +246,9 @@ it('reset is safe on already-QUEUED job', async () => {
 
 ### AC-11: Deterministic Segmentation
 
-**Requirement:** Bundles exceeding `maxInputTokens` are split into deterministic segments with stable IDs.
+**Spec ref:** SPEC.md §11.2
 
-**Tests:**
-```typescript
-// In services/__tests__/segmentation.test.ts
-it('produces identical segments for same atoms + config', () => {
-  const result1 = segmentBundle(atoms, bundleHash, maxTokens)
-  const result2 = segmentBundle(atoms, bundleHash, maxTokens)
-  expect(result1.segments[0].segmentId).toBe(result2.segments[0].segmentId)
-})
-
-it('generates segment ID per spec: sha256("segment_v1|" + bundleHash + "|" + index)', () => {
-  // Verifies stable segment ID formula
-})
-
-it('never splits an atom across segments', () => {
-  // All atom IDs appear exactly once across all segments
-})
-```
+**Tested in:** `src/lib/services/__tests__/segmentation.test.ts`
 
 **Segment metadata in Output.outputJson.meta:**
 - `segmented: true/false`
@@ -347,62 +259,31 @@ it('never splits an atom across segments', () => {
 
 ### AC-12: Resume Continues from Failed Jobs Only
 
-**Requirement:** Resume requeues only FAILED jobs; succeeded jobs are not reprocessed.
+**Spec ref:** SPEC.md §11.3
 
-**Test:**
-```typescript
-// In services/__tests__/run-controls.test.ts
-it('only requeues failed jobs, not succeeded (spec 11.3)', async () => {
-  // Process first job (succeeds)
-  // Fail second job manually
-  // Resume
-  // Verify: first job still SUCCEEDED, second job now QUEUED
-})
-```
+**Tested in:** `src/lib/services/__tests__/run-controls.test.ts`
 
 ---
 
 ### AC-13: Cancel is Terminal
 
-**Requirement:** Cancelled runs cannot be resumed; tick processing no-ops on cancelled runs.
+**Spec ref:** SPEC.md §11.3
 
-**Tests:**
-```typescript
-// In services/__tests__/run-controls.test.ts
-it('stops tick processing after cancel (spec 7.6)', async () => {
-  // Cancel run
-  // Tick returns processed=0, runStatus='cancelled'
-})
-
-it('throws error on cancelled run (terminal status rule)', async () => {
-  // Resume on cancelled run → CANNOT_RESUME_CANCELLED
-})
-
-it('tick does not transition cancelled run to any other status', async () => {
-  // Multiple ticks on cancelled run → status remains 'cancelled'
-})
-```
+**Tested in:** `src/lib/services/__tests__/run-controls.test.ts`
 
 ---
 
 ### AC-14: Canonical Timestamp Format
 
-**Requirement:** All timestamps are rendered as `YYYY-MM-DDTHH:mm:ss.SSSZ`.
+**Spec ref:** SPEC.md §11.2
 
-**Test:**
-```typescript
-// In __tests__/timestamp.test.ts
-it('formats timestamps with milliseconds and Z suffix', () => {
-  const result = toCanonicalTimestamp(new Date('2024-01-15T10:30:00Z'))
-  expect(result).toBe('2024-01-15T10:30:00.000Z')
-})
-```
+**Tested in:** `src/__tests__/timestamp.test.ts`
 
 ---
 
 ### AC-15: UI Shell (Phase 5) — Operability + Inspection
 
-**Requirement:** The UI makes runs operable and debuggable without introducing background processing.
+**Spec ref:** SPEC.md §11.4
 
 **Manual verification:**
 1. Navigate to `/distill` and select an existing ImportBatch (do not re-import).
@@ -423,59 +304,7 @@ it('formats timestamps with milliseconds and Z suffix', () => {
 
 ---
 
-## API Response Verification
-
-### Import Response
-
-```bash
-curl -X POST http://localhost:3000/api/distill/import \
-  -F "file=@export.json" \
-  -F "timezone=America/Los_Angeles"
-```
-
-Expected response structure:
-```json
-{
-  "importBatch": {
-    "id": "string",
-    "source": "chatgpt|claude|grok",
-    "stats": {
-      "message_count": 0,
-      "day_count": 0
-    }
-  },
-  "created": {
-    "messageAtoms": 0,
-    "rawEntries": 0
-  }
-}
-```
-
-### Run Creation Response
-
-```bash
-curl -X POST http://localhost:3000/api/distill/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "importBatchId": "...",
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
-    "sources": ["chatgpt"],
-    "filterProfileId": "...",
-    "model": "stub_summarizer_v1",
-    "labelSpec": { "model": "stub_v1", "promptVersionId": "..." }
-  }'
-```
-
-Expected: `id`, `status: "queued"`, `jobCount`, `eligibleDays[]`, frozen `config`.
-
-### Tick Response
-
-```bash
-curl -X POST http://localhost:3000/api/distill/runs/:runId/tick
-```
-
-Expected: `processed` count, `jobs[]` with status, `progress` summary, `runStatus`.
+See [SPEC.md §7](SPEC.md) for API contracts and expected response shapes.
 
 ---
 

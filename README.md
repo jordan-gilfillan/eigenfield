@@ -234,6 +234,18 @@ prisma/
   migrations/             # Prisma migration history
 ```
 
+### Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [SPEC.md](SPEC.md) | Canonical product spec |
+| [UX_SPEC.md](UX_SPEC.md) | UX interaction rules |
+| [REMEDIATION.md](REMEDIATION.md) | Audit and remediation ledger |
+| [DECISIONS.md](DECISIONS.md) | Architecture Decision Records |
+| [ACCEPTANCE.md](ACCEPTANCE.md) | Verification commands and checklists |
+| [CHANGELOG.md](CHANGELOG.md) | Release log |
+| [CONTEXT_PACK.md](CONTEXT_PACK.md) | Agent context snapshot |
+
 ---
 
 ## License
