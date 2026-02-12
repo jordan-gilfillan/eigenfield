@@ -1,7 +1,7 @@
 -- Ensure classify prompt metadata exists even if seed is skipped in production.
 -- This migration is intentionally idempotent and only touches CLASSIFY defaults.
 
-DO $$
+DO $fn$
 DECLARE
   classify_prompt_id TEXT;
 BEGIN
@@ -49,7 +49,7 @@ BEGIN
     'mig_' || md5(random()::text || clock_timestamp()::text),
     classify_prompt_id,
     'classify_real_v1',
-    $$You are a message classifier. Classify the following AI conversation message into exactly one category.
+    $tpl$You are a message classifier. Classify the following AI conversation message into exactly one category.
 
 Categories: WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER, MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
 
@@ -61,7 +61,7 @@ Rules:
 - category MUST be one of the listed categories (uppercase, exact match)
 - confidence MUST be a number between 0.0 and 1.0
 - Never invent new categories. If uncertain, choose the closest category from the allowed list.
-- Do NOT include any explanation or text outside the JSON object$$,
+- Do NOT include any explanation or text outside the JSON object$tpl$,
     NOW(),
     FALSE
   )
@@ -81,4 +81,4 @@ Rules:
     WHERE "promptId" = classify_prompt_id
       AND "versionLabel" = 'classify_real_v1';
   END IF;
-END $$;
+END $fn$;
