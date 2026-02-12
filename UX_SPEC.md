@@ -285,30 +285,30 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ### UX-8.2 Shared State Components
 - Introduce shared alert/empty/loading/next-action components.
 - Independently useful: consistent error and empty handling everywhere.
-- **Status**: Partial (AUD-017) — actionable error patterns added; shared components not yet extracted
+- **Status**: Partial (AUD-017, AUD-038) — shared ui-utils/types extracted; shared alert/empty/loading components remain
 
 ### UX-8.3 Dashboard IA Pass
 - Recompose dashboard into primary flow + status/context column.
 - Fix create-run gating to persisted classify status.
-- **Status**: Partial (AUD-016) — create-run gating uses persisted classify; 2-column layout and latest run card remain
+- **Status**: Done (AUD-016, AUD-033)
 
 ### UX-8.4 Dashboard Progress Surface
 - Add standardized progress panel for classify status with manual refresh and percent.
-- **Status**: Mostly done — classify progress, refresh, and polling exist; checkpoint timestamp during running state remains
+- **Status**: Done (AUD-037)
 
 ### UX-8.5 Search Readability Pass
 - Improve scope-change affordance, metadata hierarchy, and retry UX.
-- **Status**: Partial (AUD-019) — scope-change affordance fixed; metadata hierarchy and empty state remain
+- **Status**: Done (AUD-019, AUD-036)
 
 ### UX-8.6 Import Inspector Orientation Pass
 - Add context bar, better filter controls, and stronger empty-state recovery.
-- **Status**: Not started — remaining: context bar, filter reset, actionable empty states
+- **Status**: Done (AUD-034)
 
 ### UX-8.7 Run Detail Task-Focus Pass
 - Add top status rail and progressive disclosure for heavy job inspectors.
-- **Status**: Partial (AUD-018) — controls grouped with side-effect labels; top status rail and collapsible config remain
+- **Status**: Done (AUD-018, AUD-035)
 
 ### UX-8.8 Foreground Progress Hook
 - Add reusable foreground polling hook (read-only status endpoints, abort-safe lifecycle).
 - Wire only where explicitly enabled in UI.
-- **Status**: Not started — remaining: reusable polling hook extraction and run detail wiring
+- **Status**: Done (AUD-039, AUD-040)
