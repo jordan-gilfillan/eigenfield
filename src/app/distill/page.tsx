@@ -57,6 +57,7 @@ const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> =
 interface PromptVersion {
   id: string
   versionLabel: string
+  isActive?: boolean
   prompt: { stage: string }
 }
 
@@ -120,6 +121,7 @@ function DashboardContent() {
     stub: PromptVersion | null
     real: PromptVersion | null
   }>({ stub: null, real: null })
+  const [loadingPromptVersions, setLoadingPromptVersions] = useState(true)
   const [classifyMode, setClassifyMode] = useState<'stub' | 'real'>('stub')
   const [classifying, setClassifying] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
@@ -194,23 +196,37 @@ function DashboardContent() {
   // Fetch classify prompt versions (stub + real) on mount
   useEffect(() => {
     async function fetchPromptVersions() {
+      setLoadingPromptVersions(true)
       try {
-        const [stubRes, realRes] = await Promise.all([
-          fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_stub_v1'),
-          fetch('/api/distill/prompt-versions?stage=classify&versionLabel=classify_real_v1'),
-        ])
-        if (!stubRes.ok && !realRes.ok) {
-          setLoadError(`Failed to load prompt versions (${stubRes.status})`)
+        const res = await fetch('/api/distill/prompt-versions?stage=classify')
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setLoadError(data.error?.message || `Failed to load prompt versions (${res.status})`)
           return
         }
-        const stubData = stubRes.ok ? await stubRes.json() : {}
-        const realData = realRes.ok ? await realRes.json() : {}
+        const data: { promptVersions?: PromptVersion[] } = await res.json()
+        const promptVersions = data.promptVersions ?? []
+
+        const stubPromptVersion = (
+          promptVersions.find((pv) => pv.versionLabel === 'classify_stub_v1') ??
+          promptVersions.find((pv) => pv.versionLabel.toLowerCase().includes('stub')) ??
+          null
+        )
+
+        const realPromptVersion = (
+          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub') && pv.isActive) ??
+          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub')) ??
+          null
+        )
+
         setClassifyPromptVersions({
-          stub: stubData.promptVersion ?? null,
-          real: realData.promptVersion ?? null,
+          stub: stubPromptVersion,
+          real: realPromptVersion,
         })
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : 'Failed to load prompt versions')
+      } finally {
+        setLoadingPromptVersions(false)
       }
     }
     fetchPromptVersions()
@@ -762,9 +778,11 @@ function DashboardContent() {
                 </button>
                 {!activeClassifyPv && (
                   <span className="text-sm text-gray-500">
-                    {classifyMode === 'real' && !classifyPromptVersions.real
+                    {loadingPromptVersions
+                      ? 'Loading prompt versions...'
+                      : classifyMode === 'real' && !classifyPromptVersions.real
                       ? 'No real classify prompt version found. Run: npx prisma db seed'
-                      : 'Loading prompt version...'}
+                      : 'No stub classify prompt version found. Run: npx prisma db seed'}
                   </span>
                 )}
                 <span className="text-sm text-blue-600">
