@@ -169,39 +169,41 @@ docker run --rm \
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Multi-stage build → slim standalone runner (Node 20 Alpine) |
-| `Dockerfile.migrate` | Single-stage image for PRE_DEPLOY migrations + seed |
-| `.do/app.yaml` | App Platform spec — web service, managed Postgres, pre-deploy job |
+| `Dockerfile.migrate` | Single-stage image for PRE_DEPLOY migrations |
+| `.do/app.yaml` | App Platform spec — web service, pre-deploy migration job |
 | `.env.production.example` | Documents all production env vars |
 
 ### Setup
 
-1. Update `.do/app.yaml` — replace `YOUR_GITHUB_USERNAME/eigenfield` with your actual repo path.
-2. Create the app in the DigitalOcean dashboard (or `doctl apps create --spec .do/app.yaml`).
-3. The managed Postgres connection string is auto-injected via `${db.DATABASE_URL}`.
+1. **Create a managed Postgres cluster** in the DigitalOcean dashboard (Databases → Create → PostgreSQL 16).
+2. **Whitelist your IP** in the cluster's Trusted Sources so you can connect from your local machine.
+3. Copy `.do/app.yaml.example` to `.do/app.yaml` and replace `YOUR_GITHUB_USERNAME/eigenfield` with your actual repo path.
+4. Create the app: `doctl apps create --spec .do/app.yaml` (or via the dashboard — paste the app spec into Settings → App Spec).
+5. Set `DATABASE_URL` in the DO dashboard for **both** the `web` service and the `migrate` job (use the connection string from your managed Postgres cluster).
+6. **Run initial migrations and seed from your local machine:**
+   ```bash
+   DATABASE_URL="postgresql://user:pass@host:25060/db?sslmode=require" npx prisma migrate deploy
+   DATABASE_URL="postgresql://user:pass@host:25060/db?sslmode=require" npx prisma db seed
+   ```
+   The seed creates filter profiles, prompt versions, and other reference data. It only needs to run once (or when seed data changes).
 
 ### Environment variables
 
+Set these in the DO dashboard as env vars on the `web` service (and `DATABASE_URL` on the `migrate` job too):
+
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
-| `DATABASE_URL` | Yes | Auto-injected by DO | Managed Postgres connection string |
+| `DATABASE_URL` | Yes | — | Managed Postgres connection string (set manually in dashboard) |
 | `LLM_MODE` | No | `dry_run` | Set to `real` to enable LLM calls |
-| `OPENAI_API_KEY` | For real mode | — | Set in DO dashboard as encrypted env var |
-| `ANTHROPIC_API_KEY` | For real mode | — | Set in DO dashboard as encrypted env var |
+| `OPENAI_API_KEY` | For real mode | — | Set as encrypted env var |
+| `ANTHROPIC_API_KEY` | For real mode | — | Set as encrypted env var |
 | `LLM_MAX_USD_PER_RUN` | Recommended | Unlimited | e.g. `5.00` |
 | `LLM_MAX_USD_PER_DAY` | Recommended | Unlimited | e.g. `20.00` |
 | `LLM_MIN_DELAY_MS` | No | `250` | Rate limit between LLM calls (ms) |
 
 ### Pre-deploy behavior
 
-The `migrate` job in `.do/app.yaml` runs before every deployment:
-
-```
-npm run db:deploy
-```
-
-This applies pending migrations and upserts seed data (filter profiles, prompt versions). The seed is idempotent.
-
-If your app was created outside spec sync workflows, update the pre-deploy job command in the DigitalOcean dashboard (or via `doctl apps update`) to match `npm run db:deploy`.
+The `migrate` job in `.do/app.yaml` runs `npx prisma migrate deploy` before every deployment. This applies any pending SQL migrations. Seed data is **not** run automatically — manage it from your local machine using `npx prisma db seed`.
 
 ### Port binding
 

@@ -1,8 +1,10 @@
-# Lightweight image for PRE_DEPLOY: Prisma migrations + seed
+# Lightweight image for PRE_DEPLOY: applies Prisma migrations only.
+# Seed data is managed separately (run `npx prisma db seed` from a machine
+# with direct DB access after initial setup).
 FROM node:20-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-RUN npm ci --include=dev
+RUN npm ci
 RUN npx prisma generate
-CMD ["npm", "run", "db:deploy"]
+CMD ["npx", "prisma", "migrate", "deploy"]

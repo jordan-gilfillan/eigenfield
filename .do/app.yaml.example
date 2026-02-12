@@ -12,19 +12,12 @@ services:
     envs:
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${db.DATABASE_URL}
+        # Set manually in DO dashboard — use your managed Postgres connection string
       - key: LLM_MODE
         scope: RUN_TIME
         value: dry_run
     routes:
       - path: /
-
-databases:
-  - name: db
-    engine: PG
-    version: "16"
-    size: db-s-dev-database
-    num_nodes: 1
 
 jobs:
   - name: migrate
@@ -37,5 +30,5 @@ jobs:
     envs:
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${db.DATABASE_URL}
-    run_command: npm run db:deploy
+        # Set manually in DO dashboard — must match the web service DATABASE_URL
+    run_command: npx prisma migrate deploy
