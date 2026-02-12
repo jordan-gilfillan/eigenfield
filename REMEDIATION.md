@@ -1159,7 +1159,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - ACCEPTANCE.md contains commands + checklists only; no restated requirements.
   - README.md has navigational docs table (no volatile claims).
   - `npx vitest run` passes.
-- **Status**: In progress
+- **Status**: Done
+- **Resolution**: Archived EXECUTION_PLAN.md to `docs/archive/`; fixed CONTEXT_PACK.md test count (616→710, dated, with reproduction command); updated 7 UX_SPEC.md §8 status markers; slimmed ACCEPTANCE.md to procedural-only (removed restated requirements + pseudo-code, added SPEC §11 cross-refs); added navigational docs table to README.md.
 
 ---
 
