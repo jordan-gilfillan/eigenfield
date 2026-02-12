@@ -4,19 +4,6 @@ A deterministic pipeline that converts AI chat exports (ChatGPT, Claude, Grok) i
 
 ---
 
-## Screenshots
-
-> Replace these placeholders with actual screenshots.
-
-| View | Screenshot |
-|------|-----------|
-| Dashboard | ![Dashboard](docs/screenshots/dashboard.png) |
-| Studio | ![Studio](docs/screenshots/studio.png) |
-| Import | ![Import](docs/screenshots/import.png) |
-| Run Detail | ![Run Detail](docs/screenshots/run-detail.png) |
-
----
-
 ## Key Features
 
 ### Studio (`/distill/studio`)
@@ -81,12 +68,59 @@ Data flow:
 
 ---
 
-## Quickstart (Local)
+## Getting Started
 
 ### Prerequisites
 
 - **Node.js 20+** and npm
-- **PostgreSQL 16** — via Docker (easiest) or a local install
+- **Docker** (for PostgreSQL — the easiest cross-platform option)
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+Install [Homebrew](https://brew.sh), then:
+
+```bash
+brew install node
+```
+
+For Docker, install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or [OrbStack](https://orbstack.dev/) if you prefer a lighter alternative).
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu/Debian)</strong></summary>
+
+```bash
+# Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Docker
+sudo apt-get install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+# Log out and back in for the group change to take effect
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (WSL2)</strong></summary>
+
+1. Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with Ubuntu:
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+2. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and enable the WSL2 backend in Settings → Resources → WSL Integration.
+3. Inside the Ubuntu terminal, install Node.js:
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   ```
+
+All remaining commands run inside the WSL2 Ubuntu terminal.
+
+</details>
 
 ### 1. Clone and install
 
@@ -129,85 +163,17 @@ npm run dev
 
 Open [http://localhost:3000/distill](http://localhost:3000/distill) to reach the dashboard.
 
----
+### LLM mode (optional)
 
-## Running with Docker
-
-### Build the app image
+By default the app runs in **dry-run mode** — the full pipeline works with deterministic placeholder output and zero API spend. To use real LLM calls, set these in your `.env`:
 
 ```bash
-docker build -t journal-distiller .
+LLM_MODE="real"
+OPENAI_API_KEY="sk-..."        # and/or
+ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-### Run with an external database
-
-```bash
-docker run -p 8080:8080 \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
-  -e LLM_MODE="dry_run" \
-  journal-distiller
-```
-
-### Run migrations separately
-
-The migration image has full Prisma CLI + dependencies:
-
-```bash
-docker build -f Dockerfile.migrate -t journal-distiller-migrate .
-
-docker run --rm \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
-  journal-distiller-migrate
-```
-
----
-
-## Deployment (DigitalOcean App Platform)
-
-### Files that matter
-
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | Multi-stage build → slim standalone runner (Node 20 Alpine) |
-| `Dockerfile.migrate` | Single-stage image for PRE_DEPLOY migrations |
-| `.do/app.yaml` | App Platform spec — web service, pre-deploy migration job |
-| `.env.production.example` | Documents all production env vars |
-
-### Setup
-
-1. **Create a managed Postgres cluster** in the DigitalOcean dashboard (Databases → Create → PostgreSQL 16).
-2. **Whitelist your IP** in the cluster's Trusted Sources so you can connect from your local machine.
-3. Copy `.do/app.yaml.example` to `.do/app.yaml` and replace `YOUR_GITHUB_USERNAME/eigenfield` with your actual repo path.
-4. Create the app: `doctl apps create --spec .do/app.yaml` (or via the dashboard — paste the app spec into Settings → App Spec).
-5. Set `DATABASE_URL` in the DO dashboard for **both** the `web` service and the `migrate` job (use the connection string from your managed Postgres cluster).
-6. **Run initial migrations and seed from your local machine:**
-   ```bash
-   DATABASE_URL="postgresql://user:pass@host:25060/db?sslmode=require" npx prisma migrate deploy
-   DATABASE_URL="postgresql://user:pass@host:25060/db?sslmode=require" npx prisma db seed
-   ```
-   The seed creates filter profiles, prompt versions, and other reference data. It only needs to run once (or when seed data changes).
-
-### Environment variables
-
-Set these in the DO dashboard as env vars on the `web` service (and `DATABASE_URL` on the `migrate` job too):
-
-| Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `DATABASE_URL` | Yes | — | Managed Postgres connection string (set manually in dashboard) |
-| `LLM_MODE` | No | `dry_run` | Set to `real` to enable LLM calls |
-| `OPENAI_API_KEY` | For real mode | — | Set as encrypted env var |
-| `ANTHROPIC_API_KEY` | For real mode | — | Set as encrypted env var |
-| `LLM_MAX_USD_PER_RUN` | Recommended | Unlimited | e.g. `5.00` |
-| `LLM_MAX_USD_PER_DAY` | Recommended | Unlimited | e.g. `20.00` |
-| `LLM_MIN_DELAY_MS` | No | `250` | Rate limit between LLM calls (ms) |
-
-### Pre-deploy behavior
-
-The `migrate` job in `.do/app.yaml` runs `npx prisma migrate deploy` before every deployment. This applies any pending SQL migrations. Seed data is **not** run automatically — manage it from your local machine using `npx prisma db seed`.
-
-### Port binding
-
-The standalone Next.js server reads `PORT` from the environment (DO injects this at runtime). `HOSTNAME=0.0.0.0` is baked into the Dockerfile to ensure binding to all interfaces. No additional configuration needed.
+See `.env.example` for all available options including spend caps and rate limiting.
 
 ---
 
@@ -227,7 +193,7 @@ The standalone Next.js server reads `PORT` from the environment (DO injects this
 ### Tests
 
 ```bash
-# Run full suite (685 tests)
+# Run full suite
 npx vitest run
 
 # Watch mode
