@@ -21,12 +21,11 @@ Each entry has:
 
 ## Current top priorities
 
-> Git Export v1 pipeline: AUD-064, AUD-065 (v1 core). Deferred: AUD-066–AUD-069 (v2/infra). Refactor: AUD-070.
+> Git Export v1 core complete (AUD-062–065). Remaining: AUD-066–069 (v2/infra, deferred), AUD-070 (refactor).
 
 
 ## Open entries
 
-- AUD-065 — Export API endpoint
 - AUD-066 — Atoms export (v2, deferred)
 - AUD-067 — Sources metadata (v2, deferred)
 - AUD-068 — Privacy tiers (deferred)
@@ -1251,7 +1250,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - EXPORT_PRECONDITION → 400 with standard error body
   - Integration tests covering happy path + error cases
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `POST /api/distill/runs/:runId/export` route. Wires `buildExportInput()` → `renderExportTree()` → `writeExportTree()`. Returns `{ exportedAt, outputDir, fileCount, files }`. Maps `ExportPreconditionError` to 404/400. 6 integration tests covering happy path, error codes, validation, and idempotent re-export.
 
 ### AUD-066 — Atoms export (v2, §14.1 follow-on)
 - **Source**: SPEC §14.1 follow-on directories
