@@ -1,0 +1,456 @@
+/**
+ * Integration tests for Export DB Orchestrator (AUD-063).
+ *
+ * Tests buildExportInput() which loads a completed Run from the DB,
+ * validates §14.7 preconditions, and returns ExportInput for the renderer.
+ *
+ * These tests require a running database.
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { prisma } from '@/lib/db'
+import { buildExportInput, ExportPreconditionError } from '@/lib/export/orchestrator'
+
+const P = 'eo-test' // test prefix for all IDs
+
+// Track IDs for cleanup
+let filterProfileId: string
+let summarizePromptVersionId: string
+const promptIds: string[] = []
+const promptVersionIds: string[] = []
+const batchIds: string[] = []
+const runBatchIds: string[] = []
+const runIds: string[] = []
+const jobIds: string[] = []
+const outputIds: string[] = []
+
+// ── Shared test fixtures ────────────────────────────────────────────────────
+
+const EXPORTED_AT = '2024-07-01T12:00:00.000Z'
+
+beforeAll(async () => {
+  // Prompt + PromptVersion (required by Output FK)
+  const prompt = await prisma.prompt.create({
+    data: { id: `${P}-prompt`, stage: 'SUMMARIZE', name: `${P}-summarize` },
+  })
+  promptIds.push(prompt.id)
+
+  const pv = await prisma.promptVersion.create({
+    data: {
+      id: `${P}-pv`,
+      promptId: prompt.id,
+      versionLabel: 'v1',
+      templateText: 'Summarize: {{text}}',
+      isActive: true,
+    },
+  })
+  summarizePromptVersionId = pv.id
+  promptVersionIds.push(pv.id)
+
+  // FilterProfile
+  const fp = await prisma.filterProfile.create({
+    data: {
+      id: `${P}-filter`,
+      name: `${P}-professional`,
+      mode: 'INCLUDE',
+      categories: ['WORK', 'LEARNING'],
+    },
+  })
+  filterProfileId = fp.id
+
+  // ImportBatch 1
+  const batch1 = await prisma.importBatch.create({
+    data: {
+      id: `${P}-batch-1`,
+      source: 'CHATGPT',
+      originalFilename: 'chatgpt-export.json',
+      fileSizeBytes: 2000,
+      timezone: 'America/Los_Angeles',
+      statsJson: { message_count: 10, day_count: 3 },
+    },
+  })
+  batchIds.push(batch1.id)
+
+  // ImportBatch 2 (for multi-batch test)
+  const batch2 = await prisma.importBatch.create({
+    data: {
+      id: `${P}-batch-2`,
+      source: 'CLAUDE',
+      originalFilename: 'claude-export.json',
+      fileSizeBytes: 1500,
+      timezone: 'America/Los_Angeles',
+      statsJson: { message_count: 5, day_count: 2 },
+    },
+  })
+  batchIds.push(batch2.id)
+
+  // ── Happy-path Run: COMPLETED, 3 days (2 non-segmented, 1 segmented) ──
+
+  const configJson = {
+    promptVersionIds: { summarize: summarizePromptVersionId },
+    labelSpec: { model: 'stub_v1', promptVersionId: `${P}-classify-pv` },
+    filterProfileSnapshot: { name: `${P}-professional`, mode: 'include', categories: ['work', 'learning'] },
+    timezone: 'America/Los_Angeles',
+    maxInputTokens: 12000,
+  }
+
+  const run = await prisma.run.create({
+    data: {
+      id: `${P}-run-happy`,
+      status: 'COMPLETED',
+      importBatchId: batch1.id,
+      startDate: new Date('2024-06-01'),
+      endDate: new Date('2024-06-03'),
+      sources: ['CHATGPT', 'CLAUDE'],
+      filterProfileId,
+      model: 'gpt-4o',
+      outputTarget: 'db',
+      configJson,
+    },
+  })
+  runIds.push(run.id)
+
+  // RunBatch junction entries
+  const rb1 = await prisma.runBatch.create({
+    data: { id: `${P}-rb-1`, runId: run.id, importBatchId: batch1.id },
+  })
+  runBatchIds.push(rb1.id)
+
+  const rb2 = await prisma.runBatch.create({
+    data: { id: `${P}-rb-2`, runId: run.id, importBatchId: batch2.id },
+  })
+  runBatchIds.push(rb2.id)
+
+  // Jobs (created out of order to verify ASC sort)
+  const job3 = await prisma.job.create({
+    data: {
+      id: `${P}-job-3`, runId: run.id, dayDate: new Date('2024-06-03'),
+      status: 'SUCCEEDED', attempt: 1, startedAt: new Date(), finishedAt: new Date(),
+      tokensIn: 200, tokensOut: 100, costUsd: 0.002,
+    },
+  })
+  jobIds.push(job3.id)
+
+  const job1 = await prisma.job.create({
+    data: {
+      id: `${P}-job-1`, runId: run.id, dayDate: new Date('2024-06-01'),
+      status: 'SUCCEEDED', attempt: 1, startedAt: new Date(), finishedAt: new Date(),
+      tokensIn: 100, tokensOut: 50, costUsd: 0.001,
+    },
+  })
+  jobIds.push(job1.id)
+
+  const job2 = await prisma.job.create({
+    data: {
+      id: `${P}-job-2`, runId: run.id, dayDate: new Date('2024-06-02'),
+      status: 'SUCCEEDED', attempt: 1, startedAt: new Date(), finishedAt: new Date(),
+      tokensIn: 300, tokensOut: 150, costUsd: 0.003,
+    },
+  })
+  jobIds.push(job2.id)
+
+  // Outputs (SUMMARIZE stage)
+  const out1 = await prisma.output.create({
+    data: {
+      id: `${P}-out-1`, jobId: job1.id, stage: 'SUMMARIZE',
+      outputText: '# Day 1\n\nWorked on auth module.',
+      outputJson: { meta: { segmented: false, atomCount: 5, estimatedInputTokens: 100 } },
+      model: 'gpt-4o', promptVersionId: summarizePromptVersionId,
+      bundleHash: 'hash-day1-bundle', bundleContextHash: 'hash-day1-ctx',
+    },
+  })
+  outputIds.push(out1.id)
+
+  const out2 = await prisma.output.create({
+    data: {
+      id: `${P}-out-2`, jobId: job2.id, stage: 'SUMMARIZE',
+      outputText: '# Day 2\n\nDeployment prep.',
+      outputJson: { meta: { segmented: true, segmentCount: 3, segmentIds: ['s1', 's2', 's3'], atomCount: 20, estimatedInputTokens: 300 } },
+      model: 'gpt-4o', promptVersionId: summarizePromptVersionId,
+      bundleHash: 'hash-day2-bundle', bundleContextHash: 'hash-day2-ctx',
+    },
+  })
+  outputIds.push(out2.id)
+
+  const out3 = await prisma.output.create({
+    data: {
+      id: `${P}-out-3`, jobId: job3.id, stage: 'SUMMARIZE',
+      outputText: '# Day 3\n\nCode review.',
+      outputJson: { meta: { segmented: false, atomCount: 8, estimatedInputTokens: 200 } },
+      model: 'gpt-4o', promptVersionId: summarizePromptVersionId,
+      bundleHash: 'hash-day3-bundle', bundleContextHash: 'hash-day3-ctx',
+    },
+  })
+  outputIds.push(out3.id)
+
+  // ── Run with RUNNING status (for precondition failure test) ──
+
+  const runRunning = await prisma.run.create({
+    data: {
+      id: `${P}-run-running`,
+      status: 'RUNNING',
+      importBatchId: batch1.id,
+      startDate: new Date('2024-06-01'),
+      endDate: new Date('2024-06-01'),
+      sources: ['CHATGPT'],
+      filterProfileId,
+      model: 'gpt-4o',
+      outputTarget: 'db',
+      configJson,
+    },
+  })
+  runIds.push(runRunning.id)
+
+  // ── Run with mixed job statuses (for failed-job test) ──
+
+  const runMixed = await prisma.run.create({
+    data: {
+      id: `${P}-run-mixed`,
+      status: 'COMPLETED',
+      importBatchId: batch1.id,
+      startDate: new Date('2024-06-01'),
+      endDate: new Date('2024-06-02'),
+      sources: ['CHATGPT'],
+      filterProfileId,
+      model: 'gpt-4o',
+      outputTarget: 'db',
+      configJson,
+    },
+  })
+  runIds.push(runMixed.id)
+
+  const jobOk = await prisma.job.create({
+    data: {
+      id: `${P}-job-ok`, runId: runMixed.id, dayDate: new Date('2024-06-01'),
+      status: 'SUCCEEDED', attempt: 1,
+    },
+  })
+  jobIds.push(jobOk.id)
+
+  const outOk = await prisma.output.create({
+    data: {
+      id: `${P}-out-ok`, jobId: jobOk.id, stage: 'SUMMARIZE',
+      outputText: 'ok', outputJson: { meta: { segmented: false, atomCount: 1, estimatedInputTokens: 10 } },
+      model: 'gpt-4o', promptVersionId: summarizePromptVersionId,
+      bundleHash: 'h1', bundleContextHash: 'h2',
+    },
+  })
+  outputIds.push(outOk.id)
+
+  const jobFail = await prisma.job.create({
+    data: {
+      id: `${P}-job-fail`, runId: runMixed.id, dayDate: new Date('2024-06-02'),
+      status: 'FAILED', attempt: 1,
+    },
+  })
+  jobIds.push(jobFail.id)
+
+  // ── Run with SUCCEEDED job but missing output (data integrity) ──
+
+  const runNoOutput = await prisma.run.create({
+    data: {
+      id: `${P}-run-no-output`,
+      status: 'COMPLETED',
+      importBatchId: batch1.id,
+      startDate: new Date('2024-06-01'),
+      endDate: new Date('2024-06-01'),
+      sources: ['CHATGPT'],
+      filterProfileId,
+      model: 'gpt-4o',
+      outputTarget: 'db',
+      configJson,
+    },
+  })
+  runIds.push(runNoOutput.id)
+
+  const jobNoOut = await prisma.job.create({
+    data: {
+      id: `${P}-job-no-out`, runId: runNoOutput.id, dayDate: new Date('2024-06-01'),
+      status: 'SUCCEEDED', attempt: 1,
+    },
+  })
+  jobIds.push(jobNoOut.id)
+  // Deliberately no Output created for this job
+
+  // ── Empty run (COMPLETED, 0 jobs) ──
+
+  const runEmpty = await prisma.run.create({
+    data: {
+      id: `${P}-run-empty`,
+      status: 'COMPLETED',
+      importBatchId: batch1.id,
+      startDate: new Date('2024-06-01'),
+      endDate: new Date('2024-06-01'),
+      sources: ['CHATGPT'],
+      filterProfileId,
+      model: 'gpt-4o',
+      outputTarget: 'db',
+      configJson,
+    },
+  })
+  runIds.push(runEmpty.id)
+
+  const rbEmpty = await prisma.runBatch.create({
+    data: { id: `${P}-rb-empty`, runId: runEmpty.id, importBatchId: batch1.id },
+  })
+  runBatchIds.push(rbEmpty.id)
+})
+
+afterAll(async () => {
+  // Clean up in reverse dependency order
+  await prisma.output.deleteMany({ where: { id: { in: outputIds } } })
+  await prisma.job.deleteMany({ where: { id: { in: jobIds } } })
+  await prisma.runBatch.deleteMany({ where: { id: { in: runBatchIds } } })
+  await prisma.run.deleteMany({ where: { id: { in: runIds } } })
+  await prisma.importBatch.deleteMany({ where: { id: { in: batchIds } } })
+  await prisma.filterProfile.deleteMany({ where: { id: filterProfileId } })
+  await prisma.promptVersion.deleteMany({ where: { id: { in: promptVersionIds } } })
+  await prisma.prompt.deleteMany({ where: { id: { in: promptIds } } })
+})
+
+// ── Happy path ──────────────────────────────────────────────────────────────
+
+describe('buildExportInput — happy path', () => {
+  it('returns well-formed ExportInput for a COMPLETED run', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    expect(result.run.id).toBe(`${P}-run-happy`)
+    expect(result.batches.length).toBe(2)
+    expect(result.days.length).toBe(3)
+    expect(result.exportedAt).toBe(EXPORTED_AT)
+  })
+
+  it('maps ExportRun fields correctly', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    expect(result.run).toEqual({
+      id: `${P}-run-happy`,
+      model: 'gpt-4o',
+      startDate: '2024-06-01',
+      endDate: '2024-06-03',
+      sources: ['chatgpt', 'claude'],
+      timezone: 'America/Los_Angeles',
+      filterProfile: {
+        name: `${P}-professional`,
+        mode: 'include',
+        categories: ['work', 'learning'],
+      },
+    })
+  })
+
+  it('maps ExportBatch fields from RunBatch junction', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const sourceIds = result.batches.map((b) => b.id).sort()
+    expect(sourceIds).toEqual([`${P}-batch-1`, `${P}-batch-2`])
+
+    const chatgptBatch = result.batches.find((b) => b.id === `${P}-batch-1`)!
+    expect(chatgptBatch.source).toBe('chatgpt')
+    expect(chatgptBatch.originalFilename).toBe('chatgpt-export.json')
+    expect(chatgptBatch.timezone).toBe('America/Los_Angeles')
+
+    const claudeBatch = result.batches.find((b) => b.id === `${P}-batch-2`)!
+    expect(claudeBatch.source).toBe('claude')
+  })
+
+  it('orders days by dayDate ASC regardless of job creation order', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const dates = result.days.map((d) => d.dayDate)
+    expect(dates).toEqual(['2024-06-01', '2024-06-02', '2024-06-03'])
+  })
+
+  it('maps ExportDay fields for non-segmented output', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const day1 = result.days[0]
+    expect(day1.dayDate).toBe('2024-06-01')
+    expect(day1.outputText).toBe('# Day 1\n\nWorked on auth module.')
+    expect(day1.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/)
+    expect(day1.bundleHash).toBe('hash-day1-bundle')
+    expect(day1.bundleContextHash).toBe('hash-day1-ctx')
+    expect(day1.segmented).toBe(false)
+    expect(day1.segmentCount).toBeUndefined()
+  })
+
+  it('maps ExportDay fields for segmented output', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const day2 = result.days[1]
+    expect(day2.dayDate).toBe('2024-06-02')
+    expect(day2.outputText).toBe('# Day 2\n\nDeployment prep.')
+    expect(day2.segmented).toBe(true)
+    expect(day2.segmentCount).toBe(3)
+  })
+
+  it('passes exportedAt through unchanged', async () => {
+    const custom = '2099-12-31T23:59:59.000Z'
+    const result = await buildExportInput(`${P}-run-happy`, custom)
+    expect(result.exportedAt).toBe(custom)
+  })
+})
+
+// ── Precondition failures ───────────────────────────────────────────────────
+
+describe('buildExportInput — precondition failures', () => {
+  it('throws EXPORT_NOT_FOUND for unknown runId', async () => {
+    await expect(
+      buildExportInput('nonexistent-run-id', EXPORTED_AT),
+    ).rejects.toThrow(ExportPreconditionError)
+
+    try {
+      await buildExportInput('nonexistent-run-id', EXPORTED_AT)
+    } catch (e) {
+      const err = e as ExportPreconditionError
+      expect(err.code).toBe('EXPORT_NOT_FOUND')
+    }
+  })
+
+  it('throws EXPORT_PRECONDITION when Run is not COMPLETED', async () => {
+    try {
+      await buildExportInput(`${P}-run-running`, EXPORTED_AT)
+      expect.fail('should have thrown')
+    } catch (e) {
+      const err = e as ExportPreconditionError
+      expect(err.code).toBe('EXPORT_PRECONDITION')
+      expect(err.details?.runStatus).toBe('RUNNING')
+    }
+  })
+
+  it('throws EXPORT_PRECONDITION when any job is not SUCCEEDED', async () => {
+    try {
+      await buildExportInput(`${P}-run-mixed`, EXPORTED_AT)
+      expect.fail('should have thrown')
+    } catch (e) {
+      const err = e as ExportPreconditionError
+      expect(err.code).toBe('EXPORT_PRECONDITION')
+      expect(err.details?.failedJobs).toBeDefined()
+      const failedJobs = err.details!.failedJobs as Array<{ status: string }>
+      expect(failedJobs).toHaveLength(1)
+      expect(failedJobs[0].status).toBe('FAILED')
+    }
+  })
+})
+
+// ── Data integrity ──────────────────────────────────────────────────────────
+
+describe('buildExportInput — data integrity', () => {
+  it('throws EXPORT_PRECONDITION when SUCCEEDED job has no SUMMARIZE output', async () => {
+    try {
+      await buildExportInput(`${P}-run-no-output`, EXPORTED_AT)
+      expect.fail('should have thrown')
+    } catch (e) {
+      const err = e as ExportPreconditionError
+      expect(err.code).toBe('EXPORT_PRECONDITION')
+      expect(err.details?.outputCount).toBe(0)
+    }
+  })
+
+  it('returns empty days for a COMPLETED run with zero jobs', async () => {
+    const result = await buildExportInput(`${P}-run-empty`, EXPORTED_AT)
+
+    expect(result.days).toEqual([])
+    expect(result.batches.length).toBe(1)
+    expect(result.run.id).toBe(`${P}-run-empty`)
+  })
+})
