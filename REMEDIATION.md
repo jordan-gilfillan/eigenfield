@@ -81,6 +81,7 @@ Each entry has:
 - AUD-068
 - AUD-069
 - AUD-070
+- AUD-082
 
 ### Bucket F — Refactor Roadmap (P0–P1, merged audit)
 - AUD-071
@@ -1497,6 +1498,32 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Decision**: Defer
 - **Description**: Replace manual if/return validation chains in POST route handlers with schema-based validation. Depends on AUD-073/074 (clean error surfaces).
 - **Status**: Not started
+
+### AUD-082 — Export button on Run Detail page
+- **Source**: Smoke test — Git export (AUD-062–068) not reachable from UI
+- **Severity**: MEDIUM
+- **Type**: UX roadmap
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Add an "Export" button to the `RunControls` section of the Run Detail page (`page.tsx`). Enabled only when `run.status === 'completed'`; disabled for queued/running/failed/cancelled. Calls existing `POST /api/distill/runs/:runId/export` with a user-editable `outputDir` (default `./exports/<runId>`, relative paths only) and a privacy tier selector (Private default / Public). Displays success (file count + path) or error (code + message) inline, following the tick/resume/cancel feedback pattern already in `RunControls`.
+- **Allowed files**:
+  - `src/app/distill/runs/[runId]/page.tsx` (UI control + handler)
+  - `REMEDIATION.md` (this entry)
+- **Acceptance checks**:
+  - Export button visible in Run Controls when run status is `completed`
+  - Button disabled + grayed when run is not `completed` (queued, running, failed, cancelled)
+  - Clicking Export calls `POST /api/distill/runs/:runId/export` with `{ outputDir, privacyTier }`
+  - Button shows "Exporting..." and is disabled during in-flight request (no double-click)
+  - Success: inline message shows file count and output directory path
+  - Failure: inline error shows error code + message (EXPORT_PRECONDITION, INVALID_INPUT, etc.)
+  - Default outputDir is `./exports/<runId>` (editable text input)
+  - UI rejects outputDir containing `..` or starting with `/` with an inline validation error (no API call made)
+  - Privacy tier selector: Private (default) / Public, with hint text "Private includes user text; Public excludes atoms/sources."
+  - `npx vitest run` passes (no test regressions)
+  - **Smoke test**: Import a batch → classify → create + auto-run to completion → click Export → see success message with file count → verify files exist at outputDir
+- **Stop rule**: If this requires new API routes, schema changes, or touching files outside the allowlist, STOP and create a new AUD.
+- **Status**: Done
+- **Resolution**: Added Export button + options panel to `RunControls` in run detail page. Button enabled only when `run.status === 'completed'`; shows "Exporting..." during in-flight. Editable `outputDir` (default `./exports/<runId>`, rejects `..` and absolute paths client-side). Privacy tier dropdown (Private/Public) with hint text. Success shows file count + path + expandable file list. Error shows code + message inline. Follows existing tick/resume/cancel feedback pattern. No new routes/schema. 795 tests pass.
 
 ---
 
