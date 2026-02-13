@@ -9,7 +9,7 @@
 
 import { sha256 } from '../hash'
 import { EXPORT_FORMAT_VERSION, renderFrontmatter, renderJson } from './helpers'
-import type { ExportInput, ExportDay, ExportTree } from './types'
+import type { ExportInput, ExportDay, ExportAtom, ExportTree } from './types'
 
 /** Number of days shown in the "Recent" section when timeline has >14 entries */
 const TIMELINE_RECENT_COUNT = 14
@@ -35,7 +35,14 @@ export function renderExportTree(input: ExportInput): ExportTree {
     tree.set(`views/${day.dayDate}.md`, renderViewFile(day, input.run.id, input.run.model))
   }
 
-  // 4. Manifest (computed last — needs hashes of all other files)
+  // 4. Per-day atom files (when atoms data is present)
+  for (const day of input.days) {
+    if (day.atoms !== undefined) {
+      tree.set(`atoms/${day.dayDate}.md`, renderAtomsFile(day.atoms))
+    }
+  }
+
+  // 5. Manifest (computed last — needs hashes of all other files)
   tree.set('.journal-meta/manifest.json', renderManifest(input, tree))
 
   return tree
@@ -119,6 +126,35 @@ function renderViewFile(day: ExportDay, runId: string, model: string): string {
 
   const frontmatter = renderFrontmatter(fields)
   return `${frontmatter}\n\n${day.outputText}\n`
+}
+
+/**
+ * Per-day atoms file in §9.1 bundle format (user-role only).
+ *
+ * Groups atoms by source, renders as:
+ *   # SOURCE: <source>
+ *   [<timestampUtc>] user: <text>
+ *
+ * Atoms must already be sorted in §9.1 order (source ASC, timestampUtc ASC,
+ * atomStableId ASC). An empty atom list produces a single trailing newline.
+ */
+function renderAtomsFile(atoms: ExportAtom[]): string {
+  if (atoms.length === 0) return '\n'
+
+  const parts: string[] = []
+  let currentSource: string | null = null
+
+  for (const atom of atoms) {
+    if (atom.source !== currentSource) {
+      if (currentSource !== null) parts.push('')
+      parts.push(`# SOURCE: ${atom.source}`)
+      currentSource = atom.source
+    }
+    parts.push(`[${atom.timestampUtc}] user: ${atom.text}`)
+  }
+
+  parts.push('')
+  return parts.join('\n')
 }
 
 /**

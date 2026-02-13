@@ -8,7 +8,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { ExportInput, ExportDay } from './types'
+import type { ExportInput, ExportDay, ExportAtom } from './types'
 
 // ── Error class ──────────────────────────────────────────────────────────────
 
@@ -139,6 +139,62 @@ export async function buildExportInput(
 
     return day
   })
+
+  // 7. Load user-role atoms for all days in §9.1 order
+  const batchIds = run.runBatches.map((rb) => rb.importBatchId)
+  const dayDates = run.jobs.map((j) => j.dayDate)
+
+  if (dayDates.length > 0 && batchIds.length > 0) {
+    const rawAtoms = await prisma.messageAtom.findMany({
+      where: {
+        importBatchId: { in: batchIds },
+        role: 'USER',
+        dayDate: { in: dayDates },
+      },
+      orderBy: [
+        { dayDate: 'asc' },
+        { source: 'asc' },
+        { timestampUtc: 'asc' },
+        { atomStableId: 'asc' },
+      ],
+      select: {
+        atomStableId: true,
+        source: true,
+        timestampUtc: true,
+        text: true,
+        dayDate: true,
+      },
+    })
+
+    // Cross-batch dedup by atomStableId (keep first occurrence per §9.1)
+    const seen = new Set<string>()
+    const dedupedAtoms = rawAtoms.filter((a) => {
+      if (seen.has(a.atomStableId)) return false
+      seen.add(a.atomStableId)
+      return true
+    })
+
+    // Group by dayDate and map to ExportAtom
+    const atomsByDay = new Map<string, ExportAtom[]>()
+    for (const atom of dedupedAtoms) {
+      const dayStr = formatDate(atom.dayDate)
+      if (!atomsByDay.has(dayStr)) atomsByDay.set(dayStr, [])
+      atomsByDay.get(dayStr)!.push({
+        source: atom.source.toLowerCase(),
+        timestampUtc: atom.timestampUtc.toISOString(),
+        text: atom.text,
+        atomStableId: atom.atomStableId,
+      })
+    }
+
+    for (const day of days) {
+      day.atoms = atomsByDay.get(day.dayDate) ?? []
+    }
+  } else {
+    for (const day of days) {
+      day.atoms = []
+    }
+  }
 
   return {
     run: {

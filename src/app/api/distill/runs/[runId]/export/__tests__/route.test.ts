@@ -257,7 +257,7 @@ describe('POST /api/distill/runs/:runId/export', () => {
 
     // Only expected directories present (no duplicates)
     const topLevel = await readdir(tempDir)
-    expect(topLevel.sort()).toEqual(['.journal-meta', 'README.md', 'views'])
+    expect(topLevel.sort()).toEqual(['.journal-meta', 'README.md', 'atoms', 'views'])
 
     await rm(tempDir, { recursive: true, force: true })
   })

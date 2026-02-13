@@ -23,6 +23,7 @@ const runBatchIds: string[] = []
 const runIds: string[] = []
 const jobIds: string[] = []
 const outputIds: string[] = []
+const atomIds: string[] = []
 
 // ── Shared test fixtures ────────────────────────────────────────────────────
 
@@ -183,6 +184,63 @@ beforeAll(async () => {
   })
   outputIds.push(out3.id)
 
+  // ── MessageAtoms for the happy-path run (user + assistant, multi-batch) ──
+
+  // Day 1: 2 user atoms from batch-1 (chatgpt), 1 assistant (should be excluded)
+  const atomD1U1 = await prisma.messageAtom.create({
+    data: {
+      id: `${P}-atom-d1u1`, atomStableId: `${P}-stable-d1u1`,
+      importBatchId: batch1.id, source: 'CHATGPT', role: 'USER',
+      dayDate: new Date('2024-06-01'), timestampUtc: new Date('2024-06-01T10:00:00.000Z'),
+      text: 'How do I set up OAuth?', textHash: 'th-d1u1',
+    },
+  })
+  atomIds.push(atomD1U1.id)
+
+  const atomD1U2 = await prisma.messageAtom.create({
+    data: {
+      id: `${P}-atom-d1u2`, atomStableId: `${P}-stable-d1u2`,
+      importBatchId: batch1.id, source: 'CHATGPT', role: 'USER',
+      dayDate: new Date('2024-06-01'), timestampUtc: new Date('2024-06-01T14:30:00.000Z'),
+      text: 'Thanks, what about refresh tokens?', textHash: 'th-d1u2',
+    },
+  })
+  atomIds.push(atomD1U2.id)
+
+  const atomD1Asst = await prisma.messageAtom.create({
+    data: {
+      id: `${P}-atom-d1a1`, atomStableId: `${P}-stable-d1a1`,
+      importBatchId: batch1.id, source: 'CHATGPT', role: 'ASSISTANT',
+      dayDate: new Date('2024-06-01'), timestampUtc: new Date('2024-06-01T10:01:00.000Z'),
+      text: 'Here is how to set up OAuth...', textHash: 'th-d1a1',
+    },
+  })
+  atomIds.push(atomD1Asst.id)
+
+  // Day 1: 1 user atom from batch-2 (claude) — tests multi-source
+  const atomD1C1 = await prisma.messageAtom.create({
+    data: {
+      id: `${P}-atom-d1c1`, atomStableId: `${P}-stable-d1c1`,
+      importBatchId: batch2.id, source: 'CLAUDE', role: 'USER',
+      dayDate: new Date('2024-06-01'), timestampUtc: new Date('2024-06-01T11:00:00.000Z'),
+      text: 'Help me review the auth design', textHash: 'th-d1c1',
+    },
+  })
+  atomIds.push(atomD1C1.id)
+
+  // Day 2: 1 user atom
+  const atomD2U1 = await prisma.messageAtom.create({
+    data: {
+      id: `${P}-atom-d2u1`, atomStableId: `${P}-stable-d2u1`,
+      importBatchId: batch1.id, source: 'CHATGPT', role: 'USER',
+      dayDate: new Date('2024-06-02'), timestampUtc: new Date('2024-06-02T09:00:00.000Z'),
+      text: 'Prepare deployment checklist', textHash: 'th-d2u1',
+    },
+  })
+  atomIds.push(atomD2U1.id)
+
+  // Day 3: no atoms (tests empty atoms list)
+
   // ── Run with RUNNING status (for precondition failure test) ──
 
   const runRunning = await prisma.run.create({
@@ -298,6 +356,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Clean up in reverse dependency order
+  await prisma.messageAtom.deleteMany({ where: { id: { in: atomIds } } })
   await prisma.output.deleteMany({ where: { id: { in: outputIds } } })
   await prisma.job.deleteMany({ where: { id: { in: jobIds } } })
   await prisma.runBatch.deleteMany({ where: { id: { in: runBatchIds } } })
@@ -452,5 +511,62 @@ describe('buildExportInput — data integrity', () => {
     expect(result.days).toEqual([])
     expect(result.batches.length).toBe(1)
     expect(result.run.id).toBe(`${P}-run-empty`)
+  })
+})
+
+// ── Atoms loading ─────────────────────────────────────────────────────────
+
+describe('buildExportInput — atoms', () => {
+  it('loads user-role atoms in §9.1 order for each day', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    // Day 1 (2024-06-01): 2 chatgpt user + 1 claude user = 3, sorted by source ASC then timestampUtc ASC
+    const day1 = result.days[0]
+    expect(day1.atoms).toBeDefined()
+    expect(day1.atoms!.length).toBe(3)
+
+    // chatgpt atoms first (source ASC), then claude
+    expect(day1.atoms![0].source).toBe('chatgpt')
+    expect(day1.atoms![0].timestampUtc).toBe('2024-06-01T10:00:00.000Z')
+    expect(day1.atoms![0].text).toBe('How do I set up OAuth?')
+
+    expect(day1.atoms![1].source).toBe('chatgpt')
+    expect(day1.atoms![1].timestampUtc).toBe('2024-06-01T14:30:00.000Z')
+
+    expect(day1.atoms![2].source).toBe('claude')
+    expect(day1.atoms![2].timestampUtc).toBe('2024-06-01T11:00:00.000Z')
+  })
+
+  it('excludes assistant-role atoms', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    // Day 1 has an assistant atom in DB — it should not appear
+    const day1 = result.days[0]
+    const roles = day1.atoms!.map((a) => a.source)
+    // All atoms should have actual content from user atoms only
+    expect(day1.atoms!.every((a) => a.text !== 'Here is how to set up OAuth...')).toBe(true)
+  })
+
+  it('returns empty atoms for days with no atoms in DB', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    // Day 3 (2024-06-03): no atoms created in beforeAll
+    const day3 = result.days[2]
+    expect(day3.atoms).toBeDefined()
+    expect(day3.atoms!.length).toBe(0)
+  })
+
+  it('includes atomStableId for deterministic sort tie-breaking', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const day1 = result.days[0]
+    expect(day1.atoms![0].atomStableId).toBe(`${P}-stable-d1u1`)
+    expect(day1.atoms![1].atomStableId).toBe(`${P}-stable-d1u2`)
+  })
+
+  it('atoms from empty run have empty arrays', async () => {
+    const result = await buildExportInput(`${P}-run-empty`, EXPORTED_AT)
+    // No days, no atoms
+    expect(result.days.length).toBe(0)
   })
 })

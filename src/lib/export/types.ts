@@ -28,6 +28,13 @@ export interface ExportBatch {
   timezone: string           // IANA
 }
 
+export interface ExportAtom {
+  source: string             // lowercase
+  timestampUtc: string       // ISO 8601 (canonical, §5.2)
+  text: string
+  atomStableId: string       // for deterministic sort tie-breaking
+}
+
 export interface ExportDay {
   dayDate: string            // YYYY-MM-DD
   outputText: string         // markdown (from Output.outputText)
@@ -36,6 +43,7 @@ export interface ExportDay {
   bundleContextHash: string  // sha256 of config context
   segmented: boolean
   segmentCount?: number      // present only when segmented: true
+  atoms?: ExportAtom[]       // user-role atoms in §9.1 order (for atoms/ export)
 }
 
 export interface ExportInput {

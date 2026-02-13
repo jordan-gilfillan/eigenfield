@@ -47,6 +47,11 @@ const DETERMINISM_INPUT: ExportInput = {
       bundleHash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
       bundleContextHash: 'f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5',
       segmented: false,
+      atoms: [
+        { source: 'chatgpt', timestampUtc: '2025-03-10T09:00:00.000Z', text: 'Sprint planning agenda items?', atomStableId: 'det-a1' },
+        { source: 'chatgpt', timestampUtc: '2025-03-10T14:30:00.000Z', text: 'Debug this timezone issue in formatDate', atomStableId: 'det-a2' },
+        { source: 'claude', timestampUtc: '2025-03-10T11:00:00.000Z', text: 'Review the backlog priorities', atomStableId: 'det-a3' },
+      ],
     },
     {
       dayDate: '2025-03-11',
@@ -56,6 +61,10 @@ const DETERMINISM_INPUT: ExportInput = {
       bundleContextHash: 'e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4',
       segmented: true,
       segmentCount: 3,
+      atoms: [
+        { source: 'chatgpt', timestampUtc: '2025-03-11T08:00:00.000Z', text: 'Pair on the auth module today', atomStableId: 'det-b1' },
+        { source: 'chatgpt', timestampUtc: '2025-03-11T13:00:00.000Z', text: 'Write integration tests for export', atomStableId: 'det-b2' },
+      ],
     },
     {
       dayDate: '2025-03-12',
@@ -64,6 +73,9 @@ const DETERMINISM_INPUT: ExportInput = {
       bundleHash: 'c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
       bundleContextHash: 'd4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3',
       segmented: false,
+      atoms: [
+        { source: 'chatgpt', timestampUtc: '2025-03-12T10:00:00.000Z', text: 'Deploy v2.1 to staging', atomStableId: 'det-c1' },
+      ],
     },
   ],
   exportedAt: '2025-03-15T10:00:00.000Z',
@@ -90,7 +102,7 @@ describe('export determinism guard (AUD-069)', () => {
     }
   })
 
-  it('covers all required file types: README, views, timeline, manifest', () => {
+  it('covers all required file types: README, views, timeline, atoms, manifest', () => {
     const tree = renderExportTree(DETERMINISM_INPUT)
     const paths = [...tree.keys()]
 
@@ -104,6 +116,11 @@ describe('export determinism guard (AUD-069)', () => {
     expect(paths).toContain('views/2025-03-10.md')
     expect(paths).toContain('views/2025-03-11.md')
     expect(paths).toContain('views/2025-03-12.md')
+
+    // Atoms (one per day in input)
+    expect(paths).toContain('atoms/2025-03-10.md')
+    expect(paths).toContain('atoms/2025-03-11.md')
+    expect(paths).toContain('atoms/2025-03-12.md')
 
     // Manifest
     expect(paths).toContain('.journal-meta/manifest.json')

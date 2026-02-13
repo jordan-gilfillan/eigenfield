@@ -40,6 +40,10 @@ const GOLDEN_INPUT: ExportInput = {
       bundleHash: 'abc123def456',
       bundleContextHash: 'ctx789abc012',
       segmented: false,
+      atoms: [
+        { source: 'chatgpt', timestampUtc: '2024-01-15T10:30:00.000Z', text: 'How do I implement token-based auth?', atomStableId: 'atom-g-001' },
+        { source: 'chatgpt', timestampUtc: '2024-01-15T14:15:00.000Z', text: 'Can you review this PR for security issues?', atomStableId: 'atom-g-002' },
+      ],
     },
     {
       dayDate: '2024-01-16',
@@ -49,6 +53,10 @@ const GOLDEN_INPUT: ExportInput = {
       bundleContextHash: 'ctx345def678',
       segmented: true,
       segmentCount: 2,
+      atoms: [
+        { source: 'chatgpt', timestampUtc: '2024-01-16T09:00:00.000Z', text: 'What should we cover in standup today?', atomStableId: 'atom-g-003' },
+        { source: 'chatgpt', timestampUtc: '2024-01-16T15:30:00.000Z', text: 'Ready for the code review session.', atomStableId: 'atom-g-004' },
+      ],
     },
   ],
   exportedAt: '2024-01-20T15:30:00.000Z',
@@ -110,6 +118,16 @@ Morning standup discussion about deployment timeline.
 Afternoon code review session with the team.
 `
 
+const GOLDEN_ATOMS_JAN15 = `# SOURCE: chatgpt
+[2024-01-15T10:30:00.000Z] user: How do I implement token-based auth?
+[2024-01-15T14:15:00.000Z] user: Can you review this PR for security issues?
+`
+
+const GOLDEN_ATOMS_JAN16 = `# SOURCE: chatgpt
+[2024-01-16T09:00:00.000Z] user: What should we cover in standup today?
+[2024-01-16T15:30:00.000Z] user: Ready for the code review session.
+`
+
 // ---- Tests ----
 
 describe('renderExportTree', () => {
@@ -117,18 +135,20 @@ describe('renderExportTree', () => {
     it('produces exact expected output for all files', () => {
       const tree = renderExportTree(GOLDEN_INPUT)
 
-      expect(tree.size).toBe(5)
+      expect(tree.size).toBe(7) // README + timeline + 2 views + 2 atoms + manifest
       expect(tree.get('README.md')).toBe(GOLDEN_README)
       expect(tree.get('views/timeline.md')).toBe(GOLDEN_TIMELINE)
       expect(tree.get('views/2024-01-15.md')).toBe(GOLDEN_VIEW_JAN15)
       expect(tree.get('views/2024-01-16.md')).toBe(GOLDEN_VIEW_JAN16)
+      expect(tree.get('atoms/2024-01-15.md')).toBe(GOLDEN_ATOMS_JAN15)
+      expect(tree.get('atoms/2024-01-16.md')).toBe(GOLDEN_ATOMS_JAN16)
 
       // Manifest — verify structure, then lock golden
       const manifestStr = tree.get('.journal-meta/manifest.json')!
       const manifest = JSON.parse(manifestStr)
       expect(manifest.formatVersion).toBe('export_v1')
       expect(manifest.exportedAt).toBe('2024-01-20T15:30:00.000Z')
-      expect(Object.keys(manifest.files)).toHaveLength(4) // README + timeline + 2 views
+      expect(Object.keys(manifest.files)).toHaveLength(6) // README + timeline + 2 views + 2 atoms
     })
 
     it('manifest hashes match file contents', () => {
@@ -378,6 +398,97 @@ describe('renderExportTree', () => {
       // No ISO 8601 timestamps (pattern: T followed by digits and colons)
       expect(timeline).not.toMatch(/T\d{2}:\d{2}/)
       expect(timeline).not.toContain('---') // no frontmatter
+    })
+  })
+
+  describe('atoms', () => {
+    it('renders atoms/YYYY-MM-DD.md for each day with atoms', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      expect(tree.has('atoms/2024-01-15.md')).toBe(true)
+      expect(tree.has('atoms/2024-01-16.md')).toBe(true)
+    })
+
+    it('groups atoms by source with §9.1 format', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      const atoms15 = tree.get('atoms/2024-01-15.md')!
+      expect(atoms15).toContain('# SOURCE: chatgpt')
+      expect(atoms15).toContain('[2024-01-15T10:30:00.000Z] user: How do I implement token-based auth?')
+      expect(atoms15).toContain('[2024-01-15T14:15:00.000Z] user: Can you review this PR for security issues?')
+    })
+
+    it('renders multi-source atoms with blank line between sources', () => {
+      const input: ExportInput = {
+        ...GOLDEN_INPUT,
+        days: [{
+          dayDate: '2024-01-15',
+          outputText: 'Summary.',
+          createdAt: '2024-01-15T23:45:00.000Z',
+          bundleHash: 'h1',
+          bundleContextHash: 'h2',
+          segmented: false,
+          atoms: [
+            { source: 'chatgpt', timestampUtc: '2024-01-15T10:00:00.000Z', text: 'From ChatGPT', atomStableId: 'a1' },
+            { source: 'claude', timestampUtc: '2024-01-15T11:00:00.000Z', text: 'From Claude', atomStableId: 'a2' },
+          ],
+        }],
+      }
+
+      const tree = renderExportTree(input)
+      const atoms = tree.get('atoms/2024-01-15.md')!
+
+      expect(atoms).toBe(
+        '# SOURCE: chatgpt\n' +
+        '[2024-01-15T10:00:00.000Z] user: From ChatGPT\n' +
+        '\n' +
+        '# SOURCE: claude\n' +
+        '[2024-01-15T11:00:00.000Z] user: From Claude\n'
+      )
+    })
+
+    it('renders empty atoms file as single newline', () => {
+      const input: ExportInput = {
+        ...GOLDEN_INPUT,
+        days: [{
+          dayDate: '2024-01-15',
+          outputText: 'Summary.',
+          createdAt: '2024-01-15T23:45:00.000Z',
+          bundleHash: 'h1',
+          bundleContextHash: 'h2',
+          segmented: false,
+          atoms: [],
+        }],
+      }
+
+      const tree = renderExportTree(input)
+      const atoms = tree.get('atoms/2024-01-15.md')!
+      expect(atoms).toBe('\n')
+    })
+
+    it('skips atoms files when atoms field is undefined', () => {
+      const input: ExportInput = {
+        ...GOLDEN_INPUT,
+        days: [{
+          dayDate: '2024-01-15',
+          outputText: 'Summary.',
+          createdAt: '2024-01-15T23:45:00.000Z',
+          bundleHash: 'h1',
+          bundleContextHash: 'h2',
+          segmented: false,
+          // atoms is undefined
+        }],
+      }
+
+      const tree = renderExportTree(input)
+      expect(tree.has('atoms/2024-01-15.md')).toBe(false)
+    })
+
+    it('includes atoms files in manifest hashes', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      const manifest = JSON.parse(tree.get('.journal-meta/manifest.json')!)
+      expect(manifest.files['atoms/2024-01-15.md']).toBeDefined()
+      expect(manifest.files['atoms/2024-01-15.md'].sha256).toBe(sha256(tree.get('atoms/2024-01-15.md')!))
+      expect(manifest.files['atoms/2024-01-16.md']).toBeDefined()
+      expect(manifest.files['atoms/2024-01-16.md'].sha256).toBe(sha256(tree.get('atoms/2024-01-16.md')!))
     })
   })
 })
