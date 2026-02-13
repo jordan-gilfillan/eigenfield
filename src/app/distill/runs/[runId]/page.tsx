@@ -138,6 +138,14 @@ export default function RunDetailPage() {
   const [refreshingClassifyStats, setRefreshingClassifyStats] = useState(false)
   const [classifyStatsError, setClassifyStatsError] = useState<string | null>(null)
 
+  // Export state
+  const [exportInFlight, setExportInFlight] = useState(false)
+  const [exportResult, setExportResult] = useState<{ fileCount: number; outputDir: string; files: string[] } | null>(null)
+  const [exportError, setExportError] = useState<TickError | null>(null)
+  const [exportValidationError, setExportValidationError] = useState<string | null>(null)
+  const [exportOutputDir, setExportOutputDir] = useState(`./exports/${runId}`)
+  const [exportPrivacyTier, setExportPrivacyTier] = useState<'private' | 'public'>('private')
+
   // Collapsible frozen config
   const [configCollapsed, setConfigCollapsed] = useState(false)
 
@@ -385,6 +393,56 @@ export default function RunDetailPage() {
     autoRunRef.current?.stop()
   }, [])
 
+  const handleExport = async () => {
+    if (exportInFlight) return
+
+    // UI-level path validation: reject .. traversal and absolute paths
+    if (exportOutputDir.includes('..')) {
+      setExportValidationError('Output directory must not contain ".."')
+      return
+    }
+    if (exportOutputDir.startsWith('/')) {
+      setExportValidationError('Output directory must be a relative path (starting with ./)')
+      return
+    }
+    if (!exportOutputDir.trim()) {
+      setExportValidationError('Output directory is required')
+      return
+    }
+
+    setExportInFlight(true)
+    setExportError(null)
+    setExportResult(null)
+    setExportValidationError(null)
+
+    try {
+      const res = await fetch(`/api/distill/runs/${runId}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outputDir: exportOutputDir, privacyTier: exportPrivacyTier }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        const apiError = data as ApiError
+        setExportError({
+          code: apiError.error?.code || 'UNKNOWN',
+          message: apiError.error?.message || 'Export failed',
+        })
+        return
+      }
+
+      setExportResult({ fileCount: data.fileCount, outputDir: data.outputDir, files: data.files })
+    } catch (err) {
+      setExportError({
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Network error during export',
+      })
+    } finally {
+      setExportInFlight(false)
+    }
+  }
+
   // Cleanup auto-run on unmount
   useEffect(() => {
     return () => {
@@ -478,6 +536,15 @@ export default function RunDetailPage() {
         autoRunError={autoRunError}
         onStartAutoRun={handleStartAutoRun}
         onStopAutoRun={handleStopAutoRun}
+        exportInFlight={exportInFlight}
+        exportResult={exportResult}
+        exportError={exportError}
+        exportValidationError={exportValidationError}
+        exportOutputDir={exportOutputDir}
+        exportPrivacyTier={exportPrivacyTier}
+        onExport={handleExport}
+        onExportOutputDirChange={(v: string) => { setExportOutputDir(v); setExportValidationError(null) }}
+        onExportPrivacyTierChange={setExportPrivacyTier}
       />
 
       {/* Frozen Config (collapsible — starts expanded) */}
@@ -779,6 +846,15 @@ function RunControls({
   autoRunError,
   onStartAutoRun,
   onStopAutoRun,
+  exportInFlight,
+  exportResult,
+  exportError,
+  exportValidationError,
+  exportOutputDir,
+  exportPrivacyTier,
+  onExport,
+  onExportOutputDirChange,
+  onExportPrivacyTierChange,
 }: {
   run: RunDetail
   tickInFlight: boolean
@@ -797,6 +873,15 @@ function RunControls({
   autoRunError: TickError | null
   onStartAutoRun: () => void
   onStopAutoRun: () => void
+  exportInFlight: boolean
+  exportResult: { fileCount: number; outputDir: string; files: string[] } | null
+  exportError: TickError | null
+  exportValidationError: string | null
+  exportOutputDir: string
+  exportPrivacyTier: 'private' | 'public'
+  onExport: () => void
+  onExportOutputDirChange: (v: string) => void
+  onExportPrivacyTierChange: (v: 'private' | 'public') => void
 }) {
   const isTerminal = run.status === 'cancelled' || run.status === 'completed' || run.status === 'failed'
   const canTick = !isTerminal && !tickInFlight && !isAutoRunning
@@ -804,6 +889,7 @@ function RunControls({
   const canResume = !isTerminal && hasFailedJobs && !resumeInFlight
   const canCancel = !isTerminal && !cancelInFlight
   const canStartAutoRun = !isTerminal && !isAutoRunning && !tickInFlight
+  const canExport = run.status === 'completed' && !exportInFlight
 
   return (
     <div className="mt-6 p-4 bg-white border border-gray-200 rounded-md shadow-sm">
@@ -898,7 +984,59 @@ function RunControls({
           </button>
           <span className="text-xs text-gray-500">Cancel all queued jobs (irreversible)</span>
         </div>
+
+        {/* Export */}
+        <div className="flex flex-col items-start gap-1">
+          <button
+            onClick={onExport}
+            disabled={!canExport}
+            className={`px-4 py-2 rounded font-medium ${
+              canExport
+                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {exportInFlight ? 'Exporting...' : 'Export'}
+          </button>
+          <span className="text-xs text-gray-500">
+            {run.status === 'completed' ? 'Export run output as markdown files' : 'Available when run completes'}
+          </span>
+        </div>
       </div>
+
+      {/* Export options — shown only when run is completed */}
+      {run.status === 'completed' && (
+        <div className="mt-3 p-3 bg-gray-50 border border-gray-100 rounded space-y-2">
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600 whitespace-nowrap">Output dir:</label>
+            <input
+              type="text"
+              value={exportOutputDir}
+              onChange={(e) => onExportOutputDirChange(e.target.value)}
+              disabled={exportInFlight}
+              className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-white disabled:bg-gray-100 font-mono"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600 whitespace-nowrap">Privacy:</label>
+            <select
+              value={exportPrivacyTier}
+              onChange={(e) => onExportPrivacyTierChange(e.target.value as 'private' | 'public')}
+              disabled={exportInFlight}
+              className="px-2 py-1 text-sm border border-gray-300 rounded bg-white disabled:bg-gray-100"
+            >
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+            <span className="text-xs text-gray-500">
+              Private includes user text; Public excludes atoms/sources.
+            </span>
+          </div>
+          {exportValidationError && (
+            <div className="text-sm text-red-600">{exportValidationError}</div>
+          )}
+        </div>
+      )}
 
       {/* In-flight status messages */}
       {tickInFlight && (
@@ -927,7 +1065,14 @@ function RunControls({
       )}
 
       {/* Last action results */}
-      {(lastTickResult || lastTickError || lastResumeResult || lastResumeError || lastCancelResult || lastCancelError) && (
+      {/* Export in-flight */}
+      {exportInFlight && (
+        <div className="mt-3 text-sm text-purple-600">
+          Export in progress — writing files...
+        </div>
+      )}
+
+      {(lastTickResult || lastTickError || lastResumeResult || lastResumeError || lastCancelResult || lastCancelError || exportResult || exportError) && (
         <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
           <h3 className="text-sm font-medium text-gray-700">Last Action Results</h3>
 
@@ -1018,6 +1163,31 @@ function RunControls({
               >
                 {lastCancelResult.status}
               </span>
+            </div>
+          )}
+
+          {/* Export result */}
+          {exportError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
+              <span className="font-medium text-red-700">Export Error:</span>{' '}
+              <code className="text-red-600">{exportError.code}</code>
+              <span className="text-red-700"> — {exportError.message}</span>
+            </div>
+          )}
+
+          {exportResult && !exportError && (
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded text-sm">
+              <span className="font-medium text-purple-700">Exported:</span>{' '}
+              {exportResult.fileCount} file(s) to{' '}
+              <code className="bg-purple-100 px-1 rounded text-xs">{exportResult.outputDir}</code>
+              <details className="mt-2">
+                <summary className="text-xs text-purple-600 cursor-pointer">Show files</summary>
+                <ul className="mt-1 space-y-0.5">
+                  {exportResult.files.map((f) => (
+                    <li key={f} className="text-xs font-mono text-purple-700">{f}</li>
+                  ))}
+                </ul>
+              </details>
             </div>
           )}
         </div>
