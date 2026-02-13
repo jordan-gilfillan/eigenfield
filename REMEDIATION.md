@@ -35,7 +35,6 @@ Each entry has:
 - AUD-077 — Multi-Batch Identity Canonicalization
 
 ### Deferred
-- AUD-067 — Sources metadata (v2, deferred)
 - AUD-068 — Privacy tiers (deferred)
 - AUD-070 — Extract shared formatDate()
 - AUD-072 — Test Fixture Factory Extraction
@@ -1298,7 +1297,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Severity**: LOW
 - **Type**: New feature
 - **Priority**: P2
-- **Decision**: Defer (not in v1)
+- **Decision**: Implement
 - **Description**: Add `sources/<slug>.md` one per ImportBatch to the export tree. Provides source-level metadata (original filename, import source, timezone, atom counts).
 - **Acceptance checks**:
   - `sources/<slug>.md` files rendered for each ImportBatch
@@ -1306,7 +1305,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Determinism contract maintained
   - Golden fixture updated
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `renderSourceFile()` + `generateSourceSlugs()` to renderer.ts. Slug = `{source}-{filename_sans_ext}`, sanitized to lowercase alphanumeric+hyphens, collision suffix `-2`, `-3`. Frontmatter: batchId, source, originalFilename, timezone. 9 new tests (785 total). No type/orchestrator changes needed — ExportBatch already had all data.
 
 ### AUD-068 — Privacy tiers (§14.8)
 - **Source**: SPEC §14.8
