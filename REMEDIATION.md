@@ -1186,6 +1186,28 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added pure export renderer (`src/lib/export/{types,helpers,renderer}.ts`) with 28 golden fixture + determinism + byte-stability tests. SPEC §14 (Git Export) added with §14.1–§14.9. ADR-015 (export as post-processing read) and ADR-016 (hand-rendered YAML frontmatter) added to DECISIONS.md. Renderer produces `README.md` (static), `views/timeline.md` (navigation index), `views/YYYY-MM-DD.md` (per-day summaries with provenance frontmatter), `.journal-meta/manifest.json` (metadata + file hashes). No DB, no filesystem I/O.
 
+### AUD-063 — Export DB orchestrator (buildExportInput)
+- **Source**: AUD-062 follow-on (plan v3)
+- **Severity**: MEDIUM
+- **Type**: New feature
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Service function that loads a COMPLETED Run from the DB, validates §14.7 preconditions (Run COMPLETED, all Jobs SUCCEEDED, each Job has exactly 1 SUMMARIZE output), maps DB records to `ExportInput`, and returns it for the pure renderer.
+- **Acceptance checks**:
+  - `buildExportInput(runId, exportedAt)` returns correctly shaped `ExportInput` from DB records
+  - Run fields mapped from Run + configJson.filterProfileSnapshot + configJson.timezone
+  - Batches from RunBatch→ImportBatch (source lowercased)
+  - Days from Jobs ordered by dayDate ASC, each with outputText, createdAt ISO, bundleHash, bundleContextHash, segmented/segmentCount
+  - exportedAt passed through unchanged
+  - Unknown runId → ExportPreconditionError code EXPORT_NOT_FOUND
+  - Run.status !== COMPLETED → EXPORT_PRECONDITION with details.runStatus
+  - Any Job.status !== SUCCEEDED → EXPORT_PRECONDITION with details.failedJobs
+  - SUCCEEDED job with 0 SUMMARIZE outputs → EXPORT_PRECONDITION
+  - Empty run (0 jobs, COMPLETED) → empty days array, no error
+  - `npx vitest run` passes (all existing + new tests)
+- **Status**: Done
+- **Resolution**: Added `src/lib/export/orchestrator.ts` with `buildExportInput()` + `ExportPreconditionError`. Single Prisma query with nested includes (Run→RunBatch→ImportBatch, Run→Jobs→Outputs). 12 integration tests in `src/lib/services/__tests__/export-orchestrator.test.ts` covering happy path, field mapping, precondition failures, and data integrity.
+
 ---
 
 ## Notes
