@@ -1550,6 +1550,19 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Stop rule**: If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture.
 - **Status**: Not started
 
+### AUD-084 — Flaky test: listImportBatches pagination (cursor invalidation)
+- **Source**: Continued flakiness despite AUD-054 fix; cursor-based page walk over shared `ImportBatch` table breaks when concurrent test cleanup deletes the cursor row
+- **Severity**: MEDIUM
+- **Type**: Test/infra
+- **Code refs**: `src/__tests__/services/import.test.ts` — `supports pagination` test
+- **Problem**: AUD-054 added a deterministic `orderBy` tiebreaker but the page-walk loop still used `page.nextCursor` which could reference a foreign row. When 10+ parallel test files concurrently insert/delete `ImportBatch` rows, the cursor row gets deleted between page fetches, causing Prisma to return an empty page and failing the `>=1` assertion (~20% failure rate).
+- **Decision**: Restructure the test into two parts: (1) a cursor-free large-limit fetch to verify all 3 test batches are present and correctly ordered (immune to cursor invalidation), (2) a minimal 2-page pagination check to verify limit, cursor advancement, and no duplicates between adjacent pages.
+- **Acceptance checks**:
+  - `npx vitest run` passes reliably (20 consecutive runs, 0 flakes in this test)
+  - Assertions remain meaningful: ordering, presence, limit, cursor advances, no duplicates
+- **Status**: Done
+- **Resolution**: Replaced the multi-page walk with a two-part test. Part 1 uses `limit: 200` (single fetch, no cursor) to find all 3 test batches and assert DESC ordering by `originalFilename`. Part 2 makes two back-to-back `limit: 2` fetches to verify pagination mechanics (limit respected, cursor defined/advances, no duplicate IDs between pages). 20 consecutive full-suite runs with 0 flakes (795 tests each).
+
 ---
 
 ## Notes
