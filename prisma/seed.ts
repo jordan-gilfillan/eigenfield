@@ -99,18 +99,7 @@ async function main() {
   })
   console.log(`    PromptVersion: classify_stub_v1 (inactive)`)
 
-  await prisma.promptVersion.upsert({
-    where: {
-      promptId_versionLabel: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1',
-      },
-    },
-    update: { isActive: true },
-    create: {
-      promptId: classifyPrompt.id,
-      versionLabel: 'classify_real_v1',
-      templateText: `You are a message classifier. Classify the following AI conversation message into exactly one category.
+  const classifyRealTemplate = `You are a message classifier. Classify the following AI conversation message into exactly one category.
 
 Categories: WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER, MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
 
@@ -122,7 +111,23 @@ Rules:
 - category MUST be one of the listed categories (uppercase, exact match)
 - confidence MUST be a number between 0.0 and 1.0
 - Never invent new categories. If uncertain, choose the closest category from the allowed list.
-- Do NOT include any explanation or text outside the JSON object`,
+- Do NOT include any explanation or text outside the JSON object`
+
+  await prisma.promptVersion.upsert({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_real_v1',
+      },
+    },
+    update: {
+      isActive: true,
+      templateText: classifyRealTemplate,
+    },
+    create: {
+      promptId: classifyPrompt.id,
+      versionLabel: 'classify_real_v1',
+      templateText: classifyRealTemplate,
       isActive: true,
     },
   })

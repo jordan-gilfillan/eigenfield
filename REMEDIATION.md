@@ -40,6 +40,7 @@ Each entry has:
 - AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
 - AUD-080 — Import Scalability Batching
 - AUD-081 — Route Validation Helpers / Zod
+- AUD-083 — Git Export v2: Topic tracking + “diff of thinking” (embeddings)
 
 ---
 
@@ -82,6 +83,7 @@ Each entry has:
 - AUD-069
 - AUD-070
 - AUD-082
+- AUD-083
 
 ### Bucket F — Refactor Roadmap (P0–P1, merged audit)
 - AUD-071
@@ -976,6 +978,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Updated SPEC.md (§2 non-goals, §4.5, §4.6, §7.4, new §7.4.2) and UX_SPEC.md (§4.4, §6, §7.4) to define foreground auto-run tick loop contract. Four clarifications: (1) "polling" reserved for read-only; work-triggering loops are "foreground auto-run tick loop" governed by §7.4.2; (2) auto-run locked to maxJobs=1; (3) stop on first error, no auto-retry; (4) manual Tick disabled or guarded while auto-run active. No code changes.
 
+
 ### AUD-049 — Run detail "Auto-run" foreground tick loop (SPEC §7.4.2)
 - **Source**: UX/operability — manual ticking is tedious for large runs; spec §7.4.2 defines the contract
 - **Severity**: LOW
@@ -999,6 +1002,28 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Branch merged to master, clean working tree.
 - **Status**: Done
 - **Resolution**: Added `startAutoRunLoop` engine in `src/app/distill/hooks/useAutoRun.ts` and wired into run detail page. Start/Stop Auto-run buttons in RunControls, "Auto-running..." indicator, manual Tick disabled during auto-run, auto-run error display. 10 new tests for the loop engine (sequential calls, stop-on-error, stop-on-terminal, abort-on-stop, idempotent stop). 667 tests pass.
+
+### AUD-083 — Git Export v2: Topic tracking + “diff of thinking” (embeddings)
+- **Source**: Export smoke test result — v1 output is a flat per-day markdown set; v2 needs topic evolution
+- **Severity**: LOW
+- **Type**: UX roadmap / feature
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Git Export v1 is intentionally minimal: deterministic files written to a server-side outputDir. The exported tree is currently dominated by per-day markdown pages (journal entries). For the “diff of my thinking” goal, we eventually want a topic layer that can *evolve* across days with stable identifiers, plus change tracking that reads like commits.
+  
+  Proposed v2 direction (non-binding):
+  - Maintain a topic index (e.g., `topics/INDEX.md` + `topics/<topicId>.md`) sourced from embeddings/clustering over exported days.
+  - Track topic history across exports with stable topic IDs (merge/split rules documented).
+  - Generate a lightweight change log that summarizes topic deltas between consecutive exports (“commits”).
+  - Keep v1 determinism guarantees; v2 must be deterministic given the same corpus + model + parameters.
+- **Allowed files**: TBD (should be designed as a separate spec-first slice before touching export code)
+- **Acceptance checks** (future):
+  - A topic index exists and is navigable.
+  - A topic page shows its supporting days and quotes (with stable atom/source refs).
+  - A change log exists for export N vs N-1.
+  - Determinism: repeated export with identical inputs yields identical topic IDs/files.
+- **Stop rule**: If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture.
+- **Status**: Not started
 
 
 ### AUD-051 — Align Run.status transitions with SPEC §7.4.1
