@@ -963,6 +963,118 @@ Any change that affects invariants, stable IDs, schemas, or API behavior must:
 
 ---
 
+## 14) Git Export
+
+Git Export is a **post-processing step** that reads a completed Run's Outputs and renders them as a deterministic directory of markdown files. The pipeline (§1–§10) is unchanged; export is a read-only consumer of immutable Output records.
+
+### 14.1 Directory structure
+
+```
+<export-dir>/
+├── README.md                   # Static format tour
+├── views/
+│   ├── timeline.md             # Navigation index (newest-first, deterministic)
+│   └── YYYY-MM-DD.md           # One per SUCCEEDED job
+└── .journal-meta/
+    └── manifest.json           # Machine-readable metadata + file hashes
+```
+
+Follow-on directories (not in v1):
+- `atoms/YYYY-MM-DD.md` — Per-day source atoms (user role only, §9.1 ordering)
+- `sources/<slug>.md` — One per ImportBatch (append-only)
+
+### 14.2 File contents
+
+**`README.md`** — Static format tour.
+- Contains: format version string (`export_v1`), directory layout, pointer to `views/timeline.md` as browse entry point, pointer to `manifest.json` for machine-readable metadata.
+- Contains NO volatile data: no dates, no counts, no `exportedAt`, no source lists.
+- Changes only when the export format version changes (requires ADR).
+
+**`views/YYYY-MM-DD.md`** — Per-day summary.
+- YAML frontmatter (fixed field order):
+  1. `date` (string, `"YYYY-MM-DD"`) — the day
+  2. `model` (string) — summarization model
+  3. `runId` (string) — which Run produced this output
+  4. `createdAt` (string, ISO 8601) — Output.createdAt (immutable)
+  5. `bundleHash` (string, hex) — sha256 of input bundle text (§5.3)
+  6. `bundleContextHash` (string, hex) — sha256 of config context (§5.3)
+  7. `segmented` (boolean) — whether bundle was split into segments
+  8. `segmentCount` (number, present only when `segmented: true`)
+- Body: `Output.outputText` verbatim.
+- No `exportedAt` — that field appears only in `manifest.json`.
+
+All frontmatter fields are immutable for a given Output record. Re-exporting the same Run produces byte-identical view files.
+
+**`views/timeline.md`** — Navigation index.
+- Heading: `# Timeline`
+- When ≤14 days: flat list, newest-first, each line `- [YYYY-MM-DD](YYYY-MM-DD.md)`
+- When >14 days: `## Recent` section (latest 14) followed by `## All entries` (complete list)
+- No frontmatter, no timestamps, no `exportedAt`.
+- Deterministic: same set of days → byte-identical file. Ordering is reverse lexicographic on dayDate string.
+
+**`.journal-meta/manifest.json`** — Machine-readable metadata.
+- Top-level keys (alphabetically sorted): `batches`, `dateRange`, `exportedAt`, `files`, `formatVersion`, `run`.
+- `exportedAt` (ISO 8601) is the ONLY volatile field in the entire export tree.
+- `files` maps each file path (except manifest.json itself) to `{ sha256: "<hex>" }`.
+- All keys sorted alphabetically at every nesting level.
+
+### 14.3 Byte-stable rendering rules
+
+These rules are normative. The renderer MUST produce byte-identical output for identical input.
+
+| Rule | Specification |
+|------|--------------|
+| Line endings | LF only (`\n`). No CRLF. |
+| Trailing newline | Every file ends with exactly one `\n`. |
+| Trailing whitespace | No trailing whitespace on any line. |
+| Encoding | UTF-8. No BOM. |
+| YAML frontmatter | Hand-rendered via array-of-tuples. Fixed field order per file type. No YAML library. |
+| JSON | `JSON.stringify(sortKeysDeep(obj), null, 2) + '\n'`. Keys sorted alphabetically at every level. |
+| Format version | `export_v1` — embedded in README and manifest. Format changes require version bump + ADR. |
+
+### 14.4 Determinism contract
+
+Given the same `ExportInput`, `renderExportTree()` MUST produce byte-identical files.
+
+- `README.md`: static template. Always identical for a given format version.
+- `views/YYYY-MM-DD.md`: deterministic from `outputText` + immutable frontmatter fields.
+- `views/timeline.md`: deterministic from the set of dayDates. No timestamps.
+- `manifest.json`: contains caller-supplied `exportedAt`. Changing `exportedAt` changes ONLY this file.
+
+**Churn isolation**: re-exporting identical data at a different time changes ONLY `.journal-meta/manifest.json`.
+
+### 14.5 Minimal-churn rules
+
+| Path | Churns when | Stable when |
+|------|-------------|-------------|
+| `README.md` | Format version changes (rare, requires ADR) | Always (static template) |
+| `views/YYYY-MM-DD.md` | Output.outputText or Output metadata changes (re-run) | Same Run, no reprocessing |
+| `views/timeline.md` | Set of days changes (day added or removed) | Same set of days |
+| `manifest.json` | Any file content changes, OR `exportedAt` changes | Byte-identical tree + same `exportedAt` |
+
+### 14.6 Provenance chain
+
+A single view file's frontmatter answers: what day (`date`), what model (`model`), which run (`runId`), when created (`createdAt`), what input data (`bundleHash`), what config (`bundleContextHash`).
+
+Manifest provides the full run config (filter profile, timezone, sources) and batch details (original filenames, import source) for deeper investigation.
+
+### 14.7 Preconditions
+
+- Run status MUST be `COMPLETED`.
+- All Jobs in the Run MUST be `SUCCEEDED` (partial exports deferred).
+
+### 14.8 Privacy tiers (deferred)
+
+- **Public**: Only `views/` + `README.md` + manifest. No raw text.
+- **Private** (default): Full tree including `atoms/` and `sources/`.
+- FilterProfile already excludes sensitive categories. Export inherits this.
+
+### 14.9 Golden fixture test requirement
+
+V1 MUST include a golden fixture test that locks exact byte output of every rendered file. The test uses a fixed input and asserts string equality against inline expected values. Any renderer change that affects output bytes MUST update the golden fixtures — this is intentional friction that prevents accidental format drift.
+
+---
+
 ## Appendix A) Design philosophy
 
 > This section captures the project's design rationale. It is informative, not normative.

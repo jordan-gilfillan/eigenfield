@@ -464,3 +464,41 @@ Terminal status rule: cancelled runs cannot transition to any other status.
 - **Output versioning**: Storage overhead, which version to use?
 - **Per-job cancel**: Complicates run status calculation
 - **Automatic retry on resume**: Conflicts with ADR-012 (manual only)
+
+---
+
+## ADR-015: Export as Post-Processing Read, Not a New outputTarget
+
+### Context
+We need to render completed Run outputs as browseable markdown files for Git-based journaling. The pipeline already writes outputs to the `Output` table via `Run.outputTarget = "db"`. We could either add a new `outputTarget` value (e.g., `"git"`) to the pipeline, or read from the existing Output table after the pipeline completes.
+
+### Decision
+Git export reads from the existing Output table after a Run completes. It does not modify the pipeline, add a new `outputTarget` value, or require schema changes.
+
+### Rationale
+- Keeps existing pipeline invariants intact (§4.1 determinism, §5.4 stable keys).
+- Export is a pure function of immutable data (frozen configJson, stable Output records).
+- Multiple export formats can be added without changing the core pipeline.
+- No migration required.
+
+### Tradeoff
+- Export cannot stream results as jobs complete; it requires a fully completed Run.
+
+---
+
+## ADR-016: Hand-Rendered YAML Frontmatter, No Library
+
+### Context
+Export view files (`views/YYYY-MM-DD.md`) use YAML frontmatter for metadata. The project has no YAML library. We need byte-stable rendering with a fixed field order to prevent spurious diffs.
+
+### Decision
+YAML frontmatter is rendered by a `renderFrontmatter(fields: [key, value][])` helper that takes an array of tuples, not an object. No YAML library is used.
+
+### Rationale
+- Only flat key-value pairs needed (strings, numbers, booleans) — no nested YAML.
+- Array-of-tuples guarantees field order at the call site — no reliance on object key iteration.
+- No new dependency (project is YAML-library-free).
+- Golden fixture test (§14.9) locks the exact output, so any rendering bug is caught immediately.
+
+### Tradeoff
+- Cannot render nested YAML structures. Acceptable because frontmatter is intentionally flat.

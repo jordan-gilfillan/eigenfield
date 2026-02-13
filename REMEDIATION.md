@@ -1164,6 +1164,30 @@ These are not necessarily code bugs, but they create recurring audit noise.
 
 ---
 
+### AUD-062 — V1 export renderer + SPEC §14 + ADR-015/016
+- **Type**: New feature
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Pure TypeScript renderer that converts structured Run data into an in-memory file tree (`Map<string, string>`). Produces `README.md` (static), `views/timeline.md` (navigation index), `views/YYYY-MM-DD.md` (per-day summaries with provenance frontmatter), `.journal-meta/manifest.json` (machine-readable metadata). No DB, no filesystem I/O.
+- **Acceptance checks**:
+  - `renderExportTree` returns Map with keys: `README.md`, `views/timeline.md`, `views/YYYY-MM-DD.md` (per day), `.journal-meta/manifest.json`
+  - Golden fixture: exact string equality for all 5 files against inline expected values
+  - Determinism: calling `renderExportTree` twice with identical input produces byte-identical output
+  - Byte stability: trailing newline, no CRLF, no trailing whitespace on any line
+  - View frontmatter field order: date, model, runId, createdAt, bundleHash, bundleContextHash, segmented, segmentCount (if segmented)
+  - exportedAt isolation: changing exportedAt changes ONLY manifest.json
+  - Timeline determinism: newest-first, no timestamps, byte-identical for same set of days
+  - Timeline >14 days: renders Recent (14) + All entries sections
+  - Manifest hash integrity: sha256(file content) matches manifest hashes
+  - Empty run: zero days → README + timeline (empty) + manifest
+  - §14 added to SPEC.md
+  - ADR-015 + ADR-016 added to DECISIONS.md
+  - `npx vitest run` passes (all existing + new tests)
+- **Status**: Done
+- **Resolution**: Added pure export renderer (`src/lib/export/{types,helpers,renderer}.ts`) with 28 golden fixture + determinism + byte-stability tests. SPEC §14 (Git Export) added with §14.1–§14.9. ADR-015 (export as post-processing read) and ADR-016 (hand-rendered YAML frontmatter) added to DECISIONS.md. Renderer produces `README.md` (static), `views/timeline.md` (navigation index), `views/YYYY-MM-DD.md` (per-day summaries with provenance frontmatter), `.journal-meta/manifest.json` (metadata + file hashes). No DB, no filesystem I/O.
+
+---
+
 ## Notes
 
 - When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.
