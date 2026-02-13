@@ -35,7 +35,6 @@ Each entry has:
 - AUD-077 — Multi-Batch Identity Canonicalization
 
 ### Deferred
-- AUD-066 — Atoms export (v2, deferred)
 - AUD-067 — Sources metadata (v2, deferred)
 - AUD-068 — Privacy tiers (deferred)
 - AUD-070 — Extract shared formatDate()
@@ -1283,7 +1282,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Severity**: LOW
 - **Type**: New feature
 - **Priority**: P2
-- **Decision**: Defer (not in v1)
+- **Decision**: Implement
 - **Description**: Add `atoms/YYYY-MM-DD.md` per-day source atoms (user role only, §9.1 ordering) to the export tree. Requires extending `ExportInput` with atom data and adding a new renderer section.
 - **Acceptance checks**:
   - `atoms/YYYY-MM-DD.md` files rendered for each day
@@ -1291,7 +1290,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Determinism contract maintained (byte-identical output)
   - Golden fixture updated
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `ExportAtom` type, optional `atoms` field on `ExportDay`, `renderAtomsFile()` in renderer, atom-loading query in orchestrator (user-only, §9.1 sort, cross-batch dedup). 11 new tests (6 renderer + 5 orchestrator) → 776 total.
 
 ### AUD-067 — Sources metadata (v2, §14.1 follow-on)
 - **Source**: SPEC §14.1 follow-on directories
