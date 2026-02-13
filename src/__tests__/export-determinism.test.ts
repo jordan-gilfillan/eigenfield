@@ -102,7 +102,7 @@ describe('export determinism guard (AUD-069)', () => {
     }
   })
 
-  it('covers all required file types: README, views, timeline, atoms, manifest', () => {
+  it('covers all required file types: README, views, timeline, atoms, sources, manifest', () => {
     const tree = renderExportTree(DETERMINISM_INPUT)
     const paths = [...tree.keys()]
 
@@ -121,6 +121,10 @@ describe('export determinism guard (AUD-069)', () => {
     expect(paths).toContain('atoms/2025-03-10.md')
     expect(paths).toContain('atoms/2025-03-11.md')
     expect(paths).toContain('atoms/2025-03-12.md')
+
+    // Sources (one per batch in input)
+    expect(paths).toContain('sources/chatgpt-conversations.md')
+    expect(paths).toContain('sources/claude-claude-export.md')
 
     // Manifest
     expect(paths).toContain('.journal-meta/manifest.json')

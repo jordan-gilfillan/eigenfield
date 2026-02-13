@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { renderExportTree } from '../lib/export/renderer'
+import { renderExportTree, generateSourceSlugs } from '../lib/export/renderer'
 import { sha256 } from '../lib/hash'
 import { EXPORT_FORMAT_VERSION, renderFrontmatter, sortKeysDeep, renderJson } from '../lib/export/helpers'
 import type { ExportInput } from '../lib/export/types'
@@ -128,6 +128,14 @@ const GOLDEN_ATOMS_JAN16 = `# SOURCE: chatgpt
 [2024-01-16T15:30:00.000Z] user: Ready for the code review session.
 `
 
+const GOLDEN_SOURCE_CHATGPT = `---
+batchId: "batch_test_001"
+source: "chatgpt"
+originalFilename: "conversations.json"
+timezone: "America/Los_Angeles"
+---
+`
+
 // ---- Tests ----
 
 describe('renderExportTree', () => {
@@ -135,20 +143,21 @@ describe('renderExportTree', () => {
     it('produces exact expected output for all files', () => {
       const tree = renderExportTree(GOLDEN_INPUT)
 
-      expect(tree.size).toBe(7) // README + timeline + 2 views + 2 atoms + manifest
+      expect(tree.size).toBe(8) // README + timeline + 2 views + 2 atoms + 1 source + manifest
       expect(tree.get('README.md')).toBe(GOLDEN_README)
       expect(tree.get('views/timeline.md')).toBe(GOLDEN_TIMELINE)
       expect(tree.get('views/2024-01-15.md')).toBe(GOLDEN_VIEW_JAN15)
       expect(tree.get('views/2024-01-16.md')).toBe(GOLDEN_VIEW_JAN16)
       expect(tree.get('atoms/2024-01-15.md')).toBe(GOLDEN_ATOMS_JAN15)
       expect(tree.get('atoms/2024-01-16.md')).toBe(GOLDEN_ATOMS_JAN16)
+      expect(tree.get('sources/chatgpt-conversations.md')).toBe(GOLDEN_SOURCE_CHATGPT)
 
       // Manifest — verify structure, then lock golden
       const manifestStr = tree.get('.journal-meta/manifest.json')!
       const manifest = JSON.parse(manifestStr)
       expect(manifest.formatVersion).toBe('export_v1')
       expect(manifest.exportedAt).toBe('2024-01-20T15:30:00.000Z')
-      expect(Object.keys(manifest.files)).toHaveLength(6) // README + timeline + 2 views + 2 atoms
+      expect(Object.keys(manifest.files)).toHaveLength(7) // README + timeline + 2 views + 2 atoms + 1 source
     })
 
     it('manifest hashes match file contents', () => {
@@ -296,15 +305,16 @@ describe('renderExportTree', () => {
   })
 
   describe('empty run', () => {
-    it('zero days produces README + empty timeline + manifest', () => {
+    it('zero days produces README + empty timeline + sources + manifest', () => {
       const tree = renderExportTree({
         ...GOLDEN_INPUT,
         days: [],
       })
 
-      expect(tree.size).toBe(3)
+      expect(tree.size).toBe(4) // README + timeline + 1 source + manifest
       expect(tree.has('README.md')).toBe(true)
       expect(tree.has('views/timeline.md')).toBe(true)
+      expect(tree.has('sources/chatgpt-conversations.md')).toBe(true)
       expect(tree.has('.journal-meta/manifest.json')).toBe(true)
 
       // Timeline has heading but no entries
@@ -491,6 +501,57 @@ describe('renderExportTree', () => {
       expect(manifest.files['atoms/2024-01-16.md'].sha256).toBe(sha256(tree.get('atoms/2024-01-16.md')!))
     })
   })
+
+  describe('sources', () => {
+    it('renders sources/<slug>.md for each batch', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      expect(tree.has('sources/chatgpt-conversations.md')).toBe(true)
+    })
+
+    it('source file has correct frontmatter fields', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      const src = tree.get('sources/chatgpt-conversations.md')!
+      expect(src).toContain('batchId: "batch_test_001"')
+      expect(src).toContain('source: "chatgpt"')
+      expect(src).toContain('originalFilename: "conversations.json"')
+      expect(src).toContain('timezone: "America/Los_Angeles"')
+    })
+
+    it('renders multiple batches with distinct slugs', () => {
+      const input: ExportInput = {
+        ...GOLDEN_INPUT,
+        batches: [
+          { id: 'batch_a', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'UTC' },
+          { id: 'batch_b', source: 'claude', originalFilename: 'export.json', timezone: 'America/New_York' },
+        ],
+      }
+      const tree = renderExportTree(input)
+      expect(tree.has('sources/chatgpt-conversations.md')).toBe(true)
+      expect(tree.has('sources/claude-export.md')).toBe(true)
+    })
+
+    it('handles slug collisions with numeric suffixes', () => {
+      const input: ExportInput = {
+        ...GOLDEN_INPUT,
+        batches: [
+          { id: 'batch_a', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'UTC' },
+          { id: 'batch_b', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'America/New_York' },
+        ],
+      }
+      const tree = renderExportTree(input)
+      expect(tree.has('sources/chatgpt-conversations.md')).toBe(true)
+      expect(tree.has('sources/chatgpt-conversations-2.md')).toBe(true)
+    })
+
+    it('includes source files in manifest hashes', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      const manifest = JSON.parse(tree.get('.journal-meta/manifest.json')!)
+      expect(manifest.files['sources/chatgpt-conversations.md']).toBeDefined()
+      expect(manifest.files['sources/chatgpt-conversations.md'].sha256).toBe(
+        sha256(tree.get('sources/chatgpt-conversations.md')!)
+      )
+    })
+  })
 })
 
 describe('helpers', () => {
@@ -542,6 +603,43 @@ describe('helpers', () => {
       expect(sortKeysDeep(42)).toBe(42)
       expect(sortKeysDeep('hello')).toBe('hello')
       expect(sortKeysDeep(true)).toBe(true)
+    })
+  })
+
+  describe('generateSourceSlugs', () => {
+    it('derives slug from source and filename without extension', () => {
+      const slugs = generateSourceSlugs([
+        { id: 'b1', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'UTC' },
+      ])
+      expect(slugs.get('b1')).toBe('chatgpt-conversations')
+    })
+
+    it('sanitizes special characters to hyphens', () => {
+      const slugs = generateSourceSlugs([
+        { id: 'b1', source: 'chatgpt', originalFilename: 'my export (2024).json', timezone: 'UTC' },
+      ])
+      expect(slugs.get('b1')).toBe('chatgpt-my-export-2024')
+    })
+
+    it('handles collision with numeric suffixes sorted by batch ID', () => {
+      const slugs = generateSourceSlugs([
+        { id: 'b2', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'UTC' },
+        { id: 'b1', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'America/New_York' },
+      ])
+      // b1 sorts first → gets base slug, b2 gets -2
+      expect(slugs.get('b1')).toBe('chatgpt-conversations')
+      expect(slugs.get('b2')).toBe('chatgpt-conversations-2')
+    })
+
+    it('is deterministic regardless of input order', () => {
+      const batches = [
+        { id: 'b2', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'UTC' },
+        { id: 'b1', source: 'chatgpt', originalFilename: 'conversations.json', timezone: 'America/New_York' },
+      ]
+      const slugs1 = generateSourceSlugs(batches)
+      const slugs2 = generateSourceSlugs([...batches].reverse())
+      expect(slugs1.get('b1')).toBe(slugs2.get('b1'))
+      expect(slugs1.get('b2')).toBe(slugs2.get('b2'))
     })
   })
 

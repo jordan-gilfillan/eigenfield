@@ -9,7 +9,7 @@
 
 import { sha256 } from '../hash'
 import { EXPORT_FORMAT_VERSION, renderFrontmatter, renderJson } from './helpers'
-import type { ExportInput, ExportDay, ExportAtom, ExportTree } from './types'
+import type { ExportInput, ExportDay, ExportAtom, ExportBatch, ExportTree } from './types'
 
 /** Number of days shown in the "Recent" section when timeline has >14 entries */
 const TIMELINE_RECENT_COUNT = 14
@@ -42,7 +42,14 @@ export function renderExportTree(input: ExportInput): ExportTree {
     }
   }
 
-  // 5. Manifest (computed last — needs hashes of all other files)
+  // 5. Per-batch source metadata files
+  const slugMap = generateSourceSlugs(input.batches)
+  for (const batch of input.batches) {
+    const slug = slugMap.get(batch.id)!
+    tree.set(`sources/${slug}.md`, renderSourceFile(batch))
+  }
+
+  // 6. Manifest (computed last — needs hashes of all other files)
   tree.set('.journal-meta/manifest.json', renderManifest(input, tree))
 
   return tree
@@ -155,6 +162,49 @@ function renderAtomsFile(atoms: ExportAtom[]): string {
 
   parts.push('')
   return parts.join('\n')
+}
+
+/**
+ * Per-batch source metadata file.
+ * YAML frontmatter with batch-level fields, no body.
+ */
+function renderSourceFile(batch: ExportBatch): string {
+  const fields: Array<[string, string]> = [
+    ['batchId', batch.id],
+    ['source', batch.source],
+    ['originalFilename', batch.originalFilename],
+    ['timezone', batch.timezone],
+  ]
+  return `${renderFrontmatter(fields)}\n`
+}
+
+/**
+ * Generates deterministic slugs for source files.
+ *
+ * Slug = `{source}-{filename_without_extension}`, sanitized to lowercase
+ * alphanumeric + hyphens. Batches sorted by ID for deterministic ordering.
+ * Collisions get `-2`, `-3` suffixes.
+ */
+export function generateSourceSlugs(batches: ExportBatch[]): Map<string, string> {
+  const sorted = [...batches].sort((a, b) => a.id.localeCompare(b.id))
+  const slugMap = new Map<string, string>()
+  const usedSlugs = new Map<string, number>()
+
+  for (const batch of sorted) {
+    const baseSlug = generateBaseSlug(batch)
+    const count = usedSlugs.get(baseSlug) ?? 0
+    const slug = count === 0 ? baseSlug : `${baseSlug}-${count + 1}`
+    usedSlugs.set(baseSlug, count + 1)
+    slugMap.set(batch.id, slug)
+  }
+
+  return slugMap
+}
+
+function generateBaseSlug(batch: ExportBatch): string {
+  const nameWithoutExt = batch.originalFilename.replace(/\.[^.]+$/, '')
+  const sanitized = nameWithoutExt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return `${batch.source}-${sanitized}`
 }
 
 /**
