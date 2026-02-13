@@ -1003,29 +1003,6 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `startAutoRunLoop` engine in `src/app/distill/hooks/useAutoRun.ts` and wired into run detail page. Start/Stop Auto-run buttons in RunControls, "Auto-running..." indicator, manual Tick disabled during auto-run, auto-run error display. 10 new tests for the loop engine (sequential calls, stop-on-error, stop-on-terminal, abort-on-stop, idempotent stop). 667 tests pass.
 
-### AUD-083 — Git Export v2: Topic tracking + “diff of thinking” (embeddings)
-- **Source**: Export smoke test result — v1 output is a flat per-day markdown set; v2 needs topic evolution
-- **Severity**: LOW
-- **Type**: UX roadmap / feature
-- **Priority**: P2
-- **Decision**: Defer
-- **Description**: Git Export v1 is intentionally minimal: deterministic files written to a server-side outputDir. The exported tree is currently dominated by per-day markdown pages (journal entries). For the “diff of my thinking” goal, we eventually want a topic layer that can *evolve* across days with stable identifiers, plus change tracking that reads like commits.
-  
-  Proposed v2 direction (non-binding):
-  - Maintain a topic index (e.g., `topics/INDEX.md` + `topics/<topicId>.md`) sourced from embeddings/clustering over exported days.
-  - Track topic history across exports with stable topic IDs (merge/split rules documented).
-  - Generate a lightweight change log that summarizes topic deltas between consecutive exports (“commits”).
-  - Keep v1 determinism guarantees; v2 must be deterministic given the same corpus + model + parameters.
-- **Allowed files**: TBD (should be designed as a separate spec-first slice before touching export code)
-- **Acceptance checks** (future):
-  - A topic index exists and is navigable.
-  - A topic page shows its supporting days and quotes (with stable atom/source refs).
-  - A change log exists for export N vs N-1.
-  - Determinism: repeated export with identical inputs yields identical topic IDs/files.
-- **Stop rule**: If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture.
-- **Status**: Not started
-
-
 ### AUD-051 — Align Run.status transitions with SPEC §7.4.1
 - **Source**: Stabilization audit after AUD-049
 - **Severity**: HIGH
@@ -1549,6 +1526,28 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Stop rule**: If this requires new API routes, schema changes, or touching files outside the allowlist, STOP and create a new AUD.
 - **Status**: Done
 - **Resolution**: Added Export button + options panel to `RunControls` in run detail page. Button enabled only when `run.status === 'completed'`; shows "Exporting..." during in-flight. Editable `outputDir` (default `./exports/<runId>`, rejects `..` and absolute paths client-side). Privacy tier dropdown (Private/Public) with hint text. Success shows file count + path + expandable file list. Error shows code + message inline. Follows existing tick/resume/cancel feedback pattern. No new routes/schema. 795 tests pass.
+
+### AUD-083 — Git Export v2: Topic tracking + “diff of thinking” (embeddings)
+- **Source**: Export smoke test result — v1 output is a flat per-day markdown set; v2 needs topic evolution
+- **Severity**: LOW
+- **Type**: UX roadmap / feature
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Git Export v1 is intentionally minimal: deterministic files written to a server-side outputDir. The exported tree is currently dominated by per-day markdown pages (journal entries). For the “diff of my thinking” goal, we eventually want a topic layer that can *evolve* across days with stable identifiers, plus change tracking that reads like commits.
+  
+  Proposed v2 direction (non-binding):
+  - Maintain a topic index (e.g., `topics/INDEX.md` + `topics/<topicId>.md`) sourced from embeddings/clustering over exported days.
+  - Track topic history across exports with stable topic IDs (merge/split rules documented).
+  - Generate a lightweight change log that summarizes topic deltas between consecutive exports (“commits”).
+  - Keep v1 determinism guarantees; v2 must be deterministic given the same corpus + model + parameters.
+- **Allowed files**: TBD (should be designed as a separate spec-first slice before touching export code)
+- **Acceptance checks** (future):
+  - A topic index exists and is navigable.
+  - A topic page shows its supporting days and quotes (with stable atom/source refs).
+  - A change log exists for export N vs N-1.
+  - Determinism: repeated export with identical inputs yields identical topic IDs/files.
+- **Stop rule**: If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture.
+- **Status**: Not started
 
 ---
 
