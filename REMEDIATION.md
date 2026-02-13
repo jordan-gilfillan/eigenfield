@@ -1472,7 +1472,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - With DB stopped: single clear failure mentioning `DATABASE_URL` / Postgres
   - Advisory lock pool closed after suite (no leaked pg connections)
   - `grep -r 'globalSetup\|globalTeardown' vitest.config.ts` shows both configured
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `globalSetup` (raw pg connectivity check with 5s timeout, actionable error) and `globalTeardown` (closes advisory lock pool). Wired both in `vitest.config.ts`.
 
 ### AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
 - **Source**: Merged audit (Codex)
