@@ -21,12 +21,17 @@ Each entry has:
 
 ## Current top priorities
 
-> All Studio UX PRs complete (AUD-055, AUD-056, AUD-057).
+> Git Export v1 pipeline: AUD-064, AUD-065 (v1 core). Deferred: AUD-066–AUD-069 (v2/infra). Refactor: AUD-070.
 
 
 ## Open entries
 
-(none)
+- AUD-065 — Export API endpoint
+- AUD-066 — Atoms export (v2, deferred)
+- AUD-067 — Sources metadata (v2, deferred)
+- AUD-068 — Privacy tiers (deferred)
+- AUD-069 — CI determinism guard (deferred)
+- AUD-070 — Extract shared formatDate()
 
 ---
 
@@ -59,6 +64,15 @@ Each entry has:
 ### Bucket B+ — Contract alignment (P1)
 - AUD-022
 - AUD-023
+
+### Bucket E — Git Export pipeline (P1)
+- AUD-064
+- AUD-065
+- AUD-066
+- AUD-067
+- AUD-068
+- AUD-069
+- AUD-070
 
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
 - AUD-014
@@ -1207,6 +1221,109 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` passes (all existing + new tests)
 - **Status**: Done
 - **Resolution**: Added `src/lib/export/orchestrator.ts` with `buildExportInput()` + `ExportPreconditionError`. Single Prisma query with nested includes (Run→RunBatch→ImportBatch, Run→Jobs→Outputs). 12 integration tests in `src/lib/services/__tests__/export-orchestrator.test.ts` covering happy path, field mapping, precondition failures, and data integrity.
+
+### AUD-064 — Filesystem writer (writeExportTree)
+- **Source**: Export pipeline (§14)
+- **Severity**: MEDIUM
+- **Type**: New feature
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Takes an `ExportTree` (Map<string, string>) and writes it to a directory on disk. Creates directories as needed, writes UTF-8 with LF endings. Pure I/O layer — no DB, no rendering logic.
+- **Acceptance checks**:
+  - `writeExportTree(tree, outputDir)` creates all files with correct content
+  - Creates intermediate directories as needed
+  - Overwrites existing files (idempotent re-export)
+  - Unit tests with temp directories
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Added `src/lib/export/writer.ts` with `writeExportTree()`. 6 unit tests in `src/__tests__/export-writer.test.ts` covering file writes, intermediate directories, idempotent overwrite, empty tree, UTF-8, and deep nesting.
+
+### AUD-065 — Export API endpoint
+- **Source**: Export pipeline (§14)
+- **Severity**: MEDIUM
+- **Type**: New feature
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: `POST /api/distill/runs/:id/export` route that calls `buildExportInput()` → `renderExportTree()` → `writeExportTree()`, returns export metadata. Maps `ExportPreconditionError` to appropriate HTTP status codes (EXPORT_NOT_FOUND → 404, EXPORT_PRECONDITION → 400).
+- **Acceptance checks**:
+  - POST triggers full export pipeline and returns success response
+  - EXPORT_NOT_FOUND → 404 with standard error body
+  - EXPORT_PRECONDITION → 400 with standard error body
+  - Integration tests covering happy path + error cases
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-066 — Atoms export (v2, §14.1 follow-on)
+- **Source**: SPEC §14.1 follow-on directories
+- **Severity**: LOW
+- **Type**: New feature
+- **Priority**: P2
+- **Decision**: Defer (not in v1)
+- **Description**: Add `atoms/YYYY-MM-DD.md` per-day source atoms (user role only, §9.1 ordering) to the export tree. Requires extending `ExportInput` with atom data and adding a new renderer section.
+- **Acceptance checks**:
+  - `atoms/YYYY-MM-DD.md` files rendered for each day
+  - Contains only user-role atoms in §9.1 ordering
+  - Determinism contract maintained (byte-identical output)
+  - Golden fixture updated
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-067 — Sources metadata (v2, §14.1 follow-on)
+- **Source**: SPEC §14.1 follow-on directories
+- **Severity**: LOW
+- **Type**: New feature
+- **Priority**: P2
+- **Decision**: Defer (not in v1)
+- **Description**: Add `sources/<slug>.md` one per ImportBatch to the export tree. Provides source-level metadata (original filename, import source, timezone, atom counts).
+- **Acceptance checks**:
+  - `sources/<slug>.md` files rendered for each ImportBatch
+  - Slug derived from ImportBatch fields (deterministic)
+  - Determinism contract maintained
+  - Golden fixture updated
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-068 — Privacy tiers (§14.8)
+- **Source**: SPEC §14.8
+- **Severity**: LOW
+- **Type**: New feature
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Support Public vs Private export modes. Public: only `views/` + `README.md` + manifest (no raw text). Private (default): full tree including `atoms/` and `sources/`. FilterProfile already excludes sensitive categories; export inherits this.
+- **Acceptance checks**:
+  - Public mode omits atoms/ and sources/ directories
+  - Private mode includes full tree
+  - Default is Private
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-069 — CI determinism guard
+- **Source**: §14.4 determinism contract
+- **Severity**: LOW
+- **Type**: Test/infra
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: CI check that re-exporting the same Run with the same `exportedAt` produces byte-identical output. Guards against accidental non-determinism in the renderer (locale, timezone, floating-point, etc.).
+- **Acceptance checks**:
+  - Test or CI step that exports twice and asserts byte equality
+  - Covers all file types (README, views, timeline, manifest)
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-070 — Extract shared formatDate() utility
+- **Source**: Code duplication (5 copies across run.ts, tick.ts, import.ts, search.ts, orchestrator.ts)
+- **Severity**: LOW
+- **Type**: Refactor
+- **Priority**: P2
+- **Decision**: Implement
+- **Description**: Extract the `formatDate(d: Date): string` utility (UTC-safe YYYY-MM-DD formatting) into a shared module. Replace all 5 copies with imports from the shared location.
+- **Acceptance checks**:
+  - Single `formatDate()` in a shared module (e.g., `src/lib/date-utils.ts`)
+  - All 5 call sites import from shared module
+  - No duplicate implementations remain
+  - All existing tests still pass
+  - `npx vitest run` passes
+- **Status**: Not started
 
 ---
 
