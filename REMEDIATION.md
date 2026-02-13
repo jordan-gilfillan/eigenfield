@@ -35,7 +35,6 @@ Each entry has:
 - AUD-077 — Multi-Batch Identity Canonicalization
 
 ### Deferred
-- AUD-068 — Privacy tiers (deferred)
 - AUD-070 — Extract shared formatDate()
 - AUD-072 — Test Fixture Factory Extraction
 - AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
@@ -1313,14 +1312,15 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Severity**: LOW
 - **Type**: New feature
 - **Priority**: P2
-- **Decision**: Defer
+- **Decision**: Implement
 - **Description**: Support Public vs Private export modes. Public: only `views/` + `README.md` + manifest (no raw text). Private (default): full tree including `atoms/` and `sources/`. FilterProfile already excludes sensitive categories; export inherits this.
 - **Acceptance checks**:
   - Public mode omits atoms/ and sources/ directories
   - Private mode includes full tree
   - Default is Private
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `PrivacyTier` type on `ExportInput`; renderer single switch point skips atoms/sources for public; orchestrator + route accept optional `privacyTier` param. 10 new tests (8 renderer + 2 route). 795 tests pass.
 
 ### AUD-069 — CI determinism guard
 - **Source**: §14.4 determinism contract
