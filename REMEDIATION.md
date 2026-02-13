@@ -21,16 +21,29 @@ Each entry has:
 
 ## Current top priorities
 
-> Git Export v1 core complete (AUD-062–065). Remaining: AUD-066–069 (v2/infra, deferred), AUD-070 (refactor).
-
+> Git Export v1 core complete (AUD-062–065). Refactor roadmap active (AUD-071–081).
 
 ## Open entries
 
+### Active sequence (execute in order)
+- AUD-078 — Test Harness DB Preflight + Teardown
+- AUD-071 — Shared RunConfig Type + parseRunConfig()
+- AUD-075 — Cost Overwrite Correctness Fix (Segmented Jobs)
+- AUD-073 — Typed Service Errors: run.ts + Run Routes
+- AUD-074 — Typed Service Errors: Remaining Services + Routes
+- AUD-076 — Budget Guard Consolidation
+- AUD-077 — Multi-Batch Identity Canonicalization
+
+### Deferred
 - AUD-066 — Atoms export (v2, deferred)
 - AUD-067 — Sources metadata (v2, deferred)
 - AUD-068 — Privacy tiers (deferred)
 - AUD-069 — CI determinism guard (deferred)
 - AUD-070 — Extract shared formatDate()
+- AUD-072 — Test Fixture Factory Extraction
+- AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
+- AUD-080 — Import Scalability Batching
+- AUD-081 — Route Validation Helpers / Zod
 
 ---
 
@@ -72,6 +85,19 @@ Each entry has:
 - AUD-068
 - AUD-069
 - AUD-070
+
+### Bucket F — Refactor Roadmap (P0–P1, merged audit)
+- AUD-071
+- AUD-072
+- AUD-073
+- AUD-074
+- AUD-075
+- AUD-076
+- AUD-077
+- AUD-078
+- AUD-079
+- AUD-080
+- AUD-081
 
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
 - AUD-014
@@ -1323,6 +1349,153 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No duplicate implementations remain
   - All existing tests still pass
   - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-071 — Shared RunConfig Type + parseRunConfig()
+- **Source**: Merged audit (Claude + Codex)
+- **Severity**: MEDIUM
+- **Type**: Refactor
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Replace all inline `configJson as unknown as { ... }` casts with a single `RunConfig` interface and a `parseRunConfig(json: unknown): RunConfig` validation function. One type, one parse point, compile-time safety when the config shape changes. Delete the local `RunConfig` interface in `orchestrator.ts`.
+- **Allowed files**: `src/lib/types/run-config.ts` (new), `src/lib/services/tick.ts`, `src/lib/services/run.ts`, `src/lib/services/search.ts`, `src/lib/export/orchestrator.ts`, `src/app/api/distill/runs/[runId]/route.ts`, `src/app/api/distill/runs/[runId]/jobs/[dayDate]/input/route.ts`
+- **Acceptance checks**:
+  - `parseRunConfig()` throws on missing required fields (unit test)
+  - `parseRunConfig()` passes through optional fields (`pricingSnapshot`, `importBatchIds`) when present (unit test)
+  - All existing tests pass unchanged (no behavioral change)
+  - `grep -rn 'configJson as' src/lib/ src/app/` returns zero hits in production code
+  - `npx tsc --noEmit` passes
+  - Local `RunConfig` interface deleted from `orchestrator.ts`
+- **Status**: Not started
+
+### AUD-072 — Test Fixture Factory Extraction
+- **Source**: Merged audit (Codex)
+- **Severity**: LOW
+- **Type**: Refactor
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Extract 6+ inline `createTestExport()` / `createChatGptExport()` into shared `src/__tests__/fixtures/export-factories.ts`.
+- **Acceptance checks**:
+  - Shared factory file exists with all extracted helpers
+  - All existing tests still pass
+  - `npx vitest run` passes
+- **Status**: Not started
+
+### AUD-073 — Typed Service Errors: Shared Classes + run.ts + Run Routes
+- **Source**: Merged audit (Claude + Codex)
+- **Severity**: MEDIUM
+- **Type**: Refactor
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Create shared typed error classes (`ServiceError`, `NotFoundError`, `InvalidInputError`, `NoEligibleDaysError`, `ConflictError`) and migrate `run.ts` (8 string-throw sites) and its route handlers to use `instanceof` instead of `message.includes()` / `message.startsWith()`. Move `InvalidInputError` from `classify.ts` to shared `errors.ts`; add re-export for backward compat.
+- **Allowed files**: `src/lib/errors.ts` (new), `src/lib/services/run.ts`, `src/app/api/distill/runs/route.ts`, `src/app/api/distill/runs/[runId]/cancel/route.ts`, `src/app/api/distill/runs/[runId]/resume/route.ts`, `src/app/api/distill/runs/[runId]/reset/route.ts`, `src/lib/services/classify.ts` (re-export only)
+- **Acceptance checks**:
+  - All existing error-path tests pass with identical HTTP status codes and `error.code` values
+  - `grep -rn 'message\.includes\|message\.startsWith' src/app/api/distill/runs/` returns zero hits
+  - New unit tests for error classes
+  - `classify.ts` still exports `InvalidInputError` (re-export); existing classify route tests pass
+- **Status**: Not started
+
+### AUD-074 — Typed Service Errors: Tick, Classify, Advisory Lock + Remaining Routes
+- **Source**: Merged audit (Claude + Codex)
+- **Severity**: MEDIUM
+- **Type**: Refactor
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Complete typed error migration for all remaining service→route boundaries. Add `TickInProgressError` to `errors.ts`. Replace ad-hoc error code casting in `advisory-lock.ts`. Migrate `tick/route.ts` and `classify/route.ts` from string matching to `instanceof`. Optionally add `handleServiceError()` in `api-utils.ts`.
+- **Allowed files**: `src/lib/errors.ts`, `src/lib/services/tick.ts`, `src/lib/services/advisory-lock.ts`, `src/lib/services/classify.ts`, `src/app/api/distill/runs/[runId]/tick/route.ts`, `src/app/api/distill/classify/route.ts`, `src/lib/api-utils.ts`
+- **Acceptance checks**:
+  - `grep -rn 'message\.includes\|message\.startsWith' src/app/api/` returns zero hits across ALL route files
+  - `grep -rn 'as Error &.*code' src/lib/` returns zero hits
+  - `TickInProgressError` used in `advisory-lock.ts`; `tick/route.ts` handles it via `instanceof`
+  - All existing error-path tests pass with identical HTTP status codes
+- **Status**: Not started
+
+### AUD-075 — Cost Overwrite Correctness Fix (Segmented Jobs)
+- **Source**: Merged audit (Claude exploration)
+- **Severity**: HIGH
+- **Type**: Correctness fix
+- **Priority**: P0
+- **Decision**: Implement
+- **Description**: Fix bug where `tick.ts:334-337` unconditionally overwrites accumulated actual segment costs with a pricing-snapshot estimate. Change to fallback: only apply when `totalCostUsd === 0`. After this fix, `Job.costUsd` for segmented jobs reflects the sum of actual per-segment costs from the provider.
+- **Allowed files**: `src/lib/services/tick.ts` (~L334-337), `src/__tests__/services/tick*.test.ts` (new tests only)
+- **Acceptance checks**:
+  - New test: 3-segment job, each segment returns `costUsd = 0.01` → `Job.costUsd = 0.03`
+  - New test: non-segmented job → `Job.costUsd` equals provider-reported cost
+  - Fallback test: `totalCostUsd === 0` + pricingSnapshot + non-stub → estimate from snapshot
+  - All existing tick tests pass unchanged
+- **Status**: Not started
+
+### AUD-076 — Budget Guard Consolidation
+- **Source**: Merged audit (Claude + Codex)
+- **Severity**: HIGH
+- **Type**: Correctness fix
+- **Priority**: P0
+- **Decision**: Implement
+- **Description**: Reduce budget bypass paths. Policy: throw `UnknownModelPricingError` in real mode (no silent $0). Replace classify's hardcoded `0.001` estimate with pricing-book-derived value. Add post-call budget check in classify loop. Optionally add `createBudgetSession()` helper.
+- **Allowed files**: `src/lib/llm/budget.ts`, `src/lib/llm/client.ts`, `src/lib/services/classify.ts`, `src/lib/services/tick.ts`, `src/__tests__/`
+- **Acceptance checks**:
+  - New test: classify loop cost exceeding budget → stops processing further atoms
+  - New test: `callLlm()` real mode + unknown model → throws `UnknownModelPricingError`
+  - `grep -rn '0\.001' src/lib/services/classify.ts` returns zero hits
+  - Existing budget tests in tick pass unchanged
+- **Status**: Not started
+
+### AUD-077 — Multi-Batch Identity Canonicalization
+- **Source**: Merged audit (Codex)
+- **Severity**: LOW
+- **Type**: Refactor
+- **Priority**: P1
+- **Decision**: Implement
+- **Description**: Add `importBatchIds: string[]` to `getRun()` return value (sourced from `RunBatch` junction). Fix run detail page classify stats query to use canonical source. Do NOT drop `Run.importBatchId` column.
+- **Allowed files**: `src/lib/services/run.ts`, `src/app/distill/runs/[runId]/page.tsx`, `src/app/api/distill/runs/[runId]/route.ts`
+- **Acceptance checks**:
+  - `getRun()` return type includes `importBatchIds: string[]` from RunBatch
+  - `npx tsc --noEmit` passes (catch type ripple)
+  - `grep -rn 'run\.importBatchId[^s]' src/app/ src/lib/services/` — count decreases
+  - Existing multi-batch tests pass
+- **Status**: Not started
+
+### AUD-078 — Test Harness DB Preflight + Teardown
+- **Source**: Merged audit (Claude + Codex)
+- **Severity**: MEDIUM
+- **Type**: Test harness
+- **Priority**: P0
+- **Decision**: Implement
+- **Description**: Add vitest `globalSetup` (raw `pg` connectivity check, fails fast with actionable message) and `globalTeardown` (calls `closeLockPool()` from `advisory-lock.ts`). Today a missing DB produces hundreds of cascading errors.
+- **Allowed files**: `vitest.config.ts`, `src/__tests__/global-setup.ts` (new), `src/__tests__/global-teardown.ts` (new)
+- **Acceptance checks**:
+  - With DB running: `npx vitest run` passes all existing tests
+  - With DB stopped: single clear failure mentioning `DATABASE_URL` / Postgres
+  - Advisory lock pool closed after suite (no leaked pg connections)
+  - `grep -r 'globalSetup\|globalTeardown' vitest.config.ts` shows both configured
+- **Status**: Not started
+
+### AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
+- **Source**: Merged audit (Codex)
+- **Severity**: MEDIUM
+- **Type**: Refactor
+- **Priority**: P1
+- **Decision**: Defer
+- **Description**: Extract pure state-transition logic and LLM execution loops from `tick.ts` (494 LOC) and `classify.ts` (939 LOC) into smaller, independently testable modules. Depends on AUD-073/074/075/076 completing first.
+- **Status**: Not started
+
+### AUD-080 — Import Scalability Batching
+- **Source**: Merged audit (Codex)
+- **Severity**: LOW
+- **Type**: Refactor
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Chunk the large `IN (...)` dedupe query and `createMany` writes in `import.ts` to bound peak memory. No current failure reports.
+- **Status**: Not started
+
+### AUD-081 — Route Validation Helpers / Zod
+- **Source**: Merged audit (Codex)
+- **Severity**: LOW
+- **Type**: Refactor
+- **Priority**: P2
+- **Decision**: Defer
+- **Description**: Replace manual if/return validation chains in POST route handlers with schema-based validation. Depends on AUD-073/074 (clean error surfaces).
 - **Status**: Not started
 
 ---
