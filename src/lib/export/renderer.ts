@@ -35,18 +35,22 @@ export function renderExportTree(input: ExportInput): ExportTree {
     tree.set(`views/${day.dayDate}.md`, renderViewFile(day, input.run.id, input.run.model))
   }
 
-  // 4. Per-day atom files (when atoms data is present)
-  for (const day of input.days) {
-    if (day.atoms !== undefined) {
-      tree.set(`atoms/${day.dayDate}.md`, renderAtomsFile(day.atoms))
+  // 4–5. Atoms + sources (private tier only; public omits raw text)
+  const tier = input.privacyTier ?? 'private'
+  if (tier === 'private') {
+    // 4. Per-day atom files (when atoms data is present)
+    for (const day of input.days) {
+      if (day.atoms !== undefined) {
+        tree.set(`atoms/${day.dayDate}.md`, renderAtomsFile(day.atoms))
+      }
     }
-  }
 
-  // 5. Per-batch source metadata files
-  const slugMap = generateSourceSlugs(input.batches)
-  for (const batch of input.batches) {
-    const slug = slugMap.get(batch.id)!
-    tree.set(`sources/${slug}.md`, renderSourceFile(batch))
+    // 5. Per-batch source metadata files
+    const slugMap = generateSourceSlugs(input.batches)
+    for (const batch of input.batches) {
+      const slug = slugMap.get(batch.id)!
+      tree.set(`sources/${slug}.md`, renderSourceFile(batch))
+    }
   }
 
   // 6. Manifest (computed last — needs hashes of all other files)

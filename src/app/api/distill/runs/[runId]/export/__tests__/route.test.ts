@@ -235,6 +235,45 @@ describe('POST /api/distill/runs/:runId/export', () => {
     expect(json.error.code).toBe('INVALID_INPUT')
   })
 
+  it('public tier omits atoms/ and sources/ directories', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'export-route-pub-'))
+
+    const res = await POST(
+      makeRequest(completedRunId, { outputDir: tempDir, privacyTier: 'public' }),
+      { params: Promise.resolve({ runId: completedRunId }) },
+    )
+
+    expect(res.status).toBe(200)
+
+    const json = await res.json()
+    expect(json.files).toContain('README.md')
+    expect(json.files).toContain('views/timeline.md')
+    expect(json.files).toContain('views/2025-01-15.md')
+    expect(json.files).toContain('.journal-meta/manifest.json')
+
+    // No atoms or sources
+    expect(json.files.some((f: string) => f.startsWith('atoms/'))).toBe(false)
+    expect(json.files.some((f: string) => f.startsWith('sources/'))).toBe(false)
+
+    // Verify no atoms/ or sources/ dirs on disk
+    const topLevel = await readdir(tempDir)
+    expect(topLevel.sort()).toEqual(['.journal-meta', 'README.md', 'views'])
+
+    await rm(tempDir, { recursive: true, force: true })
+  })
+
+  it('returns 400 for invalid privacyTier value', async () => {
+    const res = await POST(
+      makeRequest(completedRunId, { outputDir: '/tmp/unused', privacyTier: 'invalid' }),
+      { params: Promise.resolve({ runId: completedRunId }) },
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('privacyTier')
+  })
+
   it('re-export overwrites existing files (idempotent)', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'export-route-idem-'))
 

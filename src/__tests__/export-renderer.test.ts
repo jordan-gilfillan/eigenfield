@@ -502,6 +502,79 @@ describe('renderExportTree', () => {
     })
   })
 
+  describe('privacy tiers', () => {
+    it('private (default) includes atoms/ and sources/', () => {
+      const tree = renderExportTree(GOLDEN_INPUT)
+      const paths = [...tree.keys()]
+
+      expect(paths.some((p) => p.startsWith('atoms/'))).toBe(true)
+      expect(paths.some((p) => p.startsWith('sources/'))).toBe(true)
+    })
+
+    it('explicit private includes atoms/ and sources/', () => {
+      const tree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'private' })
+      const paths = [...tree.keys()]
+
+      expect(paths.some((p) => p.startsWith('atoms/'))).toBe(true)
+      expect(paths.some((p) => p.startsWith('sources/'))).toBe(true)
+    })
+
+    it('public omits atoms/ and sources/', () => {
+      const tree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+      const paths = [...tree.keys()]
+
+      expect(paths.some((p) => p.startsWith('atoms/'))).toBe(false)
+      expect(paths.some((p) => p.startsWith('sources/'))).toBe(false)
+    })
+
+    it('public still includes README, views, timeline, and manifest', () => {
+      const tree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+
+      expect(tree.has('README.md')).toBe(true)
+      expect(tree.has('views/timeline.md')).toBe(true)
+      expect(tree.has('views/2024-01-15.md')).toBe(true)
+      expect(tree.has('views/2024-01-16.md')).toBe(true)
+      expect(tree.has('.journal-meta/manifest.json')).toBe(true)
+    })
+
+    it('public produces correct file count (no atoms, no sources)', () => {
+      const tree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+      // README + timeline + 2 views + manifest = 5 (no atoms, no sources)
+      expect(tree.size).toBe(5)
+    })
+
+    it('public manifest only lists public files', () => {
+      const tree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+      const manifest = JSON.parse(tree.get('.journal-meta/manifest.json')!)
+      const filePaths = Object.keys(manifest.files)
+
+      expect(filePaths.some((p) => p.startsWith('atoms/'))).toBe(false)
+      expect(filePaths.some((p) => p.startsWith('sources/'))).toBe(false)
+      // 4 files: README + timeline + 2 views
+      expect(filePaths).toHaveLength(4)
+    })
+
+    it('public mode is deterministic', () => {
+      const tree1 = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+      const tree2 = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+
+      expect(tree1.size).toBe(tree2.size)
+      for (const [path, content] of tree1) {
+        expect(tree2.get(path), `${path} diverged`).toBe(content)
+      }
+    })
+
+    it('public views are identical to private views (same content)', () => {
+      const publicTree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'public' })
+      const privateTree = renderExportTree({ ...GOLDEN_INPUT, privacyTier: 'private' })
+
+      expect(publicTree.get('views/2024-01-15.md')).toBe(privateTree.get('views/2024-01-15.md'))
+      expect(publicTree.get('views/2024-01-16.md')).toBe(privateTree.get('views/2024-01-16.md'))
+      expect(publicTree.get('views/timeline.md')).toBe(privateTree.get('views/timeline.md'))
+      expect(publicTree.get('README.md')).toBe(privateTree.get('README.md'))
+    })
+  })
+
   describe('sources', () => {
     it('renders sources/<slug>.md for each batch', () => {
       const tree = renderExportTree(GOLDEN_INPUT)

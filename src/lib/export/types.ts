@@ -46,11 +46,14 @@ export interface ExportDay {
   atoms?: ExportAtom[]       // user-role atoms in §9.1 order (for atoms/ export)
 }
 
+export type PrivacyTier = 'public' | 'private'
+
 export interface ExportInput {
   run: ExportRun
   batches: ExportBatch[]
   days: ExportDay[]          // ordered by dayDate ASC
   exportedAt: string         // ISO 8601, caller-supplied for determinism
+  privacyTier?: PrivacyTier  // default 'private'; public omits atoms/ and sources/
 }
 
 /** Relative path → file content (UTF-8 string, LF endings, trailing newline) */

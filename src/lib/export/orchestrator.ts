@@ -8,7 +8,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { ExportInput, ExportDay, ExportAtom } from './types'
+import type { ExportInput, ExportDay, ExportAtom, PrivacyTier } from './types'
 
 // ── Error class ──────────────────────────────────────────────────────────────
 
@@ -43,12 +43,14 @@ interface RunConfig {
  *
  * @param runId - The Run to export
  * @param exportedAt - ISO 8601 timestamp, caller-supplied for determinism
+ * @param privacyTier - 'public' omits atoms/sources; 'private' (default) includes all
  * @throws ExportPreconditionError with code EXPORT_NOT_FOUND if Run doesn't exist
  * @throws ExportPreconditionError with code EXPORT_PRECONDITION if preconditions fail
  */
 export async function buildExportInput(
   runId: string,
   exportedAt: string,
+  privacyTier?: PrivacyTier,
 ): Promise<ExportInput> {
   // 1. Load Run with all related data in a single query
   const run = await prisma.run.findUnique({
@@ -140,11 +142,12 @@ export async function buildExportInput(
     return day
   })
 
-  // 7. Load user-role atoms for all days in §9.1 order
+  // 7. Load user-role atoms for all days in §9.1 order (private tier only)
+  const effectiveTier = privacyTier ?? 'private'
   const batchIds = run.runBatches.map((rb) => rb.importBatchId)
   const dayDates = run.jobs.map((j) => j.dayDate)
 
-  if (dayDates.length > 0 && batchIds.length > 0) {
+  if (effectiveTier === 'private' && dayDates.length > 0 && batchIds.length > 0) {
     const rawAtoms = await prisma.messageAtom.findMany({
       where: {
         importBatchId: { in: batchIds },
@@ -218,6 +221,7 @@ export async function buildExportInput(
     })),
     days,
     exportedAt,
+    ...(privacyTier ? { privacyTier } : {}),
   }
 }
 
