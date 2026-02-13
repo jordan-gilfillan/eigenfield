@@ -7,6 +7,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     env: loadEnv('test', process.cwd(), ''),
+    globalSetup: ['./src/__tests__/global-setup.ts'],
+    globalTeardown: ['./src/__tests__/global-teardown.ts'],
   },
   resolve: {
     alias: {
