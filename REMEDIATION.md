@@ -38,7 +38,6 @@ Each entry has:
 - AUD-066 — Atoms export (v2, deferred)
 - AUD-067 — Sources metadata (v2, deferred)
 - AUD-068 — Privacy tiers (deferred)
-- AUD-069 — CI determinism guard (deferred)
 - AUD-070 — Extract shared formatDate()
 - AUD-072 — Test Fixture Factory Extraction
 - AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
@@ -1328,13 +1327,14 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Severity**: LOW
 - **Type**: Test/infra
 - **Priority**: P2
-- **Decision**: Defer
+- **Decision**: Implement
 - **Description**: CI check that re-exporting the same Run with the same `exportedAt` produces byte-identical output. Guards against accidental non-determinism in the renderer (locale, timezone, floating-point, etc.).
 - **Acceptance checks**:
   - Test or CI step that exports twice and asserts byte equality
   - Covers all file types (README, views, timeline, manifest)
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `src/__tests__/export-determinism.test.ts` — 3 tests: byte-identical output via SHA-256 comparison, file-type coverage assertion, manifest hash consistency check. 765 tests pass.
 
 ### AUD-070 — Extract shared formatDate() utility
 - **Source**: Code duplication (5 copies across run.ts, tick.ts, import.ts, search.ts, orchestrator.ts)
