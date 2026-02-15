@@ -1398,7 +1398,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `grep -rn 'message\.includes\|message\.startsWith' src/app/api/distill/runs/` returns zero hits
   - New unit tests for error classes
   - `classify.ts` still exports `InvalidInputError` (re-export); existing classify route tests pass
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `src/lib/errors.ts` with `ServiceError`, `InvalidInputError`, `NotFoundError`, `NoEligibleDaysError`, `ConflictError`. Migrated 18 string-throw sites in `run.ts` and all 14 `message.includes`/`startsWith` checks in 4 run route handlers to `instanceof`. Re-exported `InvalidInputError` from `classify.ts` for backward compat. 18 new unit tests for error classes. All 831 tests pass. Note: `tick/route.ts` retains 1 `message.includes` hit — deferred to AUD-074. Note: REMEDIATION allowlist path for reset route should be `runs/[runId]/jobs/[dayDate]/reset/route.ts`.
 
 ### AUD-074 — Typed Service Errors: Tick, Classify, Advisory Lock + Remaining Routes
 - **Source**: Merged audit (Claude + Codex)
