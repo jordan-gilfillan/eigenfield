@@ -1444,7 +1444,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - New test: `callLlm()` real mode + unknown model → throws `UnknownModelPricingError`
   - `grep -rn '0\.001' src/lib/services/classify.ts` returns zero hits
   - Existing budget tests in tick pass unchanged
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `callLlm()` real mode now propagates `UnknownModelPricingError` (no silent $0). Classify pre-call estimate derived from pricing book via `getRate()`. Post-call `assertWithinBudget()` added after cost accumulation. Tick budget behavior unchanged. 813 tests pass.
 
 ### AUD-077 — Multi-Batch Identity Canonicalization
 - **Source**: Merged audit (Codex)
