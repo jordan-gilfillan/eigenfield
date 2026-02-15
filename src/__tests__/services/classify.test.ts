@@ -496,7 +496,7 @@ describe('Classification Service', () => {
 
       const result = await classifyBatch({
         importBatchId: importResult.importBatch.id,
-        model: 'gpt-4',
+        model: 'gpt-4o',
         promptVersionId: realPv.id,
         mode: 'real',
       })

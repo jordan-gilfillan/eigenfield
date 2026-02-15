@@ -301,8 +301,8 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       })
       createdBatchIds.push(importResult.importBatch.id)
 
-      // Set budget cap very low — lower than the estimated per-call cost of $0.001
-      process.env.LLM_MAX_USD_PER_RUN = '0.0001'
+      // Set budget cap far below the pricing-book per-call estimate
+      process.env.LLM_MAX_USD_PER_RUN = '0.0000001'
 
       await expect(
         classifyBatch({
@@ -312,6 +312,44 @@ describe('Classification Service — Real Mode (dry-run)', () => {
           mode: 'real',
         })
       ).rejects.toThrow(BudgetExceededError)
+    })
+
+    it('stops processing atoms when post-call budget is exceeded', async () => {
+      const content = createTestExport([
+        { id: 'msg-postbudget-1', role: 'user', text: 'Atom 1', timestamp: 1705316400, conversationId: 'conv-postbudget' },
+        { id: 'msg-postbudget-2', role: 'assistant', text: 'Atom 2', timestamp: 1705316401, conversationId: 'conv-postbudget' },
+        { id: 'msg-postbudget-3', role: 'user', text: 'Atom 3', timestamp: 1705316402, conversationId: 'conv-postbudget' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'test.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      // Budget cap $0.04 — first call returns $0.05, post-call check fails
+      process.env.LLM_MAX_USD_PER_RUN = '0.04'
+
+      const callLlmSpy = vi.spyOn(llmModule, 'callLlm').mockResolvedValue({
+        text: '{"category":"WORK","confidence":0.9}',
+        tokensIn: 100,
+        tokensOut: 20,
+        costUsd: 0.05,
+        dryRun: false,
+      })
+
+      await expect(
+        classifyBatch({
+          importBatchId: importResult.importBatch.id,
+          model: 'gpt-4o',
+          promptVersionId: realPromptVersionId,
+          mode: 'real',
+        })
+      ).rejects.toThrow(BudgetExceededError)
+
+      // Only 1 LLM call — post-call check stopped further processing
+      expect(callLlmSpy).toHaveBeenCalledTimes(1)
     })
 
     it('response shape matches spec 7.9', async () => {

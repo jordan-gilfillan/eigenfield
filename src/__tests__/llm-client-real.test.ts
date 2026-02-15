@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { LlmRequest } from '../lib/llm/types'
-import { MissingApiKeyError, LlmProviderError } from '../lib/llm/errors'
+import { MissingApiKeyError, LlmProviderError, UnknownModelPricingError } from '../lib/llm/errors'
 
 // Mock provider modules to prevent network calls
 vi.mock('../lib/llm/providers/openai', () => ({
@@ -97,7 +97,7 @@ describe('callLlm real mode', () => {
       expect(resp.costUsd).toBeCloseTo(12.5, 4)
     })
 
-    it('returns costUsd=0 for unknown model pricing', async () => {
+    it('throws UnknownModelPricingError for unknown model', async () => {
       process.env.OPENAI_API_KEY = 'sk-test-key'
       const unknownModelReq: LlmRequest = {
         ...openaiReq,
@@ -110,8 +110,7 @@ describe('callLlm real mode', () => {
         raw: {},
       })
 
-      const resp = await callLlm(unknownModelReq)
-      expect(resp.costUsd).toBe(0)
+      await expect(callLlm(unknownModelReq)).rejects.toThrow(UnknownModelPricingError)
     })
 
     it('includes raw in response', async () => {

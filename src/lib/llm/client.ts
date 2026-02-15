@@ -133,19 +133,14 @@ export async function callLlm(
     ? await callAnthropic(req, apiKey)
     : await callOpenAi(req, apiKey)
 
-  // Compute cost from actual token counts using the pricing book
-  let costUsd = 0
-  try {
-    costUsd = estimateCostUsd({
-      provider: req.provider,
-      model: req.model,
-      tokensIn: result.tokensIn,
-      tokensOut: result.tokensOut,
-    })
-  } catch {
-    // Unknown model pricing — return 0 rather than failing the call
-    costUsd = 0
-  }
+  // Compute cost from actual token counts using the pricing book.
+  // Unknown models throw UnknownModelPricingError — budget can't track what it can't price.
+  const costUsd = estimateCostUsd({
+    provider: req.provider,
+    model: req.model,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+  })
 
   return {
     text: result.text,

@@ -13,6 +13,7 @@ import type { Category } from '@prisma/client'
 import {
   callLlm,
   inferProvider,
+  getRate,
   getMinDelayMs,
   getSpendCaps,
   assertWithinBudget,
@@ -766,6 +767,22 @@ async function classifyBatchReal(
   checkpointState: CheckpointState,
 ): Promise<ClassifyResult> {
   const provider = inferProvider(model)
+
+  // Compute per-call cost estimate from the pricing book.
+  // Typical classify call: ~500 tokens in, ~25 tokens out.
+  const CLASSIFY_EST_TOKENS_IN = 500
+  const CLASSIFY_EST_TOKENS_OUT = 25
+  let estimatedCallCost: number
+  if (model.startsWith('stub') || provider === 'stub') {
+    estimatedCallCost = 0
+  } else {
+    // Unknown model pricing → fail fast (consistent with callLlm real-mode behavior)
+    const rate = getRate(provider, model)
+    estimatedCallCost =
+      (CLASSIFY_EST_TOKENS_IN / 1_000_000) * rate.inputPer1MUsd +
+      (CLASSIFY_EST_TOKENS_OUT / 1_000_000) * rate.outputPer1MUsd
+  }
+
   const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
   const budgetPolicy = getSpendCaps()
   const daySpendAtStart = await getCalendarDaySpendUsd()
@@ -804,11 +821,9 @@ async function classifyBatchReal(
         simulateCost: true,
       }
 
-      // Budget guard: estimate next cost before calling
-      // Use a conservative estimate for budget check
-      const estimatedNextCost = 0.001
+      // Budget guard: estimate next cost before calling (pricing-book-derived)
       assertWithinBudget({
-        nextCostUsd: estimatedNextCost,
+        nextCostUsd: estimatedCallCost,
         spentUsdRunSoFar: sessionSpentUsd,
         spentUsdDaySoFar: daySpendAtStart + sessionSpentUsd,
         policy: budgetPolicy,
@@ -838,6 +853,14 @@ async function classifyBatchReal(
       progress.tokensOut += response.tokensOut
       progress.costUsd += response.costUsd
       sessionSpentUsd += response.costUsd
+
+      // Post-call budget check: stop if actual spend exceeded cap
+      assertWithinBudget({
+        nextCostUsd: 0,
+        spentUsdRunSoFar: sessionSpentUsd,
+        spentUsdDaySoFar: daySpendAtStart + sessionSpentUsd,
+        policy: budgetPolicy,
+      })
 
       let parsed: { category: Category; confidence: number; aliasedFrom?: string }
       try {
