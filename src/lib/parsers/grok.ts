@@ -46,6 +46,7 @@
 
 import type { Parser, ParseResult, ParsedMessage } from './types'
 import type { RoleApi } from '../enums'
+import { InvalidInputError } from '../errors'
 
 // Grok export types
 interface GrokTimestamp {
@@ -199,7 +200,7 @@ export const grokParser: Parser = {
     const warnings: string[] = []
 
     if (!isGrokShape(data)) {
-      throw new Error('Grok export must be an object with a "conversations" array')
+      throw new InvalidInputError('Grok export must be an object with a "conversations" array')
     }
 
     for (const convWrapper of data.conversations) {

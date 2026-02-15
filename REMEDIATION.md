@@ -33,6 +33,7 @@ Each entry has:
 - AUD-074 — Typed Service Errors: Remaining Services + Routes
 - AUD-076 — Budget Guard Consolidation
 - AUD-077 — Multi-Batch Identity Canonicalization
+- AUD-085 - Typed service errors: Import route + parsers 
 
 ### Deferred
 - AUD-070 — Extract shared formatDate()
@@ -1584,6 +1585,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `src/lib/parsers/claude.ts`
   - `src/lib/parsers/grok.ts`
   - `src/lib/errors.ts`
+  - `src/lib/services/import.ts` _(scope expansion: "No messages found" throw)_
 - **Acceptance checks**:
   - `grep -rn 'message\\.includes\\|message\\.startsWith' src/app/api/distill/import/` returns zero hits.
   - Import route still returns **400 INVALID_INPUT** for "No messages found" and "must be an array" parser failures (message text can change slightly but must remain user-actionable).
@@ -1591,7 +1593,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - All existing import route + parser tests pass.
   - `npx vitest run` passes.
 - **Stop rule**: If this requires changing error response shape (fields/status/code) or touching files outside the allowlist, STOP and file a new AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Converted 5 throw sites from `new Error(...)` to `new InvalidInputError(...)` (chatgpt.ts, claude.ts, grok.ts, parsers/index.ts, services/import.ts). Rewrote route catch block: replaced 3 `message.includes()` branches with single `instanceof InvalidInputError` check. Also mapped `UnsupportedFormatError` → `INVALID_INPUT` (was `UNSUPPORTED_FORMAT`). Scope expanded to include `src/lib/services/import.ts` for "No messages found" throw. Side-effect fix: Grok validation errors now correctly return 400 (were 500 due to substring mismatch bug).
 
 ---
 

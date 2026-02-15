@@ -7,6 +7,7 @@
 
 import type { Parser, ParseResult } from './types'
 import type { SourceApi } from '../enums'
+import { InvalidInputError } from '../errors'
 import { chatgptParser } from './chatgpt'
 import { claudeParser } from './claude'
 import { grokParser } from './grok'
@@ -35,7 +36,7 @@ const parserMap: Partial<Record<SourceApi, Parser>> = {
 export function getParser(source: SourceApi): Parser {
   const parser = parserMap[source]
   if (!parser) {
-    throw new Error(`Parser for source "${source}" is not implemented`)
+    throw new InvalidInputError(`Parser for source "${source}" is not implemented`)
   }
   return parser
 }
