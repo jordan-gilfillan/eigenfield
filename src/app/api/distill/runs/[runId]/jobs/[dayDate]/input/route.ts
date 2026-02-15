@@ -12,14 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
 import { buildBundle } from '@/lib/services/bundle'
-
-interface RunConfig {
-  promptVersionIds: { summarize: string }
-  labelSpec: { model: string; promptVersionId: string }
-  filterProfileSnapshot: { name: string; mode: string; categories: string[] }
-  timezone: string
-  maxInputTokens: number
-}
+import { parseRunConfig } from '@/lib/types/run-config'
 
 export async function GET(
   request: NextRequest,
@@ -60,7 +53,7 @@ export async function GET(
     }
 
     // Extract frozen config from run
-    const config = run.configJson as unknown as RunConfig & { importBatchIds?: string[] }
+    const config = parseRunConfig(run.configJson)
     const sources = (run.sources as string[]).map((s) => s.toLowerCase())
 
     // Resolve importBatchIds from RunBatch junction (canonical source per §6.8a),

@@ -607,7 +607,7 @@ describe('Search Service', () => {
           configJson: {
             promptVersionIds: { summarize: promptVersionId },
             labelSpec: { model: 'stub_v1', promptVersionId: classifyPromptVersionId },
-            filterProfile: { name: 'search-test', mode: 'include', categories: ['WORK'] },
+            filterProfileSnapshot: { name: 'search-test', mode: 'include', categories: ['WORK'] },
             timezone: 'UTC',
             maxInputTokens: 12000,
           },

@@ -9,6 +9,7 @@
 
 import { prisma } from '@/lib/db'
 import type { ExportInput, ExportDay, ExportAtom, PrivacyTier } from './types'
+import { parseRunConfig } from '@/lib/types/run-config'
 
 // ── Error class ──────────────────────────────────────────────────────────────
 
@@ -22,17 +23,6 @@ export class ExportPreconditionError extends Error {
     this.code = code
     this.details = details
   }
-}
-
-// ── Config shape (frozen in Run.configJson) ──────────────────────────────────
-
-interface RunConfig {
-  filterProfileSnapshot: {
-    name: string
-    mode: string
-    categories: string[]
-  }
-  timezone: string
 }
 
 // ── Main function ────────────────────────────────────────────────────────────
@@ -119,7 +109,7 @@ export async function buildExportInput(
   }
 
   // 5. Extract frozen config
-  const config = run.configJson as unknown as RunConfig
+  const config = parseRunConfig(run.configJson)
 
   // 6. Map to ExportInput
   const days: ExportDay[] = run.jobs.map((job) => {

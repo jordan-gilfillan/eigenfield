@@ -10,6 +10,7 @@ import { prisma } from '../db'
 import type { FilterMode, Source } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
 import type { PricingSnapshot } from '../llm'
+import { parseRunConfig } from '../types/run-config'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -382,13 +383,7 @@ export async function getRun(runId: string) {
     return null
   }
 
-  const config = run.configJson as {
-    promptVersionIds: { summarize: string }
-    labelSpec: { model: string; promptVersionId: string }
-    filterProfileSnapshot: { name: string; mode: string; categories: string[] }
-    timezone: string
-    maxInputTokens: number
-  }
+  const config = parseRunConfig(run.configJson)
 
   return {
     id: run.id,

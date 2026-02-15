@@ -11,7 +11,9 @@ import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
 import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget, RateLimiter, getMinDelayMs } from '../llm'
-import type { PricingSnapshot, BudgetPolicy } from '../llm'
+import type { BudgetPolicy } from '../llm'
+import type { RunConfig } from '../types/run-config'
+import { parseRunConfig } from '../types/run-config'
 import type { JobStatus, RunStatus } from '@prisma/client'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
@@ -82,14 +84,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     }
 
     // Get config from run
-    const config = currentRun.configJson as unknown as {
-      promptVersionIds: { summarize: string }
-      labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
-      timezone: string
-      maxInputTokens: number
-      pricingSnapshot?: PricingSnapshot
-    }
+    const config = parseRunConfig(currentRun.configJson)
 
     // Create rate limiter shared across all jobs in this tick
     const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
@@ -187,13 +182,7 @@ async function processJob(
     importBatchIds: string[]
     sources: string[]
     model: string
-    config: {
-      promptVersionIds: { summarize: string }
-      labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
-      maxInputTokens: number
-      pricingSnapshot?: PricingSnapshot
-    }
+    config: RunConfig
     spentUsdRunSoFar: number
     spentUsdDaySoFar: number
     budgetPolicy: BudgetPolicy

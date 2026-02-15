@@ -11,6 +11,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { parseRunConfig } from '@/lib/types/run-config'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,9 +112,13 @@ async function resolveLabelContext(
       select: { configJson: true },
     })
     if (run?.configJson) {
-      const config = run.configJson as { labelSpec?: { model?: string; promptVersionId?: string } }
-      if (config.labelSpec?.model && config.labelSpec?.promptVersionId) {
-        return { model: config.labelSpec.model, promptVersionId: config.labelSpec.promptVersionId }
+      try {
+        const config = parseRunConfig(run.configJson)
+        if (config.labelSpec.model && config.labelSpec.promptVersionId) {
+          return { model: config.labelSpec.model, promptVersionId: config.labelSpec.promptVersionId }
+        }
+      } catch {
+        // Malformed configJson — fall through to null
       }
     }
   }

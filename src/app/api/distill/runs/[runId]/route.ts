@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
+import { parseRunConfig } from '@/lib/types/run-config'
 
 export async function GET(
   request: NextRequest,
@@ -71,13 +72,7 @@ export async function GET(
       },
     })
 
-    const config = run.configJson as {
-      promptVersionIds: { summarize: string }
-      labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
-      timezone: string
-      maxInputTokens: number
-    }
+    const config = parseRunConfig(run.configJson)
 
     // Format jobs for response
     const jobs = run.jobs.map((job) => ({
