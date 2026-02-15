@@ -1462,7 +1462,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx tsc --noEmit` passes (catch type ripple)
   - `grep -rn 'run\.importBatchId[^s]' src/app/ src/lib/services/` — count decreases
   - Existing multi-batch tests pass
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `getRun()` now includes `runBatches` (ordered by importBatchId asc) and returns `importBatchIds: string[]`. All three allowed files derive `importBatchId` from the RunBatch junction with a defensive `?? run.importBatchId` fallback. Run detail page classify stats and display both use canonical `importBatchIds`. 831 tests pass, no new TS errors.
 
 ### AUD-078 — Test Harness DB Preflight + Teardown
 - **Source**: Merged audit (Claude + Codex)
