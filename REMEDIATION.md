@@ -1369,7 +1369,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `grep -rn 'configJson as' src/lib/ src/app/` returns zero hits in production code
   - `npx tsc --noEmit` passes
   - Local `RunConfig` interface deleted from `orchestrator.ts`
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `src/lib/types/run-config.ts` with shared `RunConfig` interface and `parseRunConfig()` validator. Replaced 6 production `configJson as` casts and deleted 2 local `RunConfig` interfaces. 14 new unit tests. Fixed pre-existing test fixture typo (`filterProfile` → `filterProfileSnapshot` in search.test.ts).
 
 ### AUD-072 — Test Fixture Factory Extraction
 - **Source**: Merged audit (Codex)
