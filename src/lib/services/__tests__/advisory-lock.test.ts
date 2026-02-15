@@ -6,6 +6,7 @@
 
 import { describe, it, expect, afterAll } from 'vitest'
 import { computeLockKey, withLock, closeLockPool } from '../advisory-lock'
+import { TickInProgressError } from '../../errors'
 
 afterAll(async () => {
   await closeLockPool()
@@ -84,8 +85,8 @@ describe('advisory lock service', () => {
         return 'second-done'
       }).catch((err) => err)
 
-      expect(secondResult).toBeInstanceOf(Error)
-      expect((secondResult as Error & { code: string }).code).toBe('TICK_IN_PROGRESS')
+      expect(secondResult).toBeInstanceOf(TickInProgressError)
+      expect((secondResult as TickInProgressError).code).toBe('TICK_IN_PROGRESS')
 
       // Release first
       resolveHold()

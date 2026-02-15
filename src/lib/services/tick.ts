@@ -7,6 +7,7 @@
  */
 
 import { prisma } from '../db'
+import { NotFoundError } from '../errors'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
@@ -53,8 +54,8 @@ export interface TickResult {
  *
  * Uses advisory lock to prevent concurrent ticks.
  *
- * @throws Error with code TICK_IN_PROGRESS if another tick is running
- * @throws Error if run not found
+ * @throws TickInProgressError if another tick is running
+ * @throws NotFoundError if run not found
  */
 export async function processTick(options: TickOptions): Promise<TickResult> {
   const { runId, maxJobs = DEFAULT_JOBS_PER_TICK } = options
@@ -64,7 +65,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     where: { id: runId },
   })
   if (!run) {
-    throw new Error(`Run not found: ${runId}`)
+    throw new NotFoundError('Run', runId)
   }
 
   // Execute with advisory lock
@@ -75,7 +76,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     })
 
     if (!currentRun) {
-      throw new Error(`Run not found: ${runId}`)
+      throw new NotFoundError('Run', runId)
     }
 
     // Check terminal status per spec 7.6

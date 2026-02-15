@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { classifyBatch, InvalidInputError } from '@/lib/services/classify'
+import { NotFoundError } from '@/lib/errors'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
 
@@ -69,13 +70,8 @@ export async function POST(request: NextRequest) {
       return errorResponse(500, error.code, error.message, error.details)
     }
 
-    if (error instanceof Error) {
-      if (error.message.includes('ImportBatch not found')) {
-        return errors.notFound('ImportBatch')
-      }
-      if (error.message.includes('PromptVersion not found')) {
-        return errors.notFound('PromptVersion')
-      }
+    if (error instanceof NotFoundError) {
+      return errors.notFound(error.resource)
     }
 
     return errors.internal()

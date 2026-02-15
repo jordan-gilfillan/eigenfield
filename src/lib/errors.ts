@@ -51,3 +51,9 @@ export class ConflictError extends ServiceError {
     super(message, { code, httpStatus: 400 })
   }
 }
+
+export class TickInProgressError extends ServiceError {
+  constructor(message = 'Tick already in progress') {
+    super(message, { code: 'TICK_IN_PROGRESS', httpStatus: 409 })
+  }
+}

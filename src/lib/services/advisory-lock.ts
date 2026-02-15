@@ -11,6 +11,7 @@
  */
 
 import { Pool } from 'pg'
+import { TickInProgressError } from '../errors'
 
 /**
  * Dedicated pool for advisory lock operations.
@@ -55,7 +56,7 @@ export function computeLockKey(runId: string): bigint {
  * Uses a dedicated pg connection (not Prisma's pool) to guarantee the
  * lock is acquired and released on the same database session.
  *
- * @throws Error with code TICK_IN_PROGRESS if lock cannot be acquired
+ * @throws TickInProgressError if lock cannot be acquired
  */
 export async function withLock<T>(runId: string, fn: () => Promise<T>): Promise<T> {
   const lockKey = computeLockKey(runId)
@@ -69,9 +70,7 @@ export async function withLock<T>(runId: string, fn: () => Promise<T>): Promise<
     )
 
     if (!rows[0].pg_try_advisory_lock) {
-      const error = new Error('Tick already in progress')
-      ;(error as Error & { code: string }).code = 'TICK_IN_PROGRESS'
-      throw error
+      throw new TickInProgressError()
     }
 
     try {

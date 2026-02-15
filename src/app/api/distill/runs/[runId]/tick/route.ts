@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { processTick } from '@/lib/services/tick'
+import { NotFoundError, TickInProgressError } from '@/lib/errors'
 import { errors } from '@/lib/api-utils'
 
 interface TickRequest {
@@ -41,21 +42,19 @@ export async function POST(
   } catch (error) {
     console.error('Tick error:', error)
 
-    if (error instanceof Error) {
-      if (error.message.includes('Run not found')) {
-        return errors.notFound('Run')
-      }
-      if ((error as Error & { code?: string }).code === 'TICK_IN_PROGRESS') {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'TICK_IN_PROGRESS',
-              message: 'Another tick is already processing this run',
-            },
+    if (error instanceof NotFoundError) {
+      return errors.notFound(error.resource)
+    }
+    if (error instanceof TickInProgressError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'TICK_IN_PROGRESS',
+            message: 'Another tick is already processing this run',
           },
-          { status: 409 }
-        )
-      }
+        },
+        { status: 409 }
+      )
     }
 
     return errors.internal()

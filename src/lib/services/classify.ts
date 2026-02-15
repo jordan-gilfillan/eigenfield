@@ -25,7 +25,7 @@ import type { ProviderId, LlmCallContext } from '../llm'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
 // Import from shared errors + re-export for backward compatibility
-import { InvalidInputError } from '../errors'
+import { InvalidInputError, NotFoundError } from '../errors'
 export { InvalidInputError }
 
 /**
@@ -421,8 +421,8 @@ async function maybeCheckpointClassifyRun(
  * - Classification is idempotent for the same labelSpec
  * - If a label already exists for an atom with the same (promptVersionId, model), skip it
  *
- * @throws Error if importBatchId not found
- * @throws Error if promptVersionId not found
+ * @throws NotFoundError if importBatchId not found
+ * @throws NotFoundError if promptVersionId not found
  * @throws BudgetExceededError if budget cap exceeded during real mode
  * @throws LlmBadOutputError if LLM returns unparseable output
  */
@@ -434,7 +434,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     where: { id: importBatchId },
   })
   if (!importBatch) {
-    throw new Error(`ImportBatch not found: ${importBatchId}`)
+    throw new NotFoundError('ImportBatch', importBatchId)
   }
 
   // Verify prompt version exists (include parent Prompt for stage check)
@@ -443,7 +443,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     include: { prompt: { select: { stage: true } } },
   })
   if (!promptVersion) {
-    throw new Error(`PromptVersion not found: ${promptVersionId}`)
+    throw new NotFoundError('PromptVersion', promptVersionId)
   }
 
   // ── Mode-aware PromptVersion guardrails (spec §6.7, §7.2) ──
