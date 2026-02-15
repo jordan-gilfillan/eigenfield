@@ -20,6 +20,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
 import { LlmProviderError, BudgetExceededError, MissingApiKeyError } from '../../llm/errors'
+import { estimateCostFromSnapshot } from '../../llm/pricing'
 
 // Mock the summarizer module at the integration boundary.
 // We replace summarize() with a vi.fn() that delegates to stubSummarize for stub models
@@ -305,12 +306,12 @@ describe('tick real summarization', () => {
       expect(processedJob!.costUsd).toBeGreaterThan(0)
     })
 
-    it('uses pricingSnapshot to compute cost (overrides summarize costUsd)', async () => {
+    it('preserves provider-reported cost when non-zero (no snapshot overwrite)', async () => {
       mockRealSummarizeResolved({
         text: 'Summary.',
         tokensIn: 1000,
         tokensOut: 200,
-        costUsd: 0.99, // Arbitrary — should be overridden by pricingSnapshot
+        costUsd: 0.99, // Non-zero — should be preserved, not overwritten by pricingSnapshot
       })
 
       const run = await createTestRun('gpt-4o')
@@ -320,10 +321,7 @@ describe('tick real summarization', () => {
         where: { runId: run.id, status: 'SUCCEEDED' },
       })
       expect(jobs).toHaveLength(1)
-      // gpt-4o: input $2.5/M, output $10/M
-      const expectedCost = (1000 / 1_000_000) * 2.5 + (200 / 1_000_000) * 10.0
-      expect(jobs[0].costUsd).toBeCloseTo(expectedCost, 6)
-      expect(jobs[0].costUsd).not.toBeCloseTo(0.99, 2)
+      expect(jobs[0].costUsd).toBeCloseTo(0.99, 6)
     })
 
     it('processes all days with real model across multiple ticks', async () => {
@@ -607,6 +605,107 @@ describe('tick real summarization', () => {
       expect(outputs).toHaveLength(1)
       // Verify the output stores the promptVersionId from the run's frozen config
       expect(outputs[0].promptVersionId).toBe(run.config.promptVersionIds.summarize)
+    })
+  })
+
+  describe('cost overwrite correctness (AUD-075)', () => {
+    it('segmented job: accumulated per-segment cost preserved (no snapshot overwrite)', async () => {
+      // Add extra atoms on 2024-06-15 to guarantee ≥3 segments with maxInputTokens=10
+      const dayDate = new Date('2024-06-15T00:00:00Z')
+      for (let k = 0; k < 6; k++) {
+        const atom = await prisma.messageAtom.create({
+          data: {
+            importBatchId: testImportBatchId,
+            source: 'CHATGPT',
+            role: k % 2 === 0 ? 'USER' : 'ASSISTANT',
+            text: `Extra segment atom ${k} with enough text to push token count`,
+            textHash: `seg-extra-hash-${testUniqueId}-${k}`,
+            timestampUtc: new Date(dayDate.getTime() + (k + 10) * 1000),
+            dayDate,
+            atomStableId: `seg-extra-atom-${testUniqueId}-${k}`,
+          },
+        })
+        await prisma.messageLabel.create({
+          data: {
+            messageAtomId: atom.id,
+            model: 'stub_v1',
+            promptVersionId: testClassifyPromptVersionId,
+            category: 'PERSONAL',
+            confidence: 1.0,
+          },
+        })
+      }
+
+      mockRealSummarizeImpl(async () => ({
+        text: 'Segment summary.',
+        tokensIn: 50,
+        tokensOut: 10,
+        costUsd: 0.01,
+      }))
+
+      const run = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-06-15',
+        endDate: '2024-06-15',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'gpt-4o',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+        maxInputTokens: 10, // Force segmentation into ≥3 segments
+      })
+
+      await processTick({ runId: run.id })
+
+      const jobs = await prisma.job.findMany({
+        where: { runId: run.id, status: 'SUCCEEDED' },
+      })
+      expect(jobs).toHaveLength(1)
+      expect(realSummarizeCalls.length).toBeGreaterThanOrEqual(3)
+      // Each segment returns costUsd=0.01; total = segmentCount × 0.01
+      expect(jobs[0].costUsd).toBeCloseTo(realSummarizeCalls.length * 0.01, 6)
+    })
+
+    it('non-segmented job: provider-reported cost preserved', async () => {
+      mockRealSummarizeResolved({
+        text: 'Summary.',
+        tokensIn: 500,
+        tokensOut: 100,
+        costUsd: 0.05,
+      })
+
+      const run = await createTestRun('gpt-4o')
+      await processTick({ runId: run.id })
+
+      const jobs = await prisma.job.findMany({
+        where: { runId: run.id, status: 'SUCCEEDED' },
+      })
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0].costUsd).toBeCloseTo(0.05, 6)
+    })
+
+    it('fallback: uses snapshot estimate when provider reports zero cost', async () => {
+      mockRealSummarizeResolved({
+        text: 'Summary.',
+        tokensIn: 1000,
+        tokensOut: 200,
+        costUsd: 0, // Provider reported zero → snapshot fallback kicks in
+      })
+
+      const run = await createTestRun('gpt-4o')
+      await processTick({ runId: run.id })
+
+      const jobs = await prisma.job.findMany({
+        where: { runId: run.id, status: 'SUCCEEDED' },
+      })
+      expect(jobs).toHaveLength(1)
+
+      const snapshot = run.config.pricingSnapshot!
+      const expectedCost = estimateCostFromSnapshot(snapshot, 1000, 200)
+      expect(expectedCost).toBeGreaterThan(0)
+      expect(jobs[0].costUsd).toBeCloseTo(expectedCost, 6)
     })
   })
 })

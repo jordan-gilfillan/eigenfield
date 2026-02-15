@@ -1428,7 +1428,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - New test: non-segmented job → `Job.costUsd` equals provider-reported cost
   - Fallback test: `totalCostUsd === 0` + pricingSnapshot + non-stub → estimate from snapshot
   - All existing tick tests pass unchanged
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `&& totalCostUsd === 0` guard to pricing snapshot block in tick.ts (line 324). Updated existing overwrite test to assert corrected semantics. Added 3 new tests: segmented cost preservation, non-segmented provider cost, and zero-cost snapshot fallback.
 
 ### AUD-076 — Budget Guard Consolidation
 - **Source**: Merged audit (Claude + Codex)

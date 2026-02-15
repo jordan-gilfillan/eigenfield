@@ -320,8 +320,8 @@ async function processJob(
       }
     }
 
-    // 2b. Compute cost from pricing snapshot if available
-    if (config.pricingSnapshot && !model.startsWith('stub')) {
+    // 2b. Fallback: estimate cost from pricing snapshot only when provider reported zero
+    if (config.pricingSnapshot && !model.startsWith('stub') && totalCostUsd === 0) {
       totalCostUsd = estimateCostFromSnapshot(config.pricingSnapshot, totalTokensIn, totalTokensOut)
     }
 
