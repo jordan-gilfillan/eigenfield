@@ -13,6 +13,7 @@ import { computeAtomStableId, computeTextHash } from '../stableId'
 import { extractDayDate } from '../timestamp'
 import { buildRawEntryContent, computeRawEntryHash } from '../rawEntry'
 import { sourceToDb, sourceToApi, roleToApi, roleToDb, categoryToApi, type SourceApi } from '../enums'
+import { InvalidInputError } from '../errors'
 import type { Source, Role, Category } from '@prisma/client'
 
 /**
@@ -100,7 +101,7 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
   const warnings = [...parseResult.warnings]
 
   if (parseResult.messages.length === 0) {
-    throw new Error('No messages found in export file')
+    throw new InvalidInputError('No messages found in export file')
   }
 
   // Prepare atoms data

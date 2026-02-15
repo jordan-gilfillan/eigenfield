@@ -32,6 +32,7 @@
 
 import type { Parser, ParseResult, ParsedMessage } from './types'
 import type { RoleApi } from '../enums'
+import { InvalidInputError } from '../errors'
 
 // ChatGPT export types
 interface ChatGPTAuthor {
@@ -135,7 +136,7 @@ export const chatgptParser: Parser = {
     const warnings: string[] = []
 
     if (!Array.isArray(data)) {
-      throw new Error('ChatGPT export must be an array of conversations')
+      throw new InvalidInputError('ChatGPT export must be an array of conversations')
     }
 
     for (const conversation of data) {

@@ -6,7 +6,7 @@
  * Spec reference: 7.1, 7.9
  *
  * PR-7.3: Auto-detection returns structured errors:
- * - UNSUPPORTED_FORMAT if 0 parsers match
+ * - INVALID_INPUT if 0 parsers match (AUD-085: was UNSUPPORTED_FORMAT)
  * - AMBIGUOUS_FORMAT if >1 parsers match (with matched parser ids)
  */
 
@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { importExport } from '@/lib/services/import'
 import { errors } from '@/lib/api-utils'
 import { UnsupportedFormatError, AmbiguousFormatError } from '@/lib/parsers'
+import { InvalidInputError } from '@/lib/errors'
 import type { SourceApi } from '@/lib/enums'
 import { SOURCE_VALUES } from '@/lib/enums'
 
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     // Auto-detection: no parser matched
     if (error instanceof UnsupportedFormatError) {
-      return errors.unsupportedFormat(error.message)
+      return errors.invalidInput(error.message)
     }
 
     // Auto-detection: multiple parsers matched
@@ -75,19 +76,9 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (error instanceof Error) {
-      // Parser not implemented for requested source
-      if (error.message.includes('is not implemented')) {
-        return errors.unsupportedFormat(error.message)
-      }
-
-      // Known errors from parsing or validation
-      if (
-        error.message.includes('No messages found') ||
-        error.message.includes('must be an array')
-      ) {
-        return errors.invalidInput(error.message)
-      }
+    // Typed parser/service errors (validation, not-implemented, no-messages)
+    if (error instanceof InvalidInputError) {
+      return errors.invalidInput(error.message)
     }
 
     return errors.internal()
