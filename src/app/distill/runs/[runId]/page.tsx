@@ -191,7 +191,7 @@ export default function RunDetailPage() {
     setClassifyStatsError(null)
     try {
       const res = await fetch(
-        `/api/distill/import-batches/${run.importBatchId}/last-classify?model=${encodeURIComponent(labelSpec.model)}&promptVersionId=${encodeURIComponent(labelSpec.promptVersionId)}`
+        `/api/distill/import-batches/${run.importBatchIds?.[0] ?? run.importBatchId}/last-classify?model=${encodeURIComponent(labelSpec.model)}&promptVersionId=${encodeURIComponent(labelSpec.promptVersionId)}`
       )
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -692,7 +692,7 @@ export default function RunDetailPage() {
                 ))}
               </ul>
             ) : (
-              <code className="bg-gray-200 px-1 rounded text-xs">{run.importBatchId}</code>
+              <code className="bg-gray-200 px-1 rounded text-xs">{run.importBatchIds?.[0] ?? run.importBatchId}</code>
             )}
           </dd>
           <dt className="text-gray-600">Model:</dt>

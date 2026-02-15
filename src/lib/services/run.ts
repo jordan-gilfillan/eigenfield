@@ -382,6 +382,10 @@ export async function getRun(runId: string) {
     include: {
       importBatch: true,
       filterProfile: true,
+      runBatches: {
+        select: { importBatchId: true },
+        orderBy: { importBatchId: 'asc' },
+      },
     },
   })
 
@@ -390,11 +394,13 @@ export async function getRun(runId: string) {
   }
 
   const config = parseRunConfig(run.configJson)
+  const importBatchIds = run.runBatches.map((rb) => rb.importBatchId)
 
   return {
     id: run.id,
     status: run.status.toLowerCase(),
-    importBatchId: run.importBatchId,
+    importBatchId: importBatchIds[0] ?? run.importBatchId,
+    importBatchIds,
     startDate: formatDate(run.startDate),
     endDate: formatDate(run.endDate),
     sources: (run.sources as string[]).map((s) => s.toLowerCase()),

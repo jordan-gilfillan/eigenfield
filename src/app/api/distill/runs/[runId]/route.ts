@@ -88,7 +88,7 @@ export async function GET(
     return NextResponse.json({
       id: run.id,
       status: run.status.toLowerCase(),
-      importBatchId: run.importBatchId,
+      importBatchId: run.runBatches[0]?.importBatchId ?? run.importBatchId,
       importBatchIds: run.runBatches.map((rb) => rb.importBatchId),
       importBatches: run.runBatches.map((rb) => ({
         id: rb.importBatchId,
