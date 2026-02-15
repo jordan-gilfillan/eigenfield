@@ -11,6 +11,7 @@ import type { FilterMode, Source } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
 import type { PricingSnapshot } from '../llm'
 import { parseRunConfig } from '../types/run-config'
+import { formatDate } from '../date-utils'
 import {
   InvalidInputError,
   NotFoundError,
@@ -411,13 +412,6 @@ export async function getRun(runId: string) {
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   }
-}
-
-function formatDate(d: Date): string {
-  const year = d.getUTCFullYear()
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 // ----- Run Controls (cancel/resume/reset) -----

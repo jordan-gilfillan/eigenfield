@@ -8,6 +8,7 @@
  */
 
 import { prisma } from '../db'
+import { formatDate } from '../date-utils'
 import { parseExport, type ParsedMessage } from '../parsers'
 import { computeAtomStableId, computeTextHash } from '../stableId'
 import { extractDayDate } from '../timestamp'
@@ -451,12 +452,3 @@ export async function getImportBatchDayAtoms(options: {
   })
 }
 
-/**
- * Formats a Date as YYYY-MM-DD using UTC fields.
- */
-function formatDate(d: Date): string {
-  const year = d.getUTCFullYear()
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}

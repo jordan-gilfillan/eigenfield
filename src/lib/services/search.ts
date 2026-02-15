@@ -11,6 +11,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { formatDate } from '@/lib/date-utils'
 import { parseRunConfig } from '@/lib/types/run-config'
 
 // ---------------------------------------------------------------------------
@@ -371,10 +372,3 @@ export async function search(params: SearchParams): Promise<SearchResponse> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(d: Date): string {
-  // Format as YYYY-MM-DD using UTC to avoid timezone shift on DATE columns
-  const year = d.getUTCFullYear()
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}

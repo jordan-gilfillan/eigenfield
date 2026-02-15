@@ -7,6 +7,7 @@
  */
 
 import { prisma } from '../db'
+import { formatDate } from '../date-utils'
 import { NotFoundError } from '../errors'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
@@ -476,9 +477,3 @@ function buildTickResult(
   }
 }
 
-function formatDate(d: Date): string {
-  const year = d.getUTCFullYear()
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
