@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resetJob } from '@/lib/services/run'
 import { errors, errorResponse } from '@/lib/api-utils'
+import { NotFoundError, ServiceError } from '@/lib/errors'
 
 export async function POST(
   request: NextRequest,
@@ -21,16 +22,11 @@ export async function POST(
 
     return NextResponse.json(result)
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes('Run not found')) {
-        return errors.notFound('Run')
-      }
-      if (error.message.includes('Job not found')) {
-        return errors.notFound('Job')
-      }
-      if (error.message.includes('CANNOT_RESET_CANCELLED')) {
-        return errorResponse(400, 'CANNOT_RESET_CANCELLED', 'Cannot reset jobs in a cancelled run')
-      }
+    if (error instanceof NotFoundError) {
+      return errors.notFound(error.resource)
+    }
+    if (error instanceof ServiceError) {
+      return errorResponse(error.httpStatus, error.code, error.message, error.details)
     }
     console.error('Reset job error:', error)
     return errors.internal()

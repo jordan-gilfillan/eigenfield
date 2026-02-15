@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../db'
 import { createRun, TimezoneMismatchError } from '../run'
+import { InvalidInputError } from '../../errors'
 import { buildBundle } from '../bundle'
 import { processTick } from '../tick'
 
@@ -319,7 +320,7 @@ describe('multi-batch support', () => {
             promptVersionId: testClassifyPromptVersionId,
           },
         })
-      ).rejects.toThrow('INVALID_INPUT')
+      ).rejects.toThrow(InvalidInputError)
     })
 
     it('rejects empty importBatchIds', async () => {
@@ -336,7 +337,7 @@ describe('multi-batch support', () => {
             promptVersionId: testClassifyPromptVersionId,
           },
         })
-      ).rejects.toThrow('INVALID_INPUT')
+      ).rejects.toThrow(InvalidInputError)
     })
 
     it('rejects duplicate importBatchIds', async () => {
@@ -353,7 +354,7 @@ describe('multi-batch support', () => {
             promptVersionId: testClassifyPromptVersionId,
           },
         })
-      ).rejects.toThrow('INVALID_INPUT')
+      ).rejects.toThrow(InvalidInputError)
     })
 
     it('backward compat: single importBatchId still creates RunBatch row', async () => {

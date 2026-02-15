@@ -24,20 +24,9 @@ import {
 import type { ProviderId, LlmCallContext } from '../llm'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
-/**
- * Thrown when classify request parameters are invalid per spec 7.2 guardrails.
- * The route handler maps this to HTTP 400 with code INVALID_INPUT.
- */
-export class InvalidInputError extends Error {
-  readonly code = 'INVALID_INPUT'
-  readonly details?: Record<string, unknown>
-
-  constructor(message: string, details?: Record<string, unknown>) {
-    super(message)
-    this.name = 'InvalidInputError'
-    this.details = details
-  }
-}
+// Import from shared errors + re-export for backward compatibility
+import { InvalidInputError } from '../errors'
+export { InvalidInputError }
 
 /**
  * Core categories in the exact order required by stub_v1 algorithm (spec 7.2)

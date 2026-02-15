@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
+import { NotFoundError, NoEligibleDaysError } from '../../errors'
 
 describe('run service', () => {
   let testImportBatchId: string
@@ -294,7 +295,7 @@ describe('run service', () => {
             promptVersionId: 'nonexistent-id',
           },
         })
-      ).rejects.toThrow('LabelSpec promptVersionId not found')
+      ).rejects.toThrow(NotFoundError)
     })
 
     it('selects default labelSpec when omitted (SPEC §7.3)', async () => {
@@ -403,7 +404,7 @@ describe('run service', () => {
             promptVersionId: testClassifyPromptVersionId,
           },
         })
-      ).rejects.toThrow('NO_ELIGIBLE_DAYS')
+      ).rejects.toThrow(NoEligibleDaysError)
     })
   })
 })

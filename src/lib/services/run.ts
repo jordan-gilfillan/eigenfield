@@ -11,6 +11,12 @@ import type { FilterMode, Source } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
 import type { PricingSnapshot } from '../llm'
 import { parseRunConfig } from '../types/run-config'
+import {
+  InvalidInputError,
+  NotFoundError,
+  NoEligibleDaysError,
+  ConflictError,
+} from '../errors'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -88,17 +94,17 @@ export interface CreateRunResult {
 function resolveImportBatchIds(options: CreateRunOptions): string[] {
   const { importBatchId, importBatchIds } = options
   if (importBatchId && importBatchIds) {
-    throw new Error('INVALID_INPUT: Provide importBatchId or importBatchIds, not both')
+    throw new InvalidInputError('Provide importBatchId or importBatchIds, not both')
   }
   if (!importBatchId && !importBatchIds) {
-    throw new Error('INVALID_INPUT: importBatchId or importBatchIds is required')
+    throw new InvalidInputError('importBatchId or importBatchIds is required')
   }
   if (importBatchIds) {
     if (importBatchIds.length === 0) {
-      throw new Error('INVALID_INPUT: importBatchIds must be non-empty')
+      throw new InvalidInputError('importBatchIds must be non-empty')
     }
     if (new Set(importBatchIds).size !== importBatchIds.length) {
-      throw new Error('INVALID_INPUT: importBatchIds must contain unique elements')
+      throw new InvalidInputError('importBatchIds must contain unique elements')
     }
     return importBatchIds
   }
@@ -138,7 +144,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
   if (importBatches.length !== importBatchIds.length) {
     const foundIds = new Set(importBatches.map((b) => b.id))
     const missingId = importBatchIds.find((id) => !foundIds.has(id))
-    throw new Error(`ImportBatch not found: ${missingId}`)
+    throw new NotFoundError('ImportBatch', missingId)
   }
 
   // Check timezone uniformity
@@ -154,7 +160,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     where: { id: filterProfileId },
   })
   if (!filterProfile) {
-    throw new Error(`FilterProfile not found: ${filterProfileId}`)
+    throw new NotFoundError('FilterProfile', filterProfileId)
   }
 
   // 3. Get active summarize prompt version
@@ -165,7 +171,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     },
   })
   if (!summarizePromptVersion) {
-    throw new Error('No active summarize prompt version found')
+    throw new InvalidInputError('No active summarize prompt version configured')
   }
 
   // 4. Resolve labelSpec: use provided or select default per SPEC §7.3
@@ -176,7 +182,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       where: { id: options.labelSpec.promptVersionId },
     })
     if (!classifyPromptVersion) {
-      throw new Error(`LabelSpec promptVersionId not found: ${options.labelSpec.promptVersionId}`)
+      throw new NotFoundError('LabelSpec promptVersion', options.labelSpec.promptVersionId)
     }
     labelSpec = options.labelSpec
   } else {
@@ -189,7 +195,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       orderBy: { createdAt: 'desc' },
     })
     if (!activeClassifyVersion) {
-      throw new Error('No active classify prompt version found')
+      throw new InvalidInputError('No active classify prompt version configured')
     }
     labelSpec = {
       model: DEFAULT_CLASSIFY_MODEL,
@@ -211,7 +217,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
   })
 
   if (eligibleDays.length === 0) {
-    throw new Error('NO_ELIGIBLE_DAYS: No days match the filter criteria')
+    throw new NoEligibleDaysError()
   }
 
   // 6. Capture pricing snapshot for the summarizer model
@@ -431,7 +437,7 @@ export async function cancelRun(runId: string): Promise<CancelRunResult> {
   })
 
   if (!run) {
-    throw new Error(`Run not found: ${runId}`)
+    throw new NotFoundError('Run', runId)
   }
 
   // Check if already in terminal state
@@ -444,7 +450,7 @@ export async function cancelRun(runId: string): Promise<CancelRunResult> {
   }
 
   if (run.status === 'COMPLETED') {
-    throw new Error('ALREADY_COMPLETED: Cannot cancel a completed run')
+    throw new ConflictError('ALREADY_COMPLETED', 'Cannot cancel a completed run')
   }
 
   // Cancel all queued jobs
@@ -491,12 +497,12 @@ export async function resumeRun(runId: string): Promise<ResumeRunResult> {
   })
 
   if (!run) {
-    throw new Error(`Run not found: ${runId}`)
+    throw new NotFoundError('Run', runId)
   }
 
   // Cannot resume a cancelled run per spec 7.6 terminal status rule
   if (run.status === 'CANCELLED') {
-    throw new Error('CANNOT_RESUME_CANCELLED: Cancelled runs cannot be resumed')
+    throw new ConflictError('CANNOT_RESUME_CANCELLED', 'Cancelled runs cannot be resumed')
   }
 
   // Requeue failed jobs
@@ -548,12 +554,12 @@ export async function resetJob(runId: string, dayDate: string): Promise<ResetJob
   })
 
   if (!run) {
-    throw new Error(`Run not found: ${runId}`)
+    throw new NotFoundError('Run', runId)
   }
 
   // Cannot reset jobs in a cancelled run
   if (run.status === 'CANCELLED') {
-    throw new Error('CANNOT_RESET_CANCELLED: Cannot reset jobs in a cancelled run')
+    throw new ConflictError('CANNOT_RESET_CANCELLED', 'Cannot reset jobs in a cancelled run')
   }
 
   // Find the job
@@ -565,7 +571,7 @@ export async function resetJob(runId: string, dayDate: string): Promise<ResetJob
   })
 
   if (!job) {
-    throw new Error(`Job not found for run ${runId} and dayDate ${dayDate}`)
+    throw new NotFoundError('Job', `run ${runId} dayDate ${dayDate}`)
   }
 
   // Delete outputs for this job

@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../db'
 import { createRun, cancelRun, resumeRun, resetJob } from '../run'
+import { ConflictError } from '../../errors'
 import { processTick } from '../tick'
 
 describe('run controls', () => {
@@ -254,7 +255,7 @@ describe('run controls', () => {
       expect(completedRun?.status).toBe('COMPLETED')
 
       // Try to cancel
-      await expect(cancelRun(run.id)).rejects.toThrow('ALREADY_COMPLETED')
+      await expect(cancelRun(run.id)).rejects.toThrow(ConflictError)
     })
 
     it('throws error on non-existent run', async () => {
@@ -325,7 +326,7 @@ describe('run controls', () => {
       await cancelRun(run.id)
 
       // Try to resume
-      await expect(resumeRun(run.id)).rejects.toThrow('CANNOT_RESUME_CANCELLED')
+      await expect(resumeRun(run.id)).rejects.toThrow(ConflictError)
     })
 
     it('throws error on non-existent run', async () => {
@@ -428,7 +429,7 @@ describe('run controls', () => {
       const run = await createTestRun()
       await cancelRun(run.id)
 
-      await expect(resetJob(run.id, '2024-01-01')).rejects.toThrow('CANNOT_RESET_CANCELLED')
+      await expect(resetJob(run.id, '2024-01-01')).rejects.toThrow(ConflictError)
     })
 
     it('throws error on non-existent job', async () => {

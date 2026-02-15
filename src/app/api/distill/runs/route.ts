@@ -12,6 +12,7 @@ import { createRun, TimezoneMismatchError } from '@/lib/services/run'
 import { prisma } from '@/lib/db'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { UnknownModelPricingError } from '@/lib/llm'
+import { NotFoundError, ServiceError } from '@/lib/errors'
 
 interface CreateRunRequest {
   importBatchId?: string
@@ -113,36 +114,11 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (error instanceof Error) {
-      if (error.message.startsWith('INVALID_INPUT:')) {
-        return errors.invalidInput(error.message.replace('INVALID_INPUT: ', ''))
-      }
-      if (error.message.includes('ImportBatch not found')) {
-        return errors.notFound('ImportBatch')
-      }
-      if (error.message.includes('FilterProfile not found')) {
-        return errors.notFound('FilterProfile')
-      }
-      if (error.message.includes('promptVersionId not found')) {
-        return errors.notFound('LabelSpec promptVersion')
-      }
-      if (error.message.includes('No active summarize prompt')) {
-        return errors.invalidInput('No active summarize prompt version configured')
-      }
-      if (error.message.includes('No active classify prompt')) {
-        return errors.invalidInput('No active classify prompt version configured')
-      }
-      if (error.message.includes('NO_ELIGIBLE_DAYS')) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'NO_ELIGIBLE_DAYS',
-              message: 'No days match the filter criteria',
-            },
-          },
-          { status: 400 }
-        )
-      }
+    if (error instanceof NotFoundError) {
+      return errors.notFound(error.resource)
+    }
+    if (error instanceof ServiceError) {
+      return errorResponse(error.httpStatus, error.code, error.message, error.details)
     }
 
     return errors.internal()
