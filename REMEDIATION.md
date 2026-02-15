@@ -1414,7 +1414,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `grep -rn 'as Error &.*code' src/lib/` returns zero hits
   - `TickInProgressError` used in `advisory-lock.ts`; `tick/route.ts` handles it via `instanceof`
   - All existing error-path tests pass with identical HTTP status codes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `TickInProgressError` to `errors.ts`. Migrated `advisory-lock.ts` to throw it (removing `as Error & { code }` cast). Migrated `tick.ts` and `classify.ts` to throw `NotFoundError`. Replaced `message.includes` in `tick/route.ts` and `classify/route.ts` with `instanceof` dispatch. All 831 tests pass, zero `message.includes`/`startsWith` hits in classify+tick routes, zero `as Error &` casts in `src/lib/`. Note: `import/route.ts` has 3 remaining `message.includes` hits — filed as AUD-085.
 
 ### AUD-075 — Cost Overwrite Correctness Fix (Segmented Jobs)
 - **Source**: Merged audit (Claude exploration)
@@ -1566,6 +1567,19 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Assertions remain meaningful: ordering, presence, limit, cursor advances, no duplicates
 - **Status**: Done
 - **Resolution**: Replaced the multi-page walk with a two-part test. Part 1 uses `limit: 200` (single fetch, no cursor) to find all 3 test batches and assert DESC ordering by `originalFilename`. Part 2 makes two back-to-back `limit: 2` fetches to verify pagination mechanics (limit respected, cursor defined/advances, no duplicate IDs between pages). 20 consecutive full-suite runs with 0 flakes (795 tests each).
+
+### AUD-085 — Typed Service Errors: Import Route + Parsers
+- **Source**: AUD-074 spillover
+- **Severity**: MEDIUM
+- **Type**: Refactor
+- **Priority**: P2
+- **Decision**: Implement
+- **Description**: `src/app/api/distill/import/route.ts` still has 3 `message.includes` checks (lines 80, 86-87) for parser errors (`is not implemented`, `No messages found`, `must be an array`). Migrate parser throw sites to typed errors (e.g. `UnsupportedFormatError`, `InvalidInputError`) and replace string matching in the route with `instanceof` dispatch.
+- **Allowed files**: `src/app/api/distill/import/route.ts`, `src/lib/parsers/index.ts`, `src/lib/parsers/chatgpt.ts`, `src/lib/parsers/claude.ts`, `src/lib/parsers/grok.ts`, `src/lib/errors.ts`
+- **Acceptance checks**:
+  - `grep -rn 'message\.includes\|message\.startsWith' src/app/api/distill/import/` returns zero hits
+  - All existing import route + parser tests pass with identical HTTP status codes
+- **Status**: Not started
 
 ---
 
