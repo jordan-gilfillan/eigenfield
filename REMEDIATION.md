@@ -1353,7 +1353,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - No duplicate implementations remain
   - All existing tests still pass
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `src/lib/date-utils.ts` with shared `formatDate()`. Replaced 5 local implementations in run.ts, tick.ts, import.ts, search.ts, orchestrator.ts with imports. No behavior change.
 
 ### AUD-071 — Shared RunConfig Type + parseRunConfig()
 - **Source**: Merged audit (Claude + Codex)
@@ -1378,13 +1379,14 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Severity**: LOW
 - **Type**: Refactor
 - **Priority**: P2
-- **Decision**: Defer
+- **Decision**: Implement
 - **Description**: Extract 6+ inline `createTestExport()` / `createChatGptExport()` into shared `src/__tests__/fixtures/export-factories.ts`.
 - **Acceptance checks**:
   - Shared factory file exists with all extracted helpers
   - All existing tests still pass
   - `npx vitest run` passes
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Created `src/__tests__/fixtures/export-factories.ts` with shared `createTestExport()`. Replaced 6 inline copies across classify, classify-real, import, classify-progress, classify-stats, classify-audit-trail test files. No behavior change.
 
 ### AUD-073 — Typed Service Errors: Shared Classes + run.ts + Run Routes
 - **Source**: Merged audit (Claude + Codex)
