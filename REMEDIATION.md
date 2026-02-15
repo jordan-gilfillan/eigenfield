@@ -1568,17 +1568,28 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Replaced the multi-page walk with a two-part test. Part 1 uses `limit: 200` (single fetch, no cursor) to find all 3 test batches and assert DESC ordering by `originalFilename`. Part 2 makes two back-to-back `limit: 2` fetches to verify pagination mechanics (limit respected, cursor defined/advances, no duplicate IDs between pages). 20 consecutive full-suite runs with 0 flakes (795 tests each).
 
+
 ### AUD-085 — Typed Service Errors: Import Route + Parsers
 - **Source**: AUD-074 spillover
 - **Severity**: MEDIUM
 - **Type**: Refactor
 - **Priority**: P2
 - **Decision**: Implement
-- **Description**: `src/app/api/distill/import/route.ts` still has 3 `message.includes` checks (lines 80, 86-87) for parser errors (`is not implemented`, `No messages found`, `must be an array`). Migrate parser throw sites to typed errors (e.g. `UnsupportedFormatError`, `InvalidInputError`) and replace string matching in the route with `instanceof` dispatch.
-- **Allowed files**: `src/app/api/distill/import/route.ts`, `src/lib/parsers/index.ts`, `src/lib/parsers/chatgpt.ts`, `src/lib/parsers/claude.ts`, `src/lib/parsers/grok.ts`, `src/lib/errors.ts`
+- **Description**: `src/app/api/distill/import/route.ts` still relies on brittle `message.includes(...)` checks for parser failures (e.g. "is not implemented", "No messages found", "must be an array"). Migrate parser throw sites to typed errors and replace the route’s string matching with `instanceof` dispatch, preserving existing HTTP statuses and `error.code` values.
+- **Allowed files**:
+  - `src/app/api/distill/import/route.ts`
+  - `src/lib/parsers/index.ts`
+  - `src/lib/parsers/chatgpt.ts`
+  - `src/lib/parsers/claude.ts`
+  - `src/lib/parsers/grok.ts`
+  - `src/lib/errors.ts`
 - **Acceptance checks**:
-  - `grep -rn 'message\.includes\|message\.startsWith' src/app/api/distill/import/` returns zero hits
-  - All existing import route + parser tests pass with identical HTTP status codes
+  - `grep -rn 'message\\.includes\\|message\\.startsWith' src/app/api/distill/import/` returns zero hits.
+  - Import route still returns **400 INVALID_INPUT** for "No messages found" and "must be an array" parser failures (message text can change slightly but must remain user-actionable).
+  - Import route still returns **400 INVALID_INPUT** for unsupported/unknown formats (was previously matched via "is not implemented").
+  - All existing import route + parser tests pass.
+  - `npx vitest run` passes.
+- **Stop rule**: If this requires changing error response shape (fields/status/code) or touching files outside the allowlist, STOP and file a new AUD.
 - **Status**: Not started
 
 ---
