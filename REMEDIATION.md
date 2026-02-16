@@ -21,27 +21,18 @@ Each entry has:
 
 ## Current top priorities
 
-> Git Export v1 core complete (AUD-062–065). Refactor roadmap active (AUD-071–081).
+> SPEC ↔ Code audit (AUD-086–092). Correctness + determinism fixes first, then contract alignment.
 
 ## Open entries
 
 ### Active sequence (execute in order)
-- AUD-078 — Test Harness DB Preflight + Teardown
-- AUD-071 — Shared RunConfig Type + parseRunConfig()
-- AUD-075 — Cost Overwrite Correctness Fix (Segmented Jobs)
-- AUD-073 — Typed Service Errors: run.ts + Run Routes
-- AUD-074 — Typed Service Errors: Remaining Services + Routes
-- AUD-076 — Budget Guard Consolidation
-- AUD-077 — Multi-Batch Identity Canonicalization
-- AUD-085 - Typed service errors: Import route + parsers 
-
-### Deferred
-- AUD-070 — Extract shared formatDate()
-- AUD-072 — Test Fixture Factory Extraction
-- AUD-079 — Orchestration Decomposition (tick.ts / classify.ts)
-- AUD-080 — Import Scalability Batching
-- AUD-081 — Route Validation Helpers / Zod
-- AUD-083 — Git Export v2: Topic tracking + “diff of thinking” (embeddings)
+- AUD-086 — `determineRunStatus` returns QUEUED for all-cancelled jobs (HIGH)
+- AUD-087 — `bundleContextHash` non-deterministic in production (HIGH)
+- AUD-088 — GET /runs/:runId response shape mismatches SPEC §7.9 (HIGH)
+- AUD-089 — Tick does not guard COMPLETED/FAILED terminal states (MED)
+- AUD-090 — cancelRun/resumeRun incomplete terminal state guards (MED)
+- AUD-091 — ConflictError uses HTTP 400 instead of SPEC 409 (LOW)
+- AUD-092 — Search atom results include importBatchId not in SPEC (LOW)
 
 ---
 
@@ -98,6 +89,15 @@ Each entry has:
 - AUD-079
 - AUD-080
 - AUD-081
+
+### Bucket G — SPEC ↔ Code audit (P0–P1)
+- AUD-086
+- AUD-087
+- AUD-088
+- AUD-089
+- AUD-090
+- AUD-091
+- AUD-092
 
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
 - AUD-014
@@ -1582,6 +1582,133 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Stop rule**: If this requires changing error response shape (fields/status/code) or touching files outside the allowlist, STOP and file a new AUD.
 - **Status**: Done
 - **Resolution**: Converted 5 throw sites from `new Error(...)` to `new InvalidInputError(...)` (chatgpt.ts, claude.ts, grok.ts, parsers/index.ts, services/import.ts). Rewrote route catch block: replaced 3 `message.includes()` branches with single `instanceof InvalidInputError` check. Also mapped `UnsupportedFormatError` → `INVALID_INPUT` (was `UNSUPPORTED_FORMAT`). Scope expanded to include `src/lib/services/import.ts` for "No messages found" throw. Side-effect fix: Grok validation errors now correctly return 400 (were 500 due to substring mismatch bug).
+
+### AUD-086 — `determineRunStatus` returns QUEUED for all-cancelled jobs
+- **Source**: SPEC.md §7.4.1
+- **Severity**: HIGH
+- **Type**: Correctness
+- **Priority**: P0
+- **Decision**: Fix code
+- **Description**: SPEC §7.4.1 says: "When all jobs are terminal: if any job failed → failed; else if run was cancelled → cancelled; else → completed." The current `determineRunStatus()` function only looks at job counts and never checks the run's own status. When all jobs are cancelled (failed=0, succeeded=0), it falls through to `return 'QUEUED'` instead of `'CANCELLED'`. AUD-051 addressed other transition issues but this edge case remains.
+- **Code refs**: `src/lib/services/tick-logic.ts:14-31`, `src/lib/services/tick.ts:84-87`
+- **Planned PR**: fix/AUD-086-determine-run-status-cancelled
+- **Acceptance checks**:
+  - `determineRunStatus` accepts a `runStatus` parameter (or equivalent) so it can check "if run was cancelled"
+  - When all jobs are cancelled and run status is CANCELLED, returns `'CANCELLED'`
+  - When all jobs are cancelled and run status is not CANCELLED, returns `'QUEUED'` or fails explicitly
+  - Tick guards all three terminal states (CANCELLED, COMPLETED, FAILED), not just CANCELLED
+  - `npx vitest run src/__tests__/tick-logic` passes with new cases
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If this requires changing the tick API contract or DB schema, STOP and file a separate AUD.
+- **Status**: Not started
+
+### AUD-087 — `bundleContextHash` in bundle.ts diverges from SPEC and bundleHash.ts
+- **Source**: SPEC.md §5.3, §4.1 (determinism)
+- **Severity**: HIGH
+- **Type**: Correctness / Determinism
+- **Priority**: P0
+- **Decision**: Fix code
+- **Description**: Two competing implementations of `computeBundleContextHash` exist. The live production path in `bundle.ts:210-225` uses `JSON.stringify(filterProfile)` without sorted keys and accepts `filterProfile: { mode, categories }` (missing `name`). The standalone `bundleHash.ts:50-71` correctly uses `JSON.stringify(obj, Object.keys(obj).sort())` and includes `name` in `filterProfileSnapshot`. The live version is non-deterministic (key order depends on insertion order) and produces different hashes than the tested version due to the missing `name` field.
+- **Code refs**: `src/lib/services/bundle.ts:210-225` (live, broken), `src/lib/bundleHash.ts:50-71` (correct, unused in production), `src/lib/services/bundle.ts:25-28` (options interface missing `name`)
+- **Planned PR**: fix/AUD-087-bundle-context-hash-determinism
+- **Acceptance checks**:
+  - `bundle.ts` uses sorted-key JSON serialization for both `filterProfile` and `labelSpec`
+  - `bundle.ts` includes `name` in the filterProfile hash input (matching `filterProfileSnapshot` semantics from SPEC §5.3/§6.8)
+  - No duplicate `computeBundleContextHash` implementations exist (one canonical version)
+  - `grep -r "computeBundleContextHash" src/` shows exactly one definition (plus tests)
+  - `npx vitest run src/__tests__/bundle` passes
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If existing stored hashes in the DB need migration, STOP and file a separate AUD for the data migration.
+- **Status**: Not started
+
+### AUD-088 — GET /runs/:runId response shape mismatches SPEC §7.9
+- **Source**: SPEC.md §7.9 (POST /api/distill/runs response schema)
+- **Severity**: HIGH
+- **Type**: Contract break
+- **Priority**: P0
+- **Decision**: Fix code
+- **Description**: The GET run detail route returns several fields in wrong format/case: (1) `sources` as DB-cased uppercase array (e.g., `["CHATGPT"]`) instead of SPEC lowercase `["chatgpt"]`; (2) `startDate` and `endDate` as raw JS Date objects (serialize to `"2024-01-15T00:00:00.000Z"`) instead of SPEC `"YYYY-MM-DD"` strings; (3) `importBatches[].source` as uppercase enum. The POST /runs creation response (`run.ts:getRun`) correctly formats these, but the GET route does its own Prisma query and skips the formatting.
+- **Code refs**: `src/app/api/distill/runs/[runId]/route.ts:96` (importBatches source uppercase), `:99` (sources uppercase), `:100-101` (startDate/endDate raw Date)
+- **Planned PR**: fix/AUD-088-get-run-response-shape
+- **Acceptance checks**:
+  - `sources` array contains lowercase strings (`.map(s => s.toLowerCase())`)
+  - `startDate` and `endDate` are `"YYYY-MM-DD"` strings (use `formatDate()` from `src/lib/format.ts`)
+  - `importBatches[].source` is lowercase
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If this requires changing the UI to handle new response shapes, STOP and file a separate AUD.
+- **Status**: Not started
+
+### AUD-089 — Tick does not guard COMPLETED/FAILED terminal states
+- **Source**: SPEC.md §7.4.1, §6.8 (terminal states)
+- **Severity**: MED
+- **Type**: Correctness
+- **Priority**: P1
+- **Decision**: Fix code
+- **Description**: SPEC §6.8 defines Run terminal states as `completed`, `cancelled`, `failed`. SPEC §7.4.1 says tick must not transition terminal runs. The tick handler (`tick.ts:84-87`) only guards against `CANCELLED` — if a `COMPLETED` or `FAILED` run receives a tick call, it proceeds to look for queued jobs. A FAILED run could still have remaining queued jobs. Processing them would violate the terminal status invariant.
+- **Code refs**: `src/lib/services/tick.ts:84-87` (only checks CANCELLED)
+- **Planned PR**: fix/AUD-089-tick-terminal-guard
+- **Acceptance checks**:
+  - Tick returns early (no-op) for all terminal statuses: CANCELLED, COMPLETED, FAILED
+  - Test: calling tick on a FAILED run returns immediately with zero processed jobs
+  - Test: calling tick on a COMPLETED run returns immediately with zero processed jobs
+  - `npx vitest run src/__tests__/tick` passes
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If fixing this requires changing how FAILED runs are resumed, STOP and file a separate AUD.
+- **Status**: Not started
+
+### AUD-090 — cancelRun/resumeRun incomplete terminal state guards
+- **Source**: SPEC.md §6.8 (terminal states: completed, cancelled, failed), §7.6
+- **Severity**: MED
+- **Type**: Correctness
+- **Priority**: P1
+- **Decision**: Fix code
+- **Description**: `cancelRun` checks for CANCELLED (idempotent) and COMPLETED (throws) but not FAILED. A failed run can be transitioned to cancelled, violating the terminal status invariant. `resumeRun` checks for CANCELLED (throws) but not COMPLETED. Calling resume on a completed run is a functional no-op (no failed jobs to requeue) but doesn't error — clients get a misleading `{ status: "completed", jobsRequeued: 0 }` instead of a clear rejection.
+- **Code refs**: `src/lib/services/run.ts:443-454` (cancelRun missing FAILED check), `src/lib/services/run.ts:503-506` (resumeRun missing COMPLETED check)
+- **Planned PR**: fix/AUD-090-terminal-state-guards
+- **Acceptance checks**:
+  - `cancelRun` on a FAILED run throws `ConflictError` with code `ALREADY_FAILED`
+  - `resumeRun` on a COMPLETED run throws `ConflictError` with code `ALREADY_COMPLETED`
+  - Existing behavior preserved: cancelRun on CANCELLED is idempotent, resumeRun on CANCELLED throws
+  - `npx vitest run src/__tests__/run` passes
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If the UX auto-run or dashboard depends on these being no-ops rather than errors, STOP and file a separate AUD.
+- **Status**: Not started
+
+### AUD-091 — ConflictError uses HTTP 400 instead of SPEC 409
+- **Source**: SPEC.md §7.8
+- **Severity**: LOW
+- **Type**: Contract break
+- **Priority**: P1
+- **Decision**: Fix code
+- **Description**: SPEC §7.8 says "409 for concurrency conflicts." `TickInProgressError` correctly uses 409, but `ConflictError` (used for `ALREADY_COMPLETED` and `CANNOT_RESUME_CANCELLED`) uses HTTP 400. These are state-conflict errors — the class is named `ConflictError` yet returns the wrong status code.
+- **Code refs**: `src/lib/errors.ts:49-53` (`ConflictError` class, `httpStatus: 400`)
+- **Planned PR**: fix/AUD-091-conflict-error-409
+- **Acceptance checks**:
+  - `ConflictError` class uses `httpStatus: 409`
+  - Cancel a completed run → HTTP 409 (not 400)
+  - Resume a cancelled run → HTTP 409 (not 400)
+  - `TickInProgressError` remains 409 (no change)
+  - `npx vitest run` — all tests pass
+  - `grep -n "httpStatus.*400" src/lib/errors.ts` does not match ConflictError
+- **Stop rule**: If any UI code relies on 400 status for these errors, STOP and file a separate AUD.
+- **Status**: Not started
+
+### AUD-092 — Search atom results include importBatchId not in SPEC
+- **Source**: SPEC.md §7.9 (GET /api/distill/search response schema)
+- **Severity**: LOW
+- **Type**: Contract break
+- **Priority**: P1
+- **Decision**: Fix spec
+- **Description**: The search endpoint returns `importBatchId` inside atom result objects, but SPEC §7.9 search response schema does not include this field. The SPEC-defined atom shape is: `{ atomStableId, source, dayDate, timestampUtc, role, category, confidence }`. While extra fields don't break clients, this is a normative schema deviation. The field is useful for client navigation back to the import batch, so the fix is to update the SPEC rather than remove it.
+- **Code refs**: `src/lib/services/search.ts:247` (returns `importBatchId: row.importBatchId`)
+- **Planned PR**: fix/AUD-092-search-atom-schema
+- **Acceptance checks**:
+  - SPEC §7.9 search atom schema includes `importBatchId` field
+  - Code and SPEC match
+  - `npx vitest run src/__tests__/search` passes
+  - `npx vitest run` — all tests pass
+- **Stop rule**: If removing the field would break the search UI, fix spec instead.
+- **Status**: Not started
 
 ---
 
