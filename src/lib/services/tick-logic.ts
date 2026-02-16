@@ -11,7 +11,7 @@ export interface ProgressCounts {
 /**
  * Determines run status based on job progress (SPEC §7.4.1).
  */
-export function determineRunStatus(progress: ProgressCounts): RunStatus {
+export function determineRunStatus(progress: ProgressCounts, runStatus?: RunStatus): RunStatus {
   const { running, queued, succeeded, failed, cancelled } = progress
 
   // Any jobs actively running → RUNNING
@@ -26,6 +26,9 @@ export function determineRunStatus(progress: ProgressCounts): RunStatus {
   if (failed > 0) return 'FAILED'
   if (succeeded > 0) return 'COMPLETED'
 
-  // Defensive fallback (no jobs, or all cancelled — shouldn't happen in practice)
+  // All cancelled: return CANCELLED only when the run itself is CANCELLED
+  if (cancelled > 0 && runStatus === 'CANCELLED') return 'CANCELLED'
+
+  // Defensive fallback (no jobs, or all cancelled without run context)
   return 'QUEUED'
 }

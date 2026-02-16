@@ -373,5 +373,55 @@ describe('tick service', () => {
       expect(result.runStatus).toBe('cancelled')
       expect(result.progress.queued).toBe(2) // Jobs still queued but not processed
     })
+
+    it('respects completed run terminal status', async () => {
+      const run = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'stub_summarizer_v1',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+      })
+
+      await prisma.run.update({
+        where: { id: run.id },
+        data: { status: 'COMPLETED' },
+      })
+
+      const result = await processTick({ runId: run.id })
+
+      expect(result.processed).toBe(0)
+      expect(result.runStatus).toBe('completed')
+    })
+
+    it('respects failed run terminal status', async () => {
+      const run = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'stub_summarizer_v1',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+      })
+
+      await prisma.run.update({
+        where: { id: run.id },
+        data: { status: 'FAILED' },
+      })
+
+      const result = await processTick({ runId: run.id })
+
+      expect(result.processed).toBe(0)
+      expect(result.runStatus).toBe('failed')
+    })
   })
 })
