@@ -1600,7 +1600,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run src/__tests__/tick-logic` passes with new cases
   - `npx vitest run` — all tests pass
 - **Stop rule**: If this requires changing the tick API contract or DB schema, STOP and file a separate AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `determineRunStatus` now accepts optional `runStatus` param; returns CANCELLED for all-cancelled when run is CANCELLED. Tick terminal guard expanded to CANCELLED/COMPLETED/FAILED (subsumes AUD-089). 3 new tests (1 unit, 2 integration).
 
 ### AUD-087 — `bundleContextHash` in bundle.ts diverges from SPEC and bundleHash.ts
 - **Source**: SPEC.md §5.3, §4.1 (determinism)

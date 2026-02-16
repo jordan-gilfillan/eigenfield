@@ -81,9 +81,9 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
       throw new NotFoundError('Run', runId)
     }
 
-    // Check terminal status per spec 7.6
-    if (currentRun.status === 'CANCELLED') {
-      return buildTickResult(runId, [], await getProgress(runId), 'cancelled')
+    // Check terminal status per spec 7.6 (CANCELLED, COMPLETED, FAILED)
+    if (['CANCELLED', 'COMPLETED', 'FAILED'].includes(currentRun.status)) {
+      return buildTickResult(runId, [], await getProgress(runId), currentRun.status.toLowerCase())
     }
 
     // Get config from run
@@ -117,7 +117,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     if (queuedJobs.length === 0) {
       // No jobs to process - check if run is complete
       const progress = await getProgress(runId)
-      const newStatus = determineRunStatus(progress)
+      const newStatus = determineRunStatus(progress, currentRun.status)
 
       if (currentRun.status !== newStatus) {
         await prisma.run.update({
@@ -164,7 +164,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
 
     // Get updated progress
     const progress = await getProgress(runId)
-    const newStatus = determineRunStatus(progress)
+    const newStatus = determineRunStatus(progress, currentRun.status)
 
     // Update run status
     await prisma.run.update({

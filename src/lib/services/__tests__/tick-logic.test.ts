@@ -31,7 +31,11 @@ describe('determineRunStatus', () => {
     expect(determineRunStatus(counts({ succeeded: 3, cancelled: 1 }))).toBe('COMPLETED')
   })
 
-  it('returns QUEUED for all-cancelled (defensive fallback)', () => {
+  it('returns CANCELLED for all-cancelled when run is CANCELLED', () => {
+    expect(determineRunStatus(counts({ cancelled: 3 }), 'CANCELLED')).toBe('CANCELLED')
+  })
+
+  it('returns QUEUED for all-cancelled when runStatus is omitted (defensive)', () => {
     expect(determineRunStatus(counts({ cancelled: 3 }))).toBe('QUEUED')
   })
 
