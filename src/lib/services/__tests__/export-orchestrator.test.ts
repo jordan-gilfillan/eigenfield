@@ -24,6 +24,7 @@ const runIds: string[] = []
 const jobIds: string[] = []
 const outputIds: string[] = []
 const atomIds: string[] = []
+const labelIds: string[] = []
 
 // ── Shared test fixtures ────────────────────────────────────────────────────
 
@@ -241,6 +242,65 @@ beforeAll(async () => {
 
   // Day 3: no atoms (tests empty atoms list)
 
+  // ── Classify Prompt + PromptVersion (required by MessageLabel FK) ──
+
+  const classifyPrompt = await prisma.prompt.create({
+    data: { id: `${P}-classify-prompt`, stage: 'CLASSIFY', name: `${P}-classify` },
+  })
+  promptIds.push(classifyPrompt.id)
+
+  const classifyPv = await prisma.promptVersion.create({
+    data: {
+      id: `${P}-classify-pv`,
+      promptId: classifyPrompt.id,
+      versionLabel: 'v1',
+      templateText: 'Classify: {{text}}',
+      isActive: true,
+    },
+  })
+  promptVersionIds.push(classifyPv.id)
+
+  // ── MessageLabels for atoms (v2 topic assignment) ──
+  // Matches labelSpec in configJson: { model: 'stub_v1', promptVersionId: '${P}-classify-pv' }
+
+  const label1 = await prisma.messageLabel.create({
+    data: {
+      id: `${P}-label-d1u1`, messageAtomId: atomD1U1.id,
+      category: 'WORK', confidence: 0.95,
+      model: 'stub_v1', promptVersionId: classifyPv.id,
+    },
+  })
+  labelIds.push(label1.id)
+
+  const label2 = await prisma.messageLabel.create({
+    data: {
+      id: `${P}-label-d1u2`, messageAtomId: atomD1U2.id,
+      category: 'WORK', confidence: 0.90,
+      model: 'stub_v1', promptVersionId: classifyPv.id,
+    },
+  })
+  labelIds.push(label2.id)
+
+  const label3 = await prisma.messageLabel.create({
+    data: {
+      id: `${P}-label-d1c1`, messageAtomId: atomD1C1.id,
+      category: 'LEARNING', confidence: 0.85,
+      model: 'stub_v1', promptVersionId: classifyPv.id,
+    },
+  })
+  labelIds.push(label3.id)
+
+  const label4 = await prisma.messageLabel.create({
+    data: {
+      id: `${P}-label-d2u1`, messageAtomId: atomD2U1.id,
+      category: 'LEARNING', confidence: 0.88,
+      model: 'stub_v1', promptVersionId: classifyPv.id,
+    },
+  })
+  labelIds.push(label4.id)
+
+  // Note: atomD1Asst (assistant role) has no label — assistant atoms are excluded from export
+
   // ── Run with RUNNING status (for precondition failure test) ──
 
   const runRunning = await prisma.run.create({
@@ -356,6 +416,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Clean up in reverse dependency order
+  await prisma.messageLabel.deleteMany({ where: { id: { in: labelIds } } })
   await prisma.messageAtom.deleteMany({ where: { id: { in: atomIds } } })
   await prisma.output.deleteMany({ where: { id: { in: outputIds } } })
   await prisma.job.deleteMany({ where: { id: { in: jobIds } } })
@@ -568,5 +629,123 @@ describe('buildExportInput — atoms', () => {
     const result = await buildExportInput(`${P}-run-empty`, EXPORTED_AT)
     // No days, no atoms
     expect(result.days.length).toBe(0)
+  })
+})
+
+// ── V2 mode (topicVersion + categories) ───────────────────────────────────
+
+describe('buildExportInput — v2 mode (topicVersion)', () => {
+  it('populates atom category from MessageLabel when topicVersion is set', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    // Day 1: 3 user atoms, all labeled
+    const day1 = result.days[0]
+    expect(day1.atoms!.length).toBe(3)
+
+    // chatgpt atoms: d1u1 → work, d1u2 → work
+    expect(day1.atoms![0].category).toBe('work')
+    expect(day1.atoms![1].category).toBe('work')
+
+    // claude atom: d1c1 → learning
+    expect(day1.atoms![2].category).toBe('learning')
+  })
+
+  it('populates category on day 2 atoms', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    // Day 2: 1 user atom → learning
+    const day2 = result.days[1]
+    expect(day2.atoms!.length).toBe(1)
+    expect(day2.atoms![0].category).toBe('learning')
+  })
+
+  it('omits category field when atom has no matching MessageLabel', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    // Day 3 has no atoms at all
+    const day3 = result.days[2]
+    expect(day3.atoms!.length).toBe(0)
+  })
+
+  it('does NOT populate category when topicVersion is not set (v1 mode)', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    const day1 = result.days[0]
+    // v1 mode: no category field on any atom
+    for (const atom of day1.atoms!) {
+      expect(atom.category).toBeUndefined()
+    }
+  })
+
+  it('passes topicVersion through to ExportInput', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    expect(result.topicVersion).toBe('topic_v1')
+  })
+
+  it('omits topicVersion from ExportInput when not set', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT)
+
+    expect(result.topicVersion).toBeUndefined()
+  })
+
+  it('passes previousManifest through to ExportInput', async () => {
+    const prev = {
+      exportedAt: '2024-06-01T00:00:00.000Z',
+      topicVersion: 'topic_v1',
+      topics: {
+        work: { atomCount: 5, category: 'work', dayCount: 1, days: ['2024-06-01'], displayName: 'Work' },
+      },
+    }
+
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+      previousManifest: prev,
+    })
+
+    expect(result.previousManifest).toEqual(prev)
+  })
+
+  it('omits previousManifest from ExportInput when not set', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    expect(result.previousManifest).toBeUndefined()
+  })
+
+  it('loads atoms in public tier when topicVersion is set (needed for topics)', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      privacyTier: 'public',
+      topicVersion: 'topic_v1',
+    })
+
+    // Public + v2: atoms are loaded (for topic computation) with categories
+    const day1 = result.days[0]
+    expect(day1.atoms!.length).toBe(3)
+    expect(day1.atoms![0].category).toBe('work')
+  })
+
+  it('categories are lowercase even when DB stores uppercase enum', async () => {
+    const result = await buildExportInput(`${P}-run-happy`, EXPORTED_AT, {
+      topicVersion: 'topic_v1',
+    })
+
+    const allCategories = result.days
+      .flatMap((d) => d.atoms ?? [])
+      .map((a) => a.category)
+      .filter(Boolean)
+
+    for (const cat of allCategories) {
+      expect(cat).toBe(cat!.toLowerCase())
+    }
   })
 })
