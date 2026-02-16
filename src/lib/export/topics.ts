@@ -8,7 +8,8 @@
  */
 
 import type { CategoryApi } from '../enums'
-import type { ExportDay, TopicData } from './types'
+import type { ExportDay, TopicData, TopicDayEntry } from './types'
+import { renderFrontmatter } from './helpers'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,7 +57,7 @@ export function categoryDisplayName(category: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Topic grouping (stub — implemented in EPIC-083c)
+// Topic grouping (§14.11)
 // ---------------------------------------------------------------------------
 
 /**
@@ -64,31 +65,115 @@ export function categoryDisplayName(category: string): string {
  *
  * Atoms without a category are assigned to 'other'.
  * Returns topics sorted for INDEX rendering: atom count DESC, category ASC.
- *
- * @throws Error — stub, not yet implemented
  */
-export function groupAtomsByTopic(_days: ExportDay[]): TopicData[] {
-  throw new Error('groupAtomsByTopic not implemented — see EPIC-083c')
+export function groupAtomsByTopic(days: ExportDay[]): TopicData[] {
+  // Accumulator: category → { dayDate → atomCount }
+  const categoryDays = new Map<string, Map<string, number>>()
+
+  for (const day of days) {
+    if (!day.atoms) continue
+    for (const atom of day.atoms) {
+      const category = atom.category ?? 'other'
+      let dayMap = categoryDays.get(category)
+      if (!dayMap) {
+        dayMap = new Map()
+        categoryDays.set(category, dayMap)
+      }
+      dayMap.set(day.dayDate, (dayMap.get(day.dayDate) ?? 0) + 1)
+    }
+  }
+
+  // Convert to TopicData[]
+  const topics: TopicData[] = []
+  for (const [category, dayMap] of categoryDays) {
+    const topicId = computeTopicId(category)
+    const displayName = categoryDisplayName(category)
+
+    // Sort days ascending by dayDate
+    const sortedDayDates = [...dayMap.keys()].sort()
+    const topicDays: TopicDayEntry[] = sortedDayDates.map((d) => ({
+      dayDate: d,
+      atomCount: dayMap.get(d)!,
+    }))
+
+    const atomCount = topicDays.reduce((sum, d) => sum + d.atomCount, 0)
+
+    topics.push({
+      topicId,
+      category,
+      displayName,
+      atomCount,
+      dayCount: topicDays.length,
+      dateRange: {
+        start: sortedDayDates[0],
+        end: sortedDayDates[sortedDayDates.length - 1],
+      },
+      days: topicDays,
+    })
+  }
+
+  // Sort: atomCount DESC, then category ASC (tie-breaker)
+  topics.sort((a, b) => {
+    if (b.atomCount !== a.atomCount) return b.atomCount - a.atomCount
+    return a.category.localeCompare(b.category)
+  })
+
+  return topics
 }
 
 // ---------------------------------------------------------------------------
-// Topic page rendering (stubs — implemented in EPIC-083c)
+// Topic page rendering (§14.12–§14.13)
 // ---------------------------------------------------------------------------
 
 /**
- * Renders topics/INDEX.md content.
+ * Renders topics/INDEX.md content (§14.12).
  *
- * @throws Error — stub, not yet implemented
+ * Table rows sorted: atomCount DESC, category ASC (same as TopicData order).
+ * No frontmatter, no timestamps.
  */
-export function renderTopicIndex(_topics: TopicData[]): string {
-  throw new Error('renderTopicIndex not implemented — see EPIC-083c')
+export function renderTopicIndex(topics: TopicData[]): string {
+  const parts: string[] = [
+    '# Topics',
+    '',
+    '| Topic | Category | Days | Atoms |',
+    '|-------|----------|------|-------|',
+  ]
+
+  for (const topic of topics) {
+    parts.push(
+      `| [${topic.displayName}](${topic.topicId}.md) | ${topic.category} | ${topic.dayCount} | ${topic.atomCount} |`,
+    )
+  }
+
+  parts.push('')
+  return parts.join('\n')
 }
 
 /**
- * Renders a single topics/<topicId>.md page.
+ * Renders a single topics/<topicId>.md page (§14.13).
  *
- * @throws Error — stub, not yet implemented
+ * YAML frontmatter + day listing (newest-first).
+ * Singular "atom" when count is 1.
  */
-export function renderTopicPage(_topic: TopicData): string {
-  throw new Error('renderTopicPage not implemented — see EPIC-083c')
+export function renderTopicPage(topic: TopicData): string {
+  const fields: Array<[string, string | number | boolean]> = [
+    ['topicId', topic.topicId],
+    ['topicVersion', TOPIC_VERSION],
+    ['category', topic.category],
+    ['displayName', topic.displayName],
+    ['atomCount', topic.atomCount],
+    ['dayCount', topic.dayCount],
+    ['dateRange', `${topic.dateRange.start} to ${topic.dateRange.end}`],
+  ]
+
+  const frontmatter = renderFrontmatter(fields)
+
+  // Days listed newest-first (reverse of the ascending-sorted days array)
+  const dayLines = [...topic.days].reverse().map((d) => {
+    const label = d.atomCount === 1 ? 'atom' : 'atoms'
+    return `- [${d.dayDate}](../views/${d.dayDate}.md) (${d.atomCount} ${label})`
+  })
+
+  const parts = [frontmatter, '', '## Days', '', ...dayLines, '']
+  return parts.join('\n')
 }
