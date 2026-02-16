@@ -1691,7 +1691,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run` — all tests pass
   - `grep -n "httpStatus.*400" src/lib/errors.ts` does not match ConflictError
 - **Stop rule**: If any UI code relies on 400 status for these errors, STOP and file a separate AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Changed `ConflictError` httpStatus from 400 to 409 in `src/lib/errors.ts`. Updated test assertion in `src/__tests__/errors.test.ts`. No route handler changes needed (all use generic `error.httpStatus` dispatch). No UI dependency on 400 for these errors.
 
 ### AUD-092 — Search atom results include importBatchId not in SPEC
 - **Source**: SPEC.md §7.9 (GET /api/distill/search response schema)

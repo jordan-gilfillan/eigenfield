@@ -48,7 +48,7 @@ export class NoEligibleDaysError extends ServiceError {
 
 export class ConflictError extends ServiceError {
   constructor(code: string, message: string) {
-    super(message, { code, httpStatus: 400 })
+    super(message, { code, httpStatus: 409 })
   }
 }
 
