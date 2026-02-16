@@ -9,8 +9,16 @@
 
 import { prisma } from '@/lib/db'
 import { formatDate } from '@/lib/date-utils'
-import type { ExportInput, ExportDay, ExportAtom, PrivacyTier } from './types'
+import type { ExportInput, ExportDay, ExportAtom, PrivacyTier, PreviousManifest } from './types'
 import { parseRunConfig } from '@/lib/types/run-config'
+
+// ── Options ─────────────────────────────────────────────────────────────────
+
+export interface BuildExportOptions {
+  privacyTier?: PrivacyTier
+  topicVersion?: string            // 'topic_v1' → v2 mode; undefined → v1 mode
+  previousManifest?: PreviousManifest  // for changelog (§14.14)
+}
 
 // ── Error class ──────────────────────────────────────────────────────────────
 
@@ -34,15 +42,16 @@ export class ExportPreconditionError extends Error {
  *
  * @param runId - The Run to export
  * @param exportedAt - ISO 8601 timestamp, caller-supplied for determinism
- * @param privacyTier - 'public' omits atoms/sources; 'private' (default) includes all
+ * @param options - Optional: privacyTier, topicVersion, previousManifest
  * @throws ExportPreconditionError with code EXPORT_NOT_FOUND if Run doesn't exist
  * @throws ExportPreconditionError with code EXPORT_PRECONDITION if preconditions fail
  */
 export async function buildExportInput(
   runId: string,
   exportedAt: string,
-  privacyTier?: PrivacyTier,
+  options?: BuildExportOptions,
 ): Promise<ExportInput> {
+  const { privacyTier, topicVersion, previousManifest } = options ?? {}
   // 1. Load Run with all related data in a single query
   const run = await prisma.run.findUnique({
     where: { id: runId },
@@ -133,12 +142,15 @@ export async function buildExportInput(
     return day
   })
 
-  // 7. Load user-role atoms for all days in §9.1 order (private tier only)
+  // 7. Load user-role atoms for all days in §9.1 order
+  // Private tier always loads atoms. V2 mode also loads atoms (for topic computation)
+  // even in public tier — topics/ files are present in both tiers (§14.10).
   const effectiveTier = privacyTier ?? 'private'
+  const needAtoms = effectiveTier === 'private' || topicVersion !== undefined
   const batchIds = run.runBatches.map((rb) => rb.importBatchId)
   const dayDates = run.jobs.map((j) => j.dayDate)
 
-  if (effectiveTier === 'private' && dayDates.length > 0 && batchIds.length > 0) {
+  if (needAtoms && dayDates.length > 0 && batchIds.length > 0) {
     const rawAtoms = await prisma.messageAtom.findMany({
       where: {
         importBatchId: { in: batchIds },
@@ -152,6 +164,7 @@ export async function buildExportInput(
         { atomStableId: 'asc' },
       ],
       select: {
+        id: true,
         atomStableId: true,
         source: true,
         timestampUtc: true,
@@ -168,17 +181,42 @@ export async function buildExportInput(
       return true
     })
 
+    // 8. For v2 mode: query MessageLabel to get each atom's category (§14.11)
+    const categoryMap = new Map<string, string>()
+    if (topicVersion && dedupedAtoms.length > 0) {
+      const atomDbIds = dedupedAtoms.map((a) => a.id)
+      const labels = await prisma.messageLabel.findMany({
+        where: {
+          messageAtomId: { in: atomDbIds },
+          model: config.labelSpec.model,
+          promptVersionId: config.labelSpec.promptVersionId,
+        },
+        select: {
+          messageAtomId: true,
+          category: true,
+        },
+      })
+      for (const label of labels) {
+        categoryMap.set(label.messageAtomId, label.category.toLowerCase())
+      }
+    }
+
     // Group by dayDate and map to ExportAtom
     const atomsByDay = new Map<string, ExportAtom[]>()
     for (const atom of dedupedAtoms) {
       const dayStr = formatDate(atom.dayDate)
       if (!atomsByDay.has(dayStr)) atomsByDay.set(dayStr, [])
-      atomsByDay.get(dayStr)!.push({
+      const exportAtom: ExportAtom = {
         source: atom.source.toLowerCase(),
         timestampUtc: atom.timestampUtc.toISOString(),
         text: atom.text,
         atomStableId: atom.atomStableId,
-      })
+      }
+      const category = categoryMap.get(atom.id)
+      if (category) {
+        exportAtom.category = category
+      }
+      atomsByDay.get(dayStr)!.push(exportAtom)
     }
 
     for (const day of days) {
@@ -213,6 +251,8 @@ export async function buildExportInput(
     days,
     exportedAt,
     ...(privacyTier ? { privacyTier } : {}),
+    ...(topicVersion ? { topicVersion } : {}),
+    ...(previousManifest ? { previousManifest } : {}),
   }
 }
 
