@@ -1636,7 +1636,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `importBatches[].source` is lowercase
   - `npx vitest run` — all tests pass
 - **Stop rule**: If this requires changing the UI to handle new response shapes, STOP and file a separate AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: GET /runs/:runId now lowercases `sources`/`importBatches[].source` and formats `startDate`/`endDate` as YYYY-MM-DD via `formatDate()`; aligns with SPEC §7.9. No schema/API additions.
 
 ### AUD-089 — Tick does not guard COMPLETED/FAILED terminal states
 - **Source**: SPEC.md §7.4.1, §6.8 (terminal states)

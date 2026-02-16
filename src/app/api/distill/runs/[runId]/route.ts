@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
 import { parseRunConfig } from '@/lib/types/run-config'
+import { formatDate } from '@/lib/date-utils'
 
 export async function GET(
   request: NextRequest,
@@ -93,12 +94,12 @@ export async function GET(
       importBatches: run.runBatches.map((rb) => ({
         id: rb.importBatchId,
         originalFilename: rb.importBatch.originalFilename,
-        source: rb.importBatch.source,
+        source: rb.importBatch.source.toLowerCase(),
       })),
       model: run.model,
-      sources: run.sources,
-      startDate: run.startDate,
-      endDate: run.endDate,
+      sources: (run.sources as string[]).map(s => s.toLowerCase()),
+      startDate: formatDate(run.startDate),
+      endDate: formatDate(run.endDate),
       config: {
         promptVersionIds: config.promptVersionIds,
         labelSpec: config.labelSpec,
