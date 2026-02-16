@@ -1675,7 +1675,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run src/__tests__/run` passes
   - `npx vitest run` — all tests pass
 - **Stop rule**: If the UX auto-run or dashboard depends on these being no-ops rather than errors, STOP and file a separate AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: cancelRun now rejects FAILED with ConflictError(ALREADY_FAILED); resumeRun now rejects COMPLETED with ConflictError(ALREADY_COMPLETED). Existing test for resumeRun-on-COMPLETED changed from no-op assertion to ConflictError assertion. New test for cancelRun-on-FAILED added. 883 tests pass.
 
 ### AUD-091 — ConflictError uses HTTP 400 instead of SPEC 409
 - **Source**: SPEC.md §7.8
