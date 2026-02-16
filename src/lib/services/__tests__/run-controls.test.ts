@@ -258,6 +258,22 @@ describe('run controls', () => {
       await expect(cancelRun(run.id)).rejects.toThrow(ConflictError)
     })
 
+    it('throws error on failed run', async () => {
+      const run = await createTestRun()
+
+      // Force run and jobs to FAILED
+      await prisma.job.updateMany({
+        where: { runId: run.id },
+        data: { status: 'FAILED' },
+      })
+      await prisma.run.update({
+        where: { id: run.id },
+        data: { status: 'FAILED' },
+      })
+
+      await expect(cancelRun(run.id)).rejects.toThrow(ConflictError)
+    })
+
     it('throws error on non-existent run', async () => {
       await expect(cancelRun('nonexistent-id')).rejects.toThrow('Run not found')
     })
@@ -345,7 +361,7 @@ describe('run controls', () => {
       expect(updatedRun?.status).toBe('QUEUED')
     })
 
-    it('is safe on completed run with no failed jobs', async () => {
+    it('throws on completed run', async () => {
       const run = await createTestRun()
 
       // Process all jobs
@@ -355,13 +371,8 @@ describe('run controls', () => {
       const completedRun = await prisma.run.findUnique({ where: { id: run.id } })
       expect(completedRun?.status).toBe('COMPLETED')
 
-      // Resume should be a no-op (no failed jobs)
-      const result = await resumeRun(run.id)
-      expect(result.jobsRequeued).toBe(0)
-
-      // Run should remain COMPLETED
-      const stillCompletedRun = await prisma.run.findUnique({ where: { id: run.id } })
-      expect(stillCompletedRun?.status).toBe('COMPLETED')
+      // Resume should throw ConflictError
+      await expect(resumeRun(run.id)).rejects.toThrow(ConflictError)
     })
   })
 

@@ -453,6 +453,10 @@ export async function cancelRun(runId: string): Promise<CancelRunResult> {
     throw new ConflictError('ALREADY_COMPLETED', 'Cannot cancel a completed run')
   }
 
+  if (run.status === 'FAILED') {
+    throw new ConflictError('ALREADY_FAILED', 'Cannot cancel a failed run')
+  }
+
   // Cancel all queued jobs
   const cancelledJobs = await prisma.job.updateMany({
     where: {
@@ -503,6 +507,10 @@ export async function resumeRun(runId: string): Promise<ResumeRunResult> {
   // Cannot resume a cancelled run per spec 7.6 terminal status rule
   if (run.status === 'CANCELLED') {
     throw new ConflictError('CANNOT_RESUME_CANCELLED', 'Cancelled runs cannot be resumed')
+  }
+
+  if (run.status === 'COMPLETED') {
+    throw new ConflictError('ALREADY_COMPLETED', 'Cannot resume a completed run')
   }
 
   // Requeue failed jobs
