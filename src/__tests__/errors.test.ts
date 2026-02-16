@@ -116,10 +116,10 @@ describe('NoEligibleDaysError', () => {
 })
 
 describe('ConflictError', () => {
-  it('uses provided code and httpStatus 400', () => {
+  it('uses provided code and httpStatus 409', () => {
     const err = new ConflictError('ALREADY_COMPLETED', 'Cannot cancel a completed run')
     expect(err.code).toBe('ALREADY_COMPLETED')
-    expect(err.httpStatus).toBe(400)
+    expect(err.httpStatus).toBe(409)
     expect(err.message).toBe('Cannot cancel a completed run')
     expect(err.name).toBe('ConflictError')
   })
