@@ -8,6 +8,7 @@
  */
 
 export const EXPORT_FORMAT_VERSION = 'export_v1'
+export const EXPORT_FORMAT_VERSION_V2 = 'export_v2'
 
 /**
  * Renders YAML frontmatter from an ordered list of key-value pairs.
