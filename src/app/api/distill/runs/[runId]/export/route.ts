@@ -12,11 +12,13 @@ import { buildExportInput, ExportPreconditionError } from '@/lib/export/orchestr
 import { renderExportTree } from '@/lib/export/renderer'
 import { writeExportTree } from '@/lib/export/writer'
 import { errors, errorResponse } from '@/lib/api-utils'
-import type { PrivacyTier } from '@/lib/export/types'
+import type { PrivacyTier, PreviousManifest } from '@/lib/export/types'
 
 interface ExportRequest {
   outputDir: string
   privacyTier?: PrivacyTier
+  topicVersion?: string
+  previousManifest?: PreviousManifest
 }
 
 export async function POST(
@@ -35,10 +37,18 @@ export async function POST(
       return errors.invalidInput('privacyTier must be "public" or "private"')
     }
 
+    if (body.topicVersion !== undefined && body.topicVersion !== 'topic_v1') {
+      return errors.invalidInput('topicVersion must be "topic_v1"')
+    }
+
     const exportedAt = new Date().toISOString()
 
     // 1. Load + validate from DB
-    const exportInput = await buildExportInput(runId, exportedAt, body.privacyTier)
+    const exportInput = await buildExportInput(runId, exportedAt, {
+      privacyTier: body.privacyTier,
+      topicVersion: body.topicVersion,
+      previousManifest: body.previousManifest,
+    })
 
     // 2. Render in-memory file tree
     const tree = renderExportTree(exportInput)
