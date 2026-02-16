@@ -22,6 +22,28 @@ import type { Source, Role, Category } from '@prisma/client'
  */
 const DEFAULT_TIMEZONE = 'America/Los_Angeles'
 
+/**
+ * Max items per DB query/write chunk during import.
+ * Bounds IN (...) clause size and createMany batch size to keep
+ * SQL parameter counts and memory usage reasonable.
+ */
+export const IMPORT_CHUNK_SIZE = 1000
+
+/**
+ * Splits an array into chunks of at most `size` elements.
+ * Returns [] for empty input. Throws if size <= 0.
+ */
+export function chunkArray<T>(arr: T[], size: number): T[][] {
+  if (size <= 0) {
+    throw new Error(`chunkArray: size must be positive, got ${size}`)
+  }
+  const result: T[][] = []
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size))
+  }
+  return result
+}
+
 export interface ImportOptions {
   /** Raw file content */
   content: string
@@ -148,14 +170,18 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
     per_source_counts: perSourceCounts,
   } satisfies ImportStats
 
-  // Check for existing atoms BEFORE the transaction to avoid Postgres transaction abort
-  const existingAtomIds = await prisma.messageAtom.findMany({
-    where: {
-      atomStableId: { in: atomsData.map((a) => a.atomStableId) },
-    },
-    select: { atomStableId: true },
-  })
-  const existingSet = new Set(existingAtomIds.map((a) => a.atomStableId))
+  // Check for existing atoms BEFORE the transaction to avoid Postgres transaction abort.
+  // Chunked to bound IN (...) clause size for large imports.
+  const allStableIds = atomsData.map((a) => a.atomStableId)
+  const dedupeChunks = chunkArray(allStableIds, IMPORT_CHUNK_SIZE)
+  const existingSet = new Set<string>()
+  for (const chunk of dedupeChunks) {
+    const found = await prisma.messageAtom.findMany({
+      where: { atomStableId: { in: chunk } },
+      select: { atomStableId: true },
+    })
+    for (const row of found) existingSet.add(row.atomStableId)
+  }
 
   // Filter to only new atoms
   const newAtomsData = atomsData.filter((a) => !existingSet.has(a.atomStableId))
@@ -166,6 +192,10 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
       `Skipped ${skippedDuplicates} duplicate messages (already imported)`
     )
   }
+
+  console.debug(
+    `[import] ${atomsData.length} atoms, chunkSize=${IMPORT_CHUNK_SIZE}, dedupeChunks=${dedupeChunks.length}, writeChunks=${Math.ceil(newAtomsData.length / IMPORT_CHUNK_SIZE) || 0}`
+  )
 
   // Use a transaction to ensure atomicity
   // Increase timeout for large imports (default is 5s)
@@ -182,17 +212,16 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
         },
       })
 
-      // Create MessageAtoms (only new ones)
-      // Use skipDuplicates for concurrency safety - safe because uniqueness is on atomStableId (spec 6.2)
-      if (newAtomsData.length > 0) {
-        await tx.messageAtom.createMany({
-          data: newAtomsData.map((atomData) => ({
-            ...atomData,
-            dayDate: new Date(atomData.dayDate),
-            importBatchId: importBatch.id,
-          })),
-          skipDuplicates: true,
-        })
+      // Create MessageAtoms (only new ones), chunked to bound INSERT size.
+      // skipDuplicates for concurrency safety — uniqueness on atomStableId (spec 6.2)
+      const atomRows = newAtomsData.map((atomData) => ({
+        ...atomData,
+        dayDate: new Date(atomData.dayDate),
+        importBatchId: importBatch.id,
+      }))
+      const writeChunks = chunkArray(atomRows, IMPORT_CHUNK_SIZE)
+      for (const chunk of writeChunks) {
+        await tx.messageAtom.createMany({ data: chunk, skipDuplicates: true })
       }
 
       // Create RawEntries per (source, dayDate)
