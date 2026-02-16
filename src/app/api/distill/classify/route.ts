@@ -12,6 +12,7 @@ import { classifyBatch, InvalidInputError } from '@/lib/services/classify'
 import { NotFoundError } from '@/lib/errors'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
+import { requireField } from '@/lib/route-validate'
 
 interface ClassifyRequest {
   importBatchId: string
@@ -25,28 +26,23 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Partial<ClassifyRequest>
 
     // Validate required fields
-    if (!body.importBatchId) {
-      return errors.invalidInput('importBatchId is required')
-    }
-    if (!body.model) {
-      return errors.invalidInput('model is required')
-    }
-    if (!body.promptVersionId) {
-      return errors.invalidInput('promptVersionId is required')
-    }
-    if (!body.mode) {
-      return errors.invalidInput('mode is required')
-    }
+    const fail =
+      requireField(body.importBatchId, 'importBatchId') ??
+      requireField(body.model, 'model') ??
+      requireField(body.promptVersionId, 'promptVersionId') ??
+      requireField(body.mode, 'mode')
+    if (fail) return errors.invalidInput(fail)
+
     if (body.mode !== 'stub' && body.mode !== 'real') {
       return errors.invalidInput('mode must be "stub" or "real"')
     }
 
     // Classify the batch
     const result = await classifyBatch({
-      importBatchId: body.importBatchId,
-      model: body.model,
-      promptVersionId: body.promptVersionId,
-      mode: body.mode,
+      importBatchId: body.importBatchId!,
+      model: body.model!,
+      promptVersionId: body.promptVersionId!,
+      mode: body.mode!,
     })
 
     // Return response per spec 7.9

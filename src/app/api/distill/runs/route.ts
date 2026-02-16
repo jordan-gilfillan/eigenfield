@@ -13,6 +13,14 @@ import { prisma } from '@/lib/db'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { UnknownModelPricingError } from '@/lib/llm'
 import { NotFoundError, ServiceError } from '@/lib/errors'
+import {
+  requireField,
+  requireXor,
+  requireNonEmptyArray,
+  validateNonEmptyArray,
+  requireUniqueArray,
+  requireDateFormat,
+} from '@/lib/route-validate'
 
 interface CreateRunRequest {
   importBatchId?: string
@@ -33,54 +41,37 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Partial<CreateRunRequest>
 
-    // Validate importBatchId XOR importBatchIds (SPEC §7.3 step 0a)
-    if (body.importBatchId && body.importBatchIds) {
-      return errors.invalidInput('Provide importBatchId or importBatchIds, not both')
-    }
-    if (!body.importBatchId && !body.importBatchIds) {
-      return errors.invalidInput('importBatchId or importBatchIds is required')
-    }
-    if (body.importBatchIds) {
-      if (!Array.isArray(body.importBatchIds) || body.importBatchIds.length === 0) {
-        return errors.invalidInput('importBatchIds must be a non-empty array')
-      }
-      if (new Set(body.importBatchIds).size !== body.importBatchIds.length) {
-        return errors.invalidInput('importBatchIds must contain unique elements')
-      }
-    }
+    // Validate required fields and shapes (SPEC §7.3 step 0a)
+    const fail =
+      requireXor(
+        body.importBatchId,
+        body.importBatchIds,
+        'Provide importBatchId or importBatchIds, not both',
+        'importBatchId or importBatchIds is required',
+      ) ??
+      validateNonEmptyArray(body.importBatchIds, 'importBatchIds must be a non-empty array') ??
+      requireUniqueArray(body.importBatchIds, 'importBatchIds must contain unique elements') ??
+      requireField(body.startDate, 'startDate') ??
+      requireField(body.endDate, 'endDate') ??
+      requireNonEmptyArray(body.sources, 'sources is required and must be a non-empty array') ??
+      requireField(body.filterProfileId, 'filterProfileId') ??
+      requireField(body.model, 'model')
+    if (fail) return errors.invalidInput(fail)
 
-    if (!body.startDate) {
-      return errors.invalidInput('startDate is required')
-    }
-    if (!body.endDate) {
-      return errors.invalidInput('endDate is required')
-    }
-    if (!body.sources || !Array.isArray(body.sources) || body.sources.length === 0) {
-      return errors.invalidInput('sources is required and must be a non-empty array')
-    }
-    if (!body.filterProfileId) {
-      return errors.invalidInput('filterProfileId is required')
-    }
-    if (!body.model) {
-      return errors.invalidInput('model is required')
-    }
     // If labelSpec is provided, both fields are required
     if (body.labelSpec && (!body.labelSpec.model || !body.labelSpec.promptVersionId)) {
       return errors.invalidInput('labelSpec must include both model and promptVersionId')
     }
 
     // Validate date format
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
-    if (!dateRegex.test(body.startDate)) {
-      return errors.invalidInput('startDate must be in YYYY-MM-DD format')
-    }
-    if (!dateRegex.test(body.endDate)) {
-      return errors.invalidInput('endDate must be in YYYY-MM-DD format')
-    }
+    const dateFail =
+      requireDateFormat(body.startDate!, 'startDate') ??
+      requireDateFormat(body.endDate!, 'endDate')
+    if (dateFail) return errors.invalidInput(dateFail)
 
     // Validate sources
     const validSources = ['chatgpt', 'claude', 'grok']
-    for (const source of body.sources) {
+    for (const source of body.sources!) {
       if (!validSources.includes(source.toLowerCase())) {
         return errors.invalidInput(`Invalid source: ${source}`, { validSources })
       }
@@ -90,11 +81,11 @@ export async function POST(request: NextRequest) {
     const result = await createRun({
       ...(body.importBatchId ? { importBatchId: body.importBatchId } : {}),
       ...(body.importBatchIds ? { importBatchIds: body.importBatchIds } : {}),
-      startDate: body.startDate,
-      endDate: body.endDate,
-      sources: body.sources.map((s) => s.toLowerCase()),
-      filterProfileId: body.filterProfileId,
-      model: body.model,
+      startDate: body.startDate!,
+      endDate: body.endDate!,
+      sources: body.sources!.map((s) => s.toLowerCase()),
+      filterProfileId: body.filterProfileId!,
+      model: body.model!,
       ...(body.labelSpec ? { labelSpec: body.labelSpec } : {}),
       maxInputTokens: body.maxInputTokens,
     })
