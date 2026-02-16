@@ -1501,7 +1501,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Priority**: P2
 - **Decision**: Defer
 - **Description**: Chunk the large `IN (...)` dedupe query and `createMany` writes in `import.ts` to bound peak memory. No current failure reports.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Chunked both dedupe `findMany` (IN clause) and `createMany` writes in `import.ts` with `IMPORT_CHUNK_SIZE=1000`. Added defensive `chunkArray<T>` helper (throws on size≤0). Single debug log line for diagnostics. 9 new unit tests for chunkArray. All 879 tests pass. No schema, API, or behavior changes.
 
 ### AUD-081 — Route Validation Helpers / Zod
 - **Source**: Merged audit (Codex)
