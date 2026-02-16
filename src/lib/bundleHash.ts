@@ -8,7 +8,7 @@
  *   Hashes the exact bytes of the deterministic bundle text (what the model saw)
  *
  * - bundleContextHash: sha256(
- *     "bundle_ctx_v1|" + importBatchId + "|" + dayDate + "|" + sourcesCsv + "|" +
+ *     "bundle_ctx_v1|" + importBatchIdsCsv + "|" + dayDate + "|" + sourcesCsv + "|" +
  *     filterProfileSnapshotJson + "|" + labelSpecJson
  *   )
  *   Hashes the inputs that produced the bundle (why this bundle exists)
@@ -27,7 +27,7 @@ export function computeBundleHash(stableBundleText: string): string {
 }
 
 export interface BundleContextParams {
-  importBatchId: string
+  importBatchIds: string[]
   dayDate: string // YYYY-MM-DD
   sources: string[] // lowercase source names
   filterProfileSnapshot: {
@@ -48,10 +48,11 @@ export interface BundleContextParams {
  * @returns SHA-256 hash as hex string
  */
 export function computeBundleContextHash(params: BundleContextParams): string {
-  const { importBatchId, dayDate, sources, filterProfileSnapshot, labelSpec } =
+  const { importBatchIds, dayDate, sources, filterProfileSnapshot, labelSpec } =
     params
 
-  // Sort sources for determinism
+  // Sort for determinism
+  const importBatchIdsCsv = [...importBatchIds].sort().join(',')
   const sourcesCsv = [...sources].sort().join(',')
 
   // Serialize snapshots as deterministic JSON (sorted keys)
@@ -60,7 +61,7 @@ export function computeBundleContextHash(params: BundleContextParams): string {
 
   const parts = [
     'bundle_ctx_v1',
-    importBatchId,
+    importBatchIdsCsv,
     dayDate,
     sourcesCsv,
     filterProfileSnapshotJson,

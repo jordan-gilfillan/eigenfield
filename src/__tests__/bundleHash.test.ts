@@ -34,7 +34,7 @@ describe('computeBundleHash', () => {
 
 describe('computeBundleContextHash', () => {
   const baseParams = {
-    importBatchId: 'batch-123',
+    importBatchIds: ['batch-123'],
     dayDate: '2024-01-15',
     sources: ['chatgpt'],
     filterProfileSnapshot: {
@@ -63,7 +63,7 @@ describe('computeBundleContextHash', () => {
     const hash1 = computeBundleContextHash(baseParams)
     const hash2 = computeBundleContextHash({
       ...baseParams,
-      importBatchId: 'batch-different',
+      importBatchIds: ['batch-different'],
     })
     expect(hash1).not.toBe(hash2)
   })

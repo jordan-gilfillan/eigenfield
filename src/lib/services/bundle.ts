@@ -7,6 +7,7 @@
  */
 
 import { prisma } from '../db'
+import { computeBundleHash, computeBundleContextHash } from '../bundleHash'
 import { sha256 } from '../hash'
 import { toCanonicalTimestamp } from '../timestamp'
 import type { Source, FilterMode } from '@prisma/client'
@@ -23,6 +24,7 @@ export interface BuildBundleOptions {
     promptVersionId: string
   }
   filterProfile: {
+    name: string
     mode: string // 'include' | 'exclude'
     categories: string[]
   }
@@ -135,7 +137,13 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
     return {
       bundleText: emptyBundle,
       bundleHash: computeBundleHash(emptyBundle),
-      bundleContextHash: computeBundleContextHash(resolvedBatchIds, dayDate, sources, filterProfile, labelSpec),
+      bundleContextHash: computeBundleContextHash({
+        importBatchIds: resolvedBatchIds,
+        dayDate,
+        sources,
+        filterProfileSnapshot: filterProfile,
+        labelSpec,
+      }),
       atomCount: 0,
       atomIds: [],
       atoms: [],
@@ -179,7 +187,13 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
   return {
     bundleText,
     bundleHash: computeBundleHash(bundleText),
-    bundleContextHash: computeBundleContextHash(resolvedBatchIds, dayDate, sources, filterProfile, labelSpec),
+    bundleContextHash: computeBundleContextHash({
+      importBatchIds: resolvedBatchIds,
+      dayDate,
+      sources,
+      filterProfileSnapshot: filterProfile,
+      labelSpec,
+    }),
     atomCount: atoms.length,
     atomIds: atoms.map((a) => a.id),
     atoms: atoms.map((a) => ({
@@ -191,37 +205,6 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
       text: a.text,
     })),
   }
-}
-
-/**
- * Computes bundleHash per spec 5.3:
- * sha256("bundle_v1|" + stableBundleText)
- */
-function computeBundleHash(bundleText: string): string {
-  return sha256(`bundle_v1|${bundleText}`)
-}
-
-/**
- * Computes bundleContextHash per spec 5.3:
- * sha256("bundle_ctx_v1|" + importBatchIdsCsv + "|" + dayDate + "|" + sourcesCsv + "|" + filterProfileSnapshotJson + "|" + labelSpecJson)
- *
- * For single-batch, sorted join of [id] === id, so hash is backward compatible.
- */
-function computeBundleContextHash(
-  importBatchIds: string[],
-  dayDate: string,
-  sources: string[],
-  filterProfile: { mode: string; categories: string[] },
-  labelSpec: { model: string; promptVersionId: string }
-): string {
-  const importBatchIdsCsv = importBatchIds.slice().sort().join(',')
-  const sourcesCsv = sources.slice().sort().join(',')
-  const filterProfileJson = JSON.stringify(filterProfile)
-  const labelSpecJson = JSON.stringify(labelSpec)
-
-  return sha256(
-    `bundle_ctx_v1|${importBatchIdsCsv}|${dayDate}|${sourcesCsv}|${filterProfileJson}|${labelSpecJson}`
-  )
 }
 
 /**
