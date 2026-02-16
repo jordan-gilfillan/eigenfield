@@ -1657,7 +1657,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run src/__tests__/tick` passes
   - `npx vitest run` — all tests pass
 - **Stop rule**: If fixing this requires changing how FAILED runs are resumed, STOP and file a separate AUD.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Guard implemented in AUD-086. Tick terminal guard covers CANCELLED/COMPLETED/FAILED. All three terminal states verified by integration tests in tick.test.ts.
 
 ### AUD-090 — cancelRun/resumeRun incomplete terminal state guards
 - **Source**: SPEC.md §6.8 (terminal states: completed, cancelled, failed), §7.6
