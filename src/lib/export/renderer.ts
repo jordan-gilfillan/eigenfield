@@ -8,8 +8,10 @@
  */
 
 import { sha256 } from '../hash'
-import { EXPORT_FORMAT_VERSION, renderFrontmatter, renderJson } from './helpers'
-import type { ExportInput, ExportDay, ExportAtom, ExportBatch, ExportTree } from './types'
+import { EXPORT_FORMAT_VERSION, EXPORT_FORMAT_VERSION_V2, renderFrontmatter, renderJson } from './helpers'
+import type { ExportInput, ExportDay, ExportAtom, ExportBatch, ExportTree, TopicData, ManifestTopicEntry } from './types'
+import { groupAtomsByTopic, renderTopicIndex, renderTopicPage, TOPIC_VERSION } from './topics'
+import { computeChangelog, renderChangelog } from './changelog'
 
 /** Number of days shown in the "Recent" section when timeline has >14 entries */
 const TIMELINE_RECENT_COUNT = 14
@@ -23,9 +25,10 @@ const TIMELINE_RECENT_COUNT = 14
  */
 export function renderExportTree(input: ExportInput): ExportTree {
   const tree: ExportTree = new Map()
+  const isV2 = input.topicVersion !== undefined
 
   // 1. Static README
-  tree.set('README.md', renderReadme())
+  tree.set('README.md', isV2 ? renderReadmeV2() : renderReadme())
 
   // 2. Timeline navigation index
   tree.set('views/timeline.md', renderTimeline(input.days))
@@ -53,8 +56,31 @@ export function renderExportTree(input: ExportInput): ExportTree {
     }
   }
 
-  // 6. Manifest (computed last — needs hashes of all other files)
-  tree.set('.journal-meta/manifest.json', renderManifest(input, tree))
+  // 6. V2: Topic pages + optional changelog (§14.10–§14.14)
+  let topics: TopicData[] | undefined
+  if (isV2) {
+    topics = groupAtomsByTopic(input.days)
+
+    // topics/INDEX.md + per-topic pages
+    tree.set('topics/INDEX.md', renderTopicIndex(topics))
+    for (const topic of topics) {
+      tree.set(`topics/${topic.topicId}.md`, renderTopicPage(topic))
+    }
+
+    // changelog.md (only when previousManifest supplied)
+    if (input.previousManifest) {
+      const changelog = computeChangelog(topics, input.previousManifest)
+      tree.set(
+        'changelog.md',
+        renderChangelog(changelog, input.exportedAt, input.previousManifest.exportedAt, input.topicVersion!),
+      )
+    }
+  }
+
+  // 7. Manifest (computed last — needs hashes of all other files)
+  tree.set('.journal-meta/manifest.json', isV2
+    ? renderManifestV2(input, tree, topics!)
+    : renderManifest(input, tree))
 
   return tree
 }
@@ -212,16 +238,12 @@ function generateBaseSlug(batch: ExportBatch): string {
 }
 
 /**
- * Machine-readable manifest with file hashes.
+ * Machine-readable manifest with file hashes (v1).
  * exportedAt is the ONLY volatile field.
  * All keys sorted alphabetically via renderJson().
  */
 function renderManifest(input: ExportInput, tree: ExportTree): string {
-  // Compute sha256 for every file already in the tree (everything except manifest itself)
-  const files: Record<string, { sha256: string }> = {}
-  for (const [path, content] of tree) {
-    files[path] = { sha256: sha256(content) }
-  }
+  const files = computeFileHashes(tree)
 
   const manifest = {
     batches: input.batches.map((b) => ({
@@ -253,4 +275,109 @@ function renderManifest(input: ExportInput, tree: ExportTree): string {
   }
 
   return renderJson(manifest as unknown as Record<string, unknown>)
+}
+
+// ---------------------------------------------------------------------------
+// V2 additions (§14.10, §14.15)
+// ---------------------------------------------------------------------------
+
+/**
+ * V2 README — updated directory layout showing topics/ and changelog.md.
+ */
+function renderReadmeV2(): string {
+  return `# Journal Distiller Export
+
+Format: ${EXPORT_FORMAT_VERSION_V2}
+
+## Directory layout
+
+    views/              Daily journal entries
+      timeline.md       Navigation index (newest first)
+      YYYY-MM-DD.md     Individual day entries
+    topics/             Topic-based navigation
+      INDEX.md          Topic overview table
+      <topicId>.md      Per-topic day listing
+    changelog.md        Changes since previous export (when available)
+    .journal-meta/      Export metadata
+      manifest.json     File hashes, run info, topic data
+
+## Browsing
+
+Start with [views/timeline.md](views/timeline.md) for a chronological overview.
+Open any views/YYYY-MM-DD.md file to read that day's entry.
+See [topics/INDEX.md](topics/INDEX.md) for topic-based navigation.
+See .journal-meta/manifest.json for full export metadata.
+`
+}
+
+/**
+ * V2 manifest — adds topics, topicVersion, changelog keys (§14.15).
+ */
+function renderManifestV2(input: ExportInput, tree: ExportTree, topics: TopicData[]): string {
+  const files = computeFileHashes(tree)
+
+  // Build topics manifest entries keyed by topicId
+  const topicsManifest: Record<string, ManifestTopicEntry> = {}
+  for (const topic of topics) {
+    topicsManifest[topic.topicId] = {
+      atomCount: topic.atomCount,
+      category: topic.category,
+      dayCount: topic.dayCount,
+      days: topic.days.map((d) => d.dayDate), // already sorted ascending
+      displayName: topic.displayName,
+    }
+  }
+
+  // Changelog summary: null when no previousManifest, otherwise { previousExportedAt, changeCount }
+  let changelogSummary: { previousExportedAt: string; changeCount: number } | null = null
+  if (input.previousManifest) {
+    const changelog = computeChangelog(topics, input.previousManifest)
+    changelogSummary = {
+      previousExportedAt: input.previousManifest.exportedAt,
+      changeCount: changelog.changeCount,
+    }
+  }
+
+  const manifest = {
+    batches: input.batches.map((b) => ({
+      id: b.id,
+      originalFilename: b.originalFilename,
+      source: b.source,
+      timezone: b.timezone,
+    })),
+    changelog: changelogSummary,
+    dateRange: {
+      end: input.run.endDate,
+      start: input.run.startDate,
+    },
+    exportedAt: input.exportedAt,
+    files,
+    formatVersion: EXPORT_FORMAT_VERSION_V2,
+    run: {
+      endDate: input.run.endDate,
+      filterProfile: {
+        categories: input.run.filterProfile.categories,
+        mode: input.run.filterProfile.mode,
+        name: input.run.filterProfile.name,
+      },
+      id: input.run.id,
+      model: input.run.model,
+      sources: input.run.sources,
+      startDate: input.run.startDate,
+      timezone: input.run.timezone,
+    },
+    topics: topicsManifest,
+    topicVersion: input.topicVersion,
+  }
+
+  return renderJson(manifest as unknown as Record<string, unknown>)
+}
+
+/** Compute sha256 for every file already in the tree (everything except manifest itself). */
+function computeFileHashes(tree: ExportTree): Record<string, { sha256: string }> {
+  const files: Record<string, { sha256: string }> = {}
+  for (const [path, content] of tree) {
+    files[path] = { sha256: sha256(content) }
+  }
+  return files
 }
