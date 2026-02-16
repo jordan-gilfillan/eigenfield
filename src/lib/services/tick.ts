@@ -12,11 +12,12 @@ import { NotFoundError } from '../errors'
 import { withLock } from './advisory-lock'
 import { buildBundle, estimateTokens, segmentBundle } from './bundle'
 import { summarize } from './summarizer'
+import { determineRunStatus } from './tick-logic'
 import { estimateCostFromSnapshot, LlmError, LlmProviderError, BudgetExceededError, MissingApiKeyError, getSpendCaps, assertWithinBudget, RateLimiter, getMinDelayMs } from '../llm'
 import type { BudgetPolicy } from '../llm'
 import type { RunConfig } from '../types/run-config'
 import { parseRunConfig } from '../types/run-config'
-import type { JobStatus, RunStatus } from '@prisma/client'
+import type { JobStatus } from '@prisma/client'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
 /** Default number of jobs to process per tick */
@@ -438,28 +439,6 @@ async function getProgress(runId: string): Promise<TickResult['progress']> {
   }
 
   return progress
-}
-
-/**
- * Determines run status based on job progress (SPEC §7.4.1).
- */
-function determineRunStatus(progress: TickResult['progress']): RunStatus {
-  const { running, queued, succeeded, failed, cancelled } = progress
-
-  // Any jobs actively running → RUNNING
-  if (running > 0) return 'RUNNING'
-
-  // Jobs still queued: RUNNING if any work has been done, QUEUED if none yet
-  if (queued > 0) {
-    return (succeeded + failed + cancelled) > 0 ? 'RUNNING' : 'QUEUED'
-  }
-
-  // All jobs terminal (no queued, no running)
-  if (failed > 0) return 'FAILED'
-  if (succeeded > 0) return 'COMPLETED'
-
-  // Defensive fallback (no jobs, or all cancelled — shouldn't happen in practice)
-  return 'QUEUED'
 }
 
 function buildTickResult(

@@ -1491,7 +1491,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Priority**: P1
 - **Decision**: Defer
 - **Description**: Extract pure state-transition logic and LLM execution loops from `tick.ts` (494 LOC) and `classify.ts` (939 LOC) into smaller, independently testable modules. Depends on AUD-073/074/075/076 completing first.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Thin slice — extracted `determineRunStatus` into `src/lib/services/tick-logic.ts` with pure unit tests (9 cases); no behavior changes.
 
 ### AUD-080 — Import Scalability Batching
 - **Source**: Merged audit (Codex)
