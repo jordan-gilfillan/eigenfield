@@ -778,6 +778,7 @@ Returns:
       "snippet": "string",
       "atom": {
         "atomStableId": "string",
+        "importBatchId": "string",
         "source": "chatgpt|claude|grok",
         "dayDate": "YYYY-MM-DD",
         "timestampUtc": "RFC3339",

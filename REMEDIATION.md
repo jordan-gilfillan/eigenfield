@@ -1709,7 +1709,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run src/__tests__/search` passes
   - `npx vitest run` — all tests pass
 - **Stop rule**: If removing the field would break the search UI, fix spec instead.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `importBatchId` to SPEC §7.9 search atom schema. Code already returns this field (`search.ts:247`); SPEC now matches.
 
 ---
 
