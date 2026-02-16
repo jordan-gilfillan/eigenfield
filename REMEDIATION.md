@@ -1619,7 +1619,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - `npx vitest run src/__tests__/bundle` passes
   - `npx vitest run` — all tests pass
 - **Stop rule**: If existing stored hashes in the DB need migration, STOP and file a separate AUD for the data migration.
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: `bundle.ts` now uses canonical `bundleHash.ts` implementation with sorted-key JSON serialization and `filterProfile.name` included. Multi-batch accounted for via `importBatchIds` array hashing. Local duplicate deleted. Forward-only: existing stored hashes are not migrated.
 
 ### AUD-088 — GET /runs/:runId response shape mismatches SPEC §7.9
 - **Source**: SPEC.md §7.9 (POST /api/distill/runs response schema)
