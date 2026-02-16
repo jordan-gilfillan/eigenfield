@@ -1089,4 +1089,24 @@ These levers address the recurring risks of non-determinism, silent data loss, u
 
 ---
 
+## Future Work / Roadmap (Non-binding)
+
+> This section lists potential directions that are **not committed work**. Each entry must be decomposed into AUD-sized slices (with spec-first design) before any implementation begins.
+
+### EPIC-083 — Export v2: Topic tracking + "diff of thinking" (embeddings)
+
+Git Export v1 produces deterministic per-day markdown. A future v2 could add a topic layer that evolves across days with stable identifiers, plus change-tracking that reads like commits (topic deltas between consecutive exports).
+
+**Invariants (must hold for any v2 design):**
+- Determinism preserved: identical corpus + parameters → identical outputs / topic IDs / files
+- No background jobs / no automatic scheduling (foreground/user-initiated only)
+- Stable topic identifiers with documented merge/split rules
+- Reproducibility: parameters/config recorded in export metadata
+
+**Stop rule:** If determinism would be weakened or background processing would be required, STOP and design a separate architecture before any code.
+
+**Suggested decomposition:** Must start with a spec-first slice (EPIC-083a) defining the file contract + deterministic ID rules; implementation slices follow.
+
+---
+
 End Spec v0.3.0-draft
