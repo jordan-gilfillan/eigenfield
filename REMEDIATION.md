@@ -1510,7 +1510,8 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Priority**: P2
 - **Decision**: Defer
 - **Description**: Replace manual if/return validation chains in POST route handlers with schema-based validation. Depends on AUD-073/074 (clean error surfaces).
-- **Status**: Not started
+- **Status**: Done
+- **Resolution**: Added `src/lib/route-validate.ts` with 6 lightweight helpers (requireField, requireXor, requireNonEmptyArray, validateNonEmptyArray, requireUniqueArray, requireDateFormat) returning `string | undefined`. Refactored POST /runs and POST /classify to use them. No Zod dependency added; no response-shape changes; all existing tests pass unchanged.
 
 ### AUD-082 — Export button on Run Detail page
 - **Source**: Smoke test — Git export (AUD-062–068) not reachable from UI
