@@ -1074,6 +1074,269 @@ Manifest provides the full run config (filter profile, timezone, sources) and ba
 
 V1 MUST include a golden fixture test that locks exact byte output of every rendered file. The test uses a fixed input and asserts string equality against inline expected values. Any renderer change that affects output bytes MUST update the golden fixtures — this is intentional friction that prevents accidental format drift.
 
+### 14.10 Export v2 — directory structure
+
+Export v2 adds a **topic layer** and an optional **changelog** to the v1 tree. All v1 files retain their exact content format — v2 is purely additive.
+
+```
+<export-dir>/
+├── README.md                      # Updated for v2 layout
+├── views/
+│   ├── timeline.md                # Unchanged from v1
+│   └── YYYY-MM-DD.md              # Unchanged from v1
+├── atoms/                         # Private tier only (unchanged from v1)
+│   └── YYYY-MM-DD.md
+├── sources/                       # Private tier only (unchanged from v1)
+│   └── {source}-{filename}.md
+├── topics/                        # NEW: topic index + per-topic pages
+│   ├── INDEX.md                   # Topic navigation hub
+│   └── <topicId>.md               # Per-topic page (one per active category)
+├── changelog.md                   # NEW: export-to-export diff (omitted when no previous)
+└── .journal-meta/
+    └── manifest.json              # Schema v2
+```
+
+**Privacy tiers for new files:**
+- `topics/` — Present in BOTH public and private tiers. Topic pages contain category names and day links but NOT raw atom text.
+- `changelog.md` — Present in BOTH tiers. Contains topic-level deltas, not raw text. Omitted entirely when no `previousManifest` is supplied.
+
+**Backward compatibility:** A v1 consumer that ignores unknown directories/files sees byte-identical v1 data.
+
+### 14.11 Topic identity model (topic_v1)
+
+**Topic version:** `topic_v1`
+
+In topic_v1, topics are a **1:1 mapping from the Category enum (§6.4) to topic pages**. Every category that has at least one classified atom in the exported corpus produces exactly one topic. Categories with zero atoms produce no topic page. There are at most 13 topics (one per Category enum value).
+
+**Topic ID algorithm:**
+
+```
+topicId = categoryApi value (lowercase)
+```
+
+Examples: `work`, `learning`, `mental_health`, `addiction_recovery`
+
+The topicId IS the category name. No hashing is needed because topics are 1:1 with categories. The `topicVersion` field in the manifest signals the ID scheme, so future versions (e.g., `topic_v2` with embedding-based clustering) can introduce hash-based IDs without ambiguity.
+
+**Stability properties:**
+- Adding atoms to an existing category does NOT change the topicId — only counts/days are updated.
+- Removing all atoms from a category removes the topic page, but the topicId remains reserved (it reappears if atoms return).
+- The same category across different runs/exports always produces the same topicId.
+
+**Merge/split rules (topic_v1):** Not applicable. Categories are a closed enum (§6.4). No merge or split is possible. Future topic versions with sub-topic clustering MUST define merge/split rules and a migration path from topic_v1 IDs.
+
+**Atom category assignment:** The orchestrator queries `MessageLabel` records matching the Run's frozen `labelSpec` (model + promptVersionId from `Run.configJson`). If no matching label exists for an atom, it is assigned to the `other` topic.
+
+### 14.12 Topic file contents — INDEX.md
+
+`topics/INDEX.md` is the topic navigation hub.
+
+```markdown
+# Topics
+
+| Topic | Category | Days | Atoms |
+|-------|----------|------|-------|
+| [Work](work.md) | work | 12 | 45 |
+| [Learning](learning.md) | learning | 8 | 23 |
+| [Other](other.md) | other | 4 | 10 |
+```
+
+**Ordering:** Rows sorted by atom count **descending**, then category name **ascending** (tie-breaker).
+
+**Columns:**
+- **Topic** — Display name in Title Case, linked to the topic page file.
+- **Category** — The categoryApi value (lowercase).
+- **Days** — Count of distinct dayDates with ≥1 atom in this category.
+- **Atoms** — Total atom count for this category.
+
+**Display name mapping** (hardcoded, deterministic):
+
+| categoryApi | Display Name |
+|---|---|
+| `work` | Work |
+| `learning` | Learning |
+| `creative` | Creative |
+| `mundane` | Mundane |
+| `personal` | Personal |
+| `other` | Other |
+| `medical` | Medical |
+| `mental_health` | Mental Health |
+| `addiction_recovery` | Addiction Recovery |
+| `intimacy` | Intimacy |
+| `financial` | Financial |
+| `legal` | Legal |
+| `embarrassing` | Embarrassing |
+
+If the Category enum is extended (spec change to §6.4 required), this mapping MUST be updated in the same change.
+
+**No frontmatter, no timestamps, no `exportedAt`.** Deterministic: same corpus + same labelSpec → byte-identical file.
+
+### 14.13 Topic file contents — per-topic pages
+
+Each `topics/<topicId>.md` file has YAML frontmatter followed by a day listing.
+
+**YAML frontmatter (fixed field order):**
+1. `topicId` (string) — e.g., `"work"`
+2. `topicVersion` (string) — `"topic_v1"`
+3. `category` (string) — e.g., `"work"` (same as topicId in topic_v1)
+4. `displayName` (string) — Title Case, e.g., `"Work"`
+5. `atomCount` (number) — total atoms in this category
+6. `dayCount` (number) — distinct days with ≥1 atom in this category
+7. `dateRange` (string) — `"YYYY-MM-DD to YYYY-MM-DD"` (earliest to latest)
+
+**Body:**
+
+```markdown
+## Days
+
+- [2024-01-16](../views/2024-01-16.md) (5 atoms)
+- [2024-01-15](../views/2024-01-15.md) (3 atoms)
+- [2024-01-14](../views/2024-01-14.md) (1 atom)
+```
+
+**Rules:**
+- Days listed **newest-first** (reverse lexicographic on dayDate string).
+- Each line: day link (relative path from `topics/` to `views/`) and atom count for that category on that day.
+- Singular "atom" when count is 1, plural "atoms" otherwise.
+- No raw atom text is included (safe for public tier). The atom text is available in `atoms/YYYY-MM-DD.md` (private tier) and in summarized form in `views/YYYY-MM-DD.md`.
+- Section heading is `## Days` followed by one blank line before the list.
+
+### 14.14 Changelog file contents
+
+The changelog represents the "diff of thinking" between two consecutive exports. It is computed by comparing the current export's topic structure against a previous export's manifest.
+
+**Prerequisite:** The caller supplies a `previousManifest` (the parsed `.journal-meta/manifest.json` from the prior v2 export). If not supplied, no `changelog.md` is generated and the manifest's `changelog` key is `null`.
+
+**`changelog.md` — YAML frontmatter (fixed field order):**
+1. `exportedAt` (string, ISO 8601) — current export timestamp
+2. `previousExportedAt` (string, ISO 8601) — from previous manifest
+3. `topicVersion` (string) — `"topic_v1"`
+4. `changeCount` (number) — total entries across all sections
+
+**Body sections** (empty sections are omitted entirely):
+
+```markdown
+## New topics
+
+- **Work** (`work`) — 12 days, 45 atoms
+
+## Removed topics
+
+- **Creative** (`creative`) — was 3 days, 8 atoms
+
+## Changed topics
+
+### Work (`work`)
+- Days added: 2024-01-18, 2024-01-19
+- Days removed: (none)
+- Atom count: 40 → 45 (+5)
+```
+
+**Change detection algorithm:**
+
+```
+currentTopics  = set of topicIds in current export
+previousTopics = set of topicIds from previousManifest.topics
+
+newTopics     = currentTopics − previousTopics
+removedTopics = previousTopics − currentTopics
+commonTopics  = currentTopics ∩ previousTopics
+
+For each topic in commonTopics:
+  Compare: days set, atomCount
+  If any differ → add to changedTopics with delta details
+```
+
+**Ordering rules:**
+- Entries within each section: **display name ascending** (alphabetical).
+- Days added/removed: ascending date order, comma-separated.
+- Atom count change: `<prev> → <curr> (+N)` or `(-N)`.
+- `changeCount` in frontmatter = count of entries across all three sections.
+
+**Determinism:** Given the same current `ExportInput` and the same `previousManifest`, the changelog is byte-identical.
+
+### 14.15 Manifest v2 schema
+
+`formatVersion` changes from `"export_v1"` to `"export_v2"`.
+
+**New top-level keys** (shown in alphabetical order alongside existing keys):
+
+```json
+{
+  "batches": [ ... ],
+  "changelog": { "previousExportedAt": "...", "changeCount": 5 },
+  "dateRange": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" },
+  "exportedAt": "ISO 8601",
+  "files": { "README.md": { "sha256": "..." }, ... },
+  "formatVersion": "export_v2",
+  "run": { ... },
+  "topics": {
+    "work": {
+      "atomCount": 45,
+      "category": "work",
+      "dayCount": 12,
+      "days": ["2024-01-05", "2024-01-06", "2024-01-07"],
+      "displayName": "Work"
+    }
+  },
+  "topicVersion": "topic_v1"
+}
+```
+
+**`topics`** — Object keyed by topicId. Each entry:
+- `atomCount` (number)
+- `category` (string, categoryApi)
+- `dayCount` (number)
+- `days` (array of `"YYYY-MM-DD"` strings, sorted ascending)
+- `displayName` (string, Title Case)
+- All object keys sorted alphabetically per §14.3.
+
+**`changelog`** — `null` when no `previousManifest` supplied. Otherwise: `{ previousExportedAt: string, changeCount: number }`.
+
+**`topicVersion`** — String, `"topic_v1"`. Documents which topic ID algorithm was used. Consumers compare this to decide if topic IDs are comparable across exports.
+
+**`files`** — Includes entries for all new files (`topics/INDEX.md`, `topics/<topicId>.md`, `changelog.md` when present), following the same `{ sha256: "<hex>" }` format.
+
+### 14.16 v2 determinism contract
+
+All v1 determinism rules (§14.4) continue to hold. Additional guarantees for v2 files:
+
+- `topics/INDEX.md`: deterministic from the set of (category, atomCount, dayCount) tuples. No timestamps.
+- `topics/<topicId>.md`: deterministic from (topicId, category, atoms-per-day counts, day list). No timestamps.
+- `changelog.md`: deterministic from (current topic metadata, previous manifest topic metadata, exportedAt).
+- `manifest.json`: `exportedAt` remains the ONLY volatile field. Topic metadata is derived from corpus data (deterministic). Changelog metadata references `exportedAt` (volatile).
+
+**Churn isolation (v2 additions):**
+
+| Path | Churns when | Stable when |
+|------|-------------|-------------|
+| `topics/INDEX.md` | Category membership or atom/day counts change | Same corpus + same labelSpec |
+| `topics/<topicId>.md` | Day list or atom count for that category changes | Same atoms in same category |
+| `changelog.md` | Always unique per (exportedAt, previousManifest) pair | N/A (inherently volatile) |
+| `manifest.json` | Any file content changes, OR `exportedAt` changes | Byte-identical tree + same `exportedAt` |
+
+### 14.17 v2 golden fixture test requirement
+
+V2 MUST include a golden fixture test that extends the v1 pattern with:
+- At least 2 categories with atoms (to test INDEX.md ordering and multiple topic pages).
+- At least 1 category spanning multiple days (to test day listing).
+- A test case WITH `previousManifest` (changelog generated).
+- A test case WITHOUT `previousManifest` (no changelog.md, manifest `changelog` is `null`).
+- Byte-identical assertions for all new files (`topics/INDEX.md`, `topics/<topicId>.md`, `changelog.md`).
+
+The v1 golden fixture test continues to pass unchanged against v1-mode inputs.
+
+### 14.18 v2 stop rules
+
+STOP and redesign if any of the following would be required:
+
+1. **Topic ID depends on corpus content** — topicId must be stable across atom additions/removals. Only the category name feeds the ID in topic_v1.
+2. **Changelog requires filesystem reads** — the renderer must remain a pure function of its inputs. The previous manifest is supplied as a parameter, not read from disk.
+3. **Non-deterministic ordering** — if any file's content would depend on Map/Set iteration order or any non-deterministic source, STOP. All iterations must be over sorted arrays.
+4. **Background job requirement** — if topic computation is too expensive for a foreground request, STOP and design a separate architecture. (In topic_v1, computation is trivial: group atoms by category.)
+5. **Embedding/ML dependency** — topic_v1 MUST NOT depend on embeddings, vector stores, or any ML model. Category-based grouping is purely algorithmic.
+6. **Category enum extension** — if topic_v1 needs categories beyond the 13 in §6.4, STOP. That requires a spec change to §6.4 first.
+
 ---
 
 ## Appendix A) Design philosophy
@@ -1094,20 +1357,27 @@ These levers address the recurring risks of non-determinism, silent data loss, u
 
 > This section lists potential directions that are **not committed work**. Each entry must be decomposed into AUD-sized slices (with spec-first design) before any implementation begins.
 
-### EPIC-083 — Export v2: Topic tracking + "diff of thinking" (embeddings)
+### EPIC-083 — Export v2: Topic tracking + "diff of thinking"
 
-Git Export v1 produces deterministic per-day markdown. A future v2 could add a topic layer that evolves across days with stable identifiers, plus change-tracking that reads like commits (topic deltas between consecutive exports).
+- **Origin**: Export smoke test — v1 output is a flat per-day markdown set; v2 needs topic evolution
+- **Status**: EPIC-083a (spec) complete — see §14.10–§14.18 for the normative v2 file contract
+
+Git Export v1 is intentionally minimal (§14.1–§14.9). Export v2 adds a **topic layer** (category-based grouping with stable IDs) and an optional **changelog** (diff between consecutive exports). The full v2 contract is specified in §14.10–§14.18.
 
 **Invariants (must hold for any v2 design):**
 - Determinism preserved: identical corpus + parameters → identical outputs / topic IDs / files
 - No background jobs / no automatic scheduling (foreground/user-initiated only)
-- Stable topic identifiers with documented merge/split rules
-- Reproducibility: parameters/config recorded in export metadata
+- Stable topic identifiers with documented merge/split rules (§14.11)
+- Reproducibility: parameters/config recorded in export metadata (§14.15)
 
-**Stop rule:** If determinism would be weakened or background processing would be required, STOP and design a separate architecture before any code.
+**Remaining slices:**
+- **EPIC-083b** — Scaffold: types, constants, stub functions (no behavioral change)
+- **EPIC-083c** — Topic pages + changelog rendering (pure renderer, no DB)
+- **EPIC-083d** — Orchestrator wiring (MessageLabel join, API endpoint updates)
+- **EPIC-083e+** — Future: embedding-based sub-topics (`topic_v2`), requires separate spec-first design
 
-**Suggested decomposition:** Must start with a spec-first slice (EPIC-083a) defining the file contract + deterministic ID rules; implementation slices follow.
+**Stop rule:** If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture (§14.18).
 
 ---
 
-End Spec v0.3.0-draft
+End Spec v0.4.0-draft
