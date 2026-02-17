@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '../db'
-import type { FilterMode, Source } from '@prisma/client'
+import type { FilterMode, Source, Category } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
 import type { PricingSnapshot } from '../llm'
 import { parseRunConfig } from '../types/run-config'
@@ -339,10 +339,11 @@ async function findEligibleDays(options: {
   // Build category filter based on mode
   // INCLUDE: label.category must be in filterProfile.categories
   // EXCLUDE: label.category must NOT be in filterProfile.categories
+  const filterCategories = filterProfile.categories as Category[]
   const categoryCondition =
     filterProfile.mode === 'INCLUDE'
-      ? { in: filterProfile.categories }
-      : { notIn: filterProfile.categories }
+      ? { in: filterCategories }
+      : { notIn: filterCategories }
 
   // Find distinct dayDates where USER atoms exist with matching labels (across all batches)
   // Only role=USER atoms make a day eligible (SPEC §7.3 step 6)

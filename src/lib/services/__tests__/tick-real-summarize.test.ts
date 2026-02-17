@@ -22,22 +22,32 @@ import { createRun } from '../run'
 import { LlmProviderError, BudgetExceededError, MissingApiKeyError } from '../../llm/errors'
 import { estimateCostFromSnapshot } from '../../llm/pricing'
 
+type SummarizeOptions = { bundleText: string; model: string; promptVersionId: string }
+type SummarizeResult = { text: string; tokensIn: number; tokensOut: number; costUsd: number }
+type RealSummarizeMock = (options: SummarizeOptions) => Promise<SummarizeResult>
+type RealSummarizeTestGlobals = typeof globalThis & { __testRealSummarizeMock?: RealSummarizeMock }
+
+const realSummarizeTestGlobals = globalThis as RealSummarizeTestGlobals
+
 // Mock the summarizer module at the integration boundary.
 // We replace summarize() with a vi.fn() that delegates to stubSummarize for stub models
 // and to a configurable mock for real models.
 vi.mock('../summarizer', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, Function>
+  const actual = await importOriginal() as typeof import('../summarizer')
 
   return {
     ...actual,
     summarize: vi.fn().mockImplementation(
-      async (options: { bundleText: string; model: string; promptVersionId: string }) => {
+      async (options: SummarizeOptions) => {
         if (options.model.startsWith('stub')) {
           return actual.summarize(options)
         }
         // For real models, call the global test hook
-        return (globalThis as Record<string, unknown>).__testRealSummarizeMock?.(options)
-          ?? Promise.reject(new Error('Test mock not configured for real model'))
+        const summarizeMock = realSummarizeTestGlobals.__testRealSummarizeMock
+        if (summarizeMock) {
+          return summarizeMock(options)
+        }
+        return Promise.reject(new Error('Test mock not configured for real model'))
       }
     ),
   }
@@ -46,8 +56,8 @@ vi.mock('../summarizer', async (importOriginal) => {
 import { processTick } from '../tick'
 
 /** Configure the behavior of summarize() for non-stub models. */
-function mockRealSummarize(fn: (...args: unknown[]) => unknown) {
-  (globalThis as Record<string, unknown>).__testRealSummarizeMock = fn
+function mockRealSummarize(fn: RealSummarizeMock) {
+  realSummarizeTestGlobals.__testRealSummarizeMock = fn
 }
 
 /** Track calls to the real summarize mock. */
@@ -90,7 +100,7 @@ describe('tick real summarization', () => {
     // DON'T use vi.clearAllMocks() — it wipes the mock implementation set by vi.mock factory.
     // Instead, just reset our tracking state.
     realSummarizeCalls.length = 0
-    delete (globalThis as Record<string, unknown>).__testRealSummarizeMock
+    delete realSummarizeTestGlobals.__testRealSummarizeMock
 
     testUniqueId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
