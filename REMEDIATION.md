@@ -1729,6 +1729,18 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `importBatchId` to SPEC §7.9 search atom schema. Code already returns this field (`search.ts:247`); SPEC now matches.
 
+### AUD-098 — Re-enable Next.js build-time lint/type gates
+- **Source**: Codex review 2026-02-17
+- **Severity**: HIGH
+- **Type**: Test/infra
+- **Decision**: Fix code
+- **Acceptance checks**:
+  - `npm run lint` passes
+  - `npx tsc --noEmit` passes
+  - `npm run build` passes and does not skip lint/type validation
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Removed `eslint.ignoreDuringBuilds` and `typescript.ignoreBuildErrors` from `next.config.ts`, re-enabling Next build-time quality gates. Before: `npm run build` printed `Skipping validation of types` and `Skipping linting`. After: those lines no longer appear. Verified gates: `npm run lint` pass, `npx tsc --noEmit` pass, `npm run build` pass with lint/type checks enabled, and `npx vitest run` pass (`64` files, `972` tests).
 ---
 
 ## Notes
