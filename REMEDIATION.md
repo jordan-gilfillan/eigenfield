@@ -21,18 +21,30 @@ Each entry has:
 
 ## Current top priorities
 
-> SPEC ↔ Code audit (AUD-086–092). Correctness + determinism fixes first, then contract alignment.
+> **Rule:** This section must list only non-`Done` entries. If there are none, state that explicitly.
+
+- **P0 (Red build / integrity):** _none listed_
+- **P1 (Contract alignment):** _none listed_
+- **P2 (Docs/UX):** _none listed_
+
+_Last refreshed: 2026-02-17_
+
+## Ledger size policy
+
+This ledger is the canonical remediation record. Size is not a problem; **day-to-day navigability is**.
+
+**Canonical rule:** `REMEDIATION.md` should contain only `Not started | In progress | Blocked` entries.
+
+**Archive rule:** When an entry becomes `Done` (or `Won't fix`), move the full entry block to `REMEDIATION_ARCHIVE.md` (keep the same `AUD-###` ID). Leave behind a one-line stub in this file:
+
+- `AUD-### — <title>` → moved to `REMEDIATION_ARCHIVE.md`
+
+**Index rule:** The `Current top priorities` list must be updated in the same commit whenever an entry’s status changes.
 
 ## Open entries
 
 ### Active sequence (execute in order)
-- AUD-086 — `determineRunStatus` returns QUEUED for all-cancelled jobs (HIGH)
-- AUD-087 — `bundleContextHash` non-deterministic in production (HIGH)
-- AUD-088 — GET /runs/:runId response shape mismatches SPEC §7.9 (HIGH)
-- AUD-089 — Tick does not guard COMPLETED/FAILED terminal states (MED)
-- AUD-090 — cancelRun/resumeRun incomplete terminal state guards (MED)
-- AUD-091 — ConflictError uses HTTP 400 instead of SPEC 409 (LOW)
-- AUD-092 — Search atom results include importBatchId not in SPEC (LOW)
+- _None currently listed. Add the next non-`Done` items here in execution order._
 
 ---
 
