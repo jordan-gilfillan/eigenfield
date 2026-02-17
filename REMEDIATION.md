@@ -1729,6 +1729,26 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `importBatchId` to SPEC §7.9 search atom schema. Code already returns this field (`search.ts:247`); SPEC now matches.
 
+### AUD-093 — Export API outputDir allows arbitrary server-side writes (path traversal / absolute path)
+- **Source**: Codex review 2026-02-17
+- **Severity**: HIGH
+- **Type**: Contract break (Security)
+- **Docs cited**: (none)
+- **Code refs**: `src/app/api/distill/runs/[runId]/export/route.ts`, `src/lib/export/writer.ts`, `src/app/api/distill/runs/[runId]/export/__tests__/route.test.ts`
+- **Problem**: Server accepts untrusted `outputDir` and passes it to export writer, allowing arbitrary server-side writes (absolute paths, traversal). Client-side checks are bypassable; tests demonstrate absolute path usage.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-093-export-outputdir-sandbox`
+- **Acceptance checks**:
+  - Server rejects absolute `outputDir` with 400 INVALID_INPUT.
+  - Server rejects traversal like `../` with 400 INVALID_INPUT.
+  - Export always writes under a server-controlled base directory (e.g., `<repo>/exports`).
+  - Symlink escape is prevented (realpath-based containment check).
+  - Tests no longer use absolute paths; they use relative/sandboxed dirs under the base.
+  - Targeted export tests pass.
+  - Lint/typecheck baseline is not worsened (see “Quality gates” below).
+- **Status**: Done
+- **Resolution**: Added server-side sandbox resolution in `resolveExportOutputDir()` with `EXPORT_BASE_DIR = <repo>/exports`, relative-path-only validation (`isAbsolute` and traversal rejection after normalization), resolved-path containment checks, and realpath containment checks to block symlink escape. Updated export route to resolve/validate `outputDir` before writing and return standard INVALID_INPUT errors for path violations. Updated export route tests to use relative sandboxed output dirs, removed absolute-path usage from normal-path tests, and added explicit rejection coverage for absolute and traversal inputs plus a success-path assertion that writes occur only under `EXPORT_BASE_DIR`.
+
 ### AUD-097 — Restore lint + tsc green on master (quality gate regression)
 - **Severity**: HIGH
 - **Type**: Test/infra
