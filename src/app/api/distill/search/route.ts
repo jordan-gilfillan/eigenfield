@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { search, type SearchScope } from '@/lib/services/search'
 import { errors } from '@/lib/api-utils'
 import { SOURCE_VALUES, CATEGORY_VALUES } from '@/lib/enums'
+import { requireDateFormat } from '@/lib/route-validate'
 
 const VALID_SCOPES: SearchScope[] = ['raw', 'outputs']
 
@@ -52,14 +53,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Validate date format if provided
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
-    if (startDate && !dateRegex.test(startDate)) {
-      return errors.invalidInput('startDate must be in YYYY-MM-DD format')
-    }
-    if (endDate && !dateRegex.test(endDate)) {
-      return errors.invalidInput('endDate must be in YYYY-MM-DD format')
-    }
+    // Validate date format/semantics if provided
+    const dateFail =
+      (startDate ? requireDateFormat(startDate, 'startDate') : undefined) ??
+      (endDate ? requireDateFormat(endDate, 'endDate') : undefined)
+    if (dateFail) return errors.invalidInput(dateFail)
 
     // Parse and validate sources (comma-separated, lowercase)
     let sources: string[] | undefined

@@ -11,6 +11,7 @@ import {
   validateNonEmptyArray,
   requireUniqueArray,
   requireDateFormat,
+  requireValidTimezone,
 } from '@/lib/route-validate'
 
 describe('requireField', () => {
@@ -150,5 +151,41 @@ describe('requireDateFormat', () => {
 
   it('uses custom message when provided', () => {
     expect(requireDateFormat('bad', 'f', 'custom')).toBe('custom')
+  })
+
+  it('fails for invalid month', () => {
+    expect(requireDateFormat('2024-13-01', 'startDate')).toBe(
+      'startDate must be in YYYY-MM-DD format',
+    )
+  })
+
+  it('fails for invalid day', () => {
+    expect(requireDateFormat('2024-02-30', 'startDate')).toBe(
+      'startDate must be in YYYY-MM-DD format',
+    )
+  })
+
+  it('fails for day 00', () => {
+    expect(requireDateFormat('2024-01-00', 'startDate')).toBe(
+      'startDate must be in YYYY-MM-DD format',
+    )
+  })
+})
+
+describe('requireValidTimezone', () => {
+  it('passes for valid timezone', () => {
+    expect(requireValidTimezone('America/New_York', 'timezone')).toBeUndefined()
+  })
+
+  it('fails for invalid timezone', () => {
+    expect(requireValidTimezone('Mars/Phobos', 'timezone')).toBe(
+      'timezone must be a valid IANA timezone',
+    )
+  })
+
+  it('fails for empty timezone', () => {
+    expect(requireValidTimezone('', 'timezone')).toBe(
+      'timezone must be a valid IANA timezone',
+    )
   })
 })

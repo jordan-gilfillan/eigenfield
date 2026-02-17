@@ -362,4 +362,13 @@ describe('GET /api/distill/runs/:runId/jobs/:dayDate/input — multi-batch', () 
     const res = await callInput(multiBatchRunId, '2099-12-31')
     expect(res.status).toBe(404)
   })
+
+  it('rejects invalid dayDate with 400 INVALID_INPUT', async () => {
+    const res = await callInput(multiBatchRunId, '2024-02-30')
+    expect(res.status).toBe(400)
+
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('dayDate')
+  })
 })

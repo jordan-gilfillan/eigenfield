@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
+import { requireDateFormat } from '@/lib/route-validate'
 
 interface OutputMeta {
   segmented?: boolean
@@ -25,6 +26,8 @@ export async function GET(
 ) {
   try {
     const { runId, dayDate } = await params
+    const dayDateFail = requireDateFormat(dayDate, 'dayDate')
+    if (dayDateFail) return errors.invalidInput(dayDateFail)
 
     // Validate runId exists
     const run = await prisma.run.findUnique({
