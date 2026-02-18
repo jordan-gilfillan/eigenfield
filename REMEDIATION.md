@@ -1741,6 +1741,19 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Fixed 3 lint errors and 21 typecheck errors across targeted service/test/config files only. Before: `npm run lint` had 3 errors (`no-unsafe-function-type` in three tick tests), and `npx tsc --noEmit` had 21 errors (missing `filterProfile.name` in tests, uncallable global mock hooks, Prisma enum filter typing, Prisma JSON typing, `ProviderId` mismatch, unsupported Vitest config key). After: both `npm run lint` and `npx tsc --noEmit` pass cleanly. Verified `npm run build` passes and `npx vitest run` passes (64 files, 972 tests). Files touched: `src/lib/services/__tests__/tick-budget.test.ts`, `src/lib/services/__tests__/tick-rate-limit.test.ts`, `src/lib/services/__tests__/tick-real-summarize.test.ts`, `src/lib/services/__tests__/multi-batch.test.ts`, `src/lib/services/__tests__/run-inspector.test.ts`, `src/lib/services/bundle.ts`, `src/lib/services/run.ts`, `src/lib/services/classify.ts`, `src/__tests__/global-setup.ts`, `vitest.config.ts`.
 
+### AUD-098 — Re-enable Next.js build-time lint/type gates
+- **Source**: Codex review 2026-02-17
+- **Severity**: HIGH
+- **Type**: Test/infra
+- **Decision**: Fix code
+- **Acceptance checks**:
+  - `npm run lint` passes
+  - `npx tsc --noEmit` passes
+  - `npm run build` passes and does not skip lint/type validation
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Removed `eslint.ignoreDuringBuilds` and `typescript.ignoreBuildErrors` from `next.config.ts`, re-enabling Next build-time quality gates. Before: `npm run build` printed `Skipping validation of types` and `Skipping linting`. After: those lines no longer appear. Verified gates: `npm run lint` pass, `npx tsc --noEmit` pass, `npm run build` pass with lint/type checks enabled, and `npx vitest run` pass (`64` files, `972` tests).
+
 ---
 
 ## Notes
