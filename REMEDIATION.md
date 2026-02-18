@@ -1774,6 +1774,20 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Removed `eslint.ignoreDuringBuilds` and `typescript.ignoreBuildErrors` from `next.config.ts`, re-enabling Next build-time quality gates. Before: `npm run build` printed `Skipping validation of types` and `Skipping linting`. After: those lines no longer appear. Verified gates: `npm run lint` pass, `npx tsc --noEmit` pass, `npm run build` pass with lint/type checks enabled, and `npx vitest run` pass (`64` files, `972` tests).
 
+### AUD-099 — Migrate from `next lint` to ESLint CLI and document SWC constraint
+- **Source**: Codex follow-up 2026-02-18
+- **Severity**: MEDIUM
+- **Type**: Test/infra
+- **Decision**: Fix code
+- **Acceptance checks**:
+  - `npm run lint` uses ESLint CLI (not `next lint`)
+  - `next lint` deprecation message no longer appears
+  - `npm run build` still runs lint + type checks during build
+  - `npx tsc --noEmit` passes
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Ran `npx @next/codemod@canary next-lint-to-eslint-cli .` and migrated lint script from `next lint` to `eslint .`; updated `eslint.config.mjs` to direct `eslint-config-next` flat-config imports. Verified the deprecation banner for `next lint` is removed from `npm run lint`. Verified gates remain green (`npm run lint`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`). Note: SWC mismatch warning remains due to upstream package constraints; `next@15.5.11` currently declares `@next/swc-*` optional dependencies at `15.5.7`, and matching `@next/swc-*` `15.5.11` packages are not published.
+
 ---
 
 ### AUD-096 — Multi-batch ordering must be deterministic in API responses
