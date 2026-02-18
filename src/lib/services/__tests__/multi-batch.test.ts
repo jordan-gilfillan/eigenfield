@@ -437,6 +437,7 @@ describe('multi-batch support', () => {
           promptVersionId: testClassifyPromptVersionId,
         },
         filterProfile: {
+          name: `Test Multi-Batch Filter ${testUniqueId}`,
           mode: 'EXCLUDE',
           categories: ['WORK'],
         },
@@ -463,6 +464,7 @@ describe('multi-batch support', () => {
           promptVersionId: testClassifyPromptVersionId,
         },
         filterProfile: {
+          name: `Test Multi-Batch Filter ${testUniqueId}`,
           mode: 'EXCLUDE',
           categories: ['WORK'],
         },

@@ -1729,6 +1729,18 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Added `importBatchId` to SPEC §7.9 search atom schema. Code already returns this field (`search.ts:247`); SPEC now matches.
 
+### AUD-097 — Restore lint + tsc green on master (quality gate regression)
+- **Severity**: HIGH
+- **Type**: Test/infra
+- **Decision**: Fix code
+- **Acceptance**:
+  - `npm run lint` passes
+  - `npx tsc --noEmit` passes
+  - `npm run build` passes
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Fixed 3 lint errors and 21 typecheck errors across targeted service/test/config files only. Before: `npm run lint` had 3 errors (`no-unsafe-function-type` in three tick tests), and `npx tsc --noEmit` had 21 errors (missing `filterProfile.name` in tests, uncallable global mock hooks, Prisma enum filter typing, Prisma JSON typing, `ProviderId` mismatch, unsupported Vitest config key). After: both `npm run lint` and `npx tsc --noEmit` pass cleanly. Verified `npm run build` passes and `npx vitest run` passes (64 files, 972 tests). Files touched: `src/lib/services/__tests__/tick-budget.test.ts`, `src/lib/services/__tests__/tick-rate-limit.test.ts`, `src/lib/services/__tests__/tick-real-summarize.test.ts`, `src/lib/services/__tests__/multi-batch.test.ts`, `src/lib/services/__tests__/run-inspector.test.ts`, `src/lib/services/bundle.ts`, `src/lib/services/run.ts`, `src/lib/services/classify.ts`, `src/__tests__/global-setup.ts`, `vitest.config.ts`.
+
 ---
 
 ## Notes

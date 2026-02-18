@@ -10,7 +10,7 @@ import { prisma } from '../db'
 import { computeBundleHash, computeBundleContextHash } from '../bundleHash'
 import { sha256 } from '../hash'
 import { toCanonicalTimestamp } from '../timestamp'
-import type { Source, FilterMode } from '@prisma/client'
+import type { Source, FilterMode, Category } from '@prisma/client'
 
 export interface BuildBundleOptions {
   /** Single batch (backward compat). Use importBatchIds for multi-batch. */
@@ -84,12 +84,13 @@ export async function buildBundle(options: BuildBundleOptions): Promise<BundleRe
   // Convert to DB types
   const dbSources = sources.map((s) => s.toUpperCase()) as Source[]
   const filterMode = filterProfile.mode.toUpperCase() as FilterMode
+  const filterCategories = filterProfile.categories as Category[]
 
   // Build category filter
   const categoryCondition =
     filterMode === 'INCLUDE'
-      ? { in: filterProfile.categories }
-      : { notIn: filterProfile.categories }
+      ? { in: filterCategories }
+      : { notIn: filterCategories }
 
   // Load eligible atoms with their labels (across all batches)
   // Only role=USER atoms are included in bundles (SPEC §9.1)

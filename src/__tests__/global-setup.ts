@@ -1,7 +1,7 @@
 import { Client } from 'pg'
 import { loadEnv } from 'vite'
 
-export default async function globalSetup(): Promise<void> {
+export default async function globalSetup(): Promise<() => Promise<void>> {
   const env = loadEnv('test', process.cwd(), '')
   const databaseUrl = env.DATABASE_URL || process.env.DATABASE_URL
 
@@ -28,5 +28,14 @@ export default async function globalSetup(): Promise<void> {
     )
   } finally {
     await client.end().catch(() => {})
+  }
+
+  return async () => {
+    try {
+      const { closeLockPool } = await import('../lib/services/advisory-lock')
+      await closeLockPool()
+    } catch (err) {
+      console.warn('globalTeardown: failed to close advisory lock pool:', err)
+    }
   }
 }

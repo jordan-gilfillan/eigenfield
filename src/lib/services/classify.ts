@@ -9,7 +9,7 @@
 
 import { prisma } from '../db'
 import { sha256, hashToUint32 } from '../hash'
-import type { Category } from '@prisma/client'
+import type { Category, Prisma } from '@prisma/client'
 import {
   callLlm,
   inferProvider,
@@ -21,7 +21,7 @@ import {
   LlmBadOutputError,
   BudgetExceededError,
 } from '../llm'
-import type { ProviderId, LlmCallContext } from '../llm'
+import type { LlmCallContext } from '../llm'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
 // Import from shared errors + re-export for backward compatibility
@@ -267,12 +267,6 @@ interface CheckpointState {
   lastWrittenProcessedAtoms: number
 }
 
-interface PersistedClassifyError {
-  code: string
-  message: string
-  details?: Record<string, unknown>
-}
-
 const ERROR_MESSAGE_MAX_CHARS = 500
 const ERROR_DETAILS_MAX_CHARS = 2000
 
@@ -280,7 +274,7 @@ function capString(value: string, maxChars: number): string {
   return value.length <= maxChars ? value : `${value.slice(0, maxChars)}...`
 }
 
-function capErrorDetails(details: unknown): Record<string, unknown> | undefined {
+function capErrorDetails(details: unknown): Prisma.InputJsonObject | undefined {
   if (details === undefined || details === null) return undefined
 
   if (typeof details !== 'object') {
@@ -291,7 +285,11 @@ function capErrorDetails(details: unknown): Record<string, unknown> | undefined 
     const serialized = JSON.stringify(details)
     if (!serialized) return undefined
     if (serialized.length <= ERROR_DETAILS_MAX_CHARS) {
-      return details as Record<string, unknown>
+      const parsed = JSON.parse(serialized) as Prisma.InputJsonValue
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Prisma.InputJsonObject
+      }
+      return { value: serialized }
     }
     return {
       truncated: true,
@@ -303,7 +301,7 @@ function capErrorDetails(details: unknown): Record<string, unknown> | undefined 
   }
 }
 
-function toPersistedClassifyError(error: unknown): PersistedClassifyError {
+function toPersistedClassifyError(error: unknown): Prisma.InputJsonObject {
   const code =
     typeof error === 'object' &&
     error !== null &&
@@ -762,7 +760,7 @@ async function classifyBatchReal(
   const CLASSIFY_EST_TOKENS_IN = 500
   const CLASSIFY_EST_TOKENS_OUT = 25
   let estimatedCallCost: number
-  if (model.startsWith('stub') || provider === 'stub') {
+  if (model.startsWith('stub')) {
     estimatedCallCost = 0
   } else {
     // Unknown model pricing → fail fast (consistent with callLlm real-mode behavior)
