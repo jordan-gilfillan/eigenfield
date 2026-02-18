@@ -1788,6 +1788,18 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Status**: Done
 - **Resolution**: Ran `npx @next/codemod@canary next-lint-to-eslint-cli .` and migrated lint script from `next lint` to `eslint .`; updated `eslint.config.mjs` to direct `eslint-config-next` flat-config imports. Verified the deprecation banner for `next lint` is removed from `npm run lint`. Verified gates remain green (`npm run lint`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`). Note: SWC mismatch warning remains due to upstream package constraints; `next@15.5.11` currently declares `@next/swc-*` optional dependencies at `15.5.7`, and matching `@next/swc-*` `15.5.11` packages are not published.
 
+### AUD-100 — Track upstream Next/SWC mismatch warning
+- **Source**: Codex follow-up 2026-02-18
+- **Severity**: LOW
+- **Type**: Test/infra
+- **Decision**: Defer (upstream)
+- **Problem**: `npm run build` emits `Mismatching @next/swc version` while on `next@15.5.11` because upstream package metadata for `next@15.5.11` pins optional `@next/swc-*` to `15.5.7`, and matching `15.5.11` `@next/swc-*` packages are not published.
+- **Acceptance checks**:
+  - Constraint is documented in remediation ledger
+  - Re-check when upstream Next metadata/packages change
+  - Keep build gates green while warning remains
+- **Status**: Blocked
+
 ---
 
 ### AUD-096 — Multi-batch ordering must be deterministic in API responses
