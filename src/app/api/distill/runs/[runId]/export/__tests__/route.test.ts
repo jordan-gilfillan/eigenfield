@@ -7,11 +7,11 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { access, readFile, readdir, rm } from 'node:fs/promises'
+import { isAbsolute, join, sep } from 'node:path'
 import { POST } from '../route'
 import { prisma } from '@/lib/db'
+import { EXPORT_BASE_DIR } from '@/lib/export/writer'
 
 const TEST_PREFIX = 'exp-rt'
 
@@ -19,7 +19,6 @@ let batchId: string
 let filterProfileId: string
 let completedRunId: string
 let runningRunId: string
-let tempDir: string
 
 beforeAll(async () => {
   // ImportBatch
@@ -153,12 +152,22 @@ function makeRequest(runId: string, body: Record<string, unknown>): NextRequest 
   )
 }
 
+function makeRelativeOutputDir(tag: string): string {
+  const rand = Math.random().toString(36).slice(2, 10)
+  return `test-exports/${TEST_PREFIX}-${tag}-${Date.now()}-${rand}`
+}
+
+function getSandboxAbsoluteOutputDir(outputDir: string): string {
+  return join(EXPORT_BASE_DIR, outputDir)
+}
+
 describe('POST /api/distill/runs/:runId/export', () => {
-  it('exports a COMPLETED run and writes files to disk', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'export-route-'))
+  it('exports a COMPLETED run and writes files only under EXPORT_BASE_DIR', async () => {
+    const outputDir = makeRelativeOutputDir('success')
+    const absoluteOutputDir = getSandboxAbsoluteOutputDir(outputDir)
 
     const res = await POST(
-      makeRequest(completedRunId, { outputDir: tempDir }),
+      makeRequest(completedRunId, { outputDir }),
       { params: Promise.resolve({ runId: completedRunId }) },
     )
 
@@ -166,32 +175,37 @@ describe('POST /api/distill/runs/:runId/export', () => {
 
     const json = await res.json()
     expect(json.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(json.outputDir).toBe(tempDir)
+    expect(isAbsolute(json.outputDir)).toBe(true)
+    expect(json.outputDir).toBe(absoluteOutputDir)
+    expect(json.outputDir.startsWith(`${EXPORT_BASE_DIR}${sep}`)).toBe(true)
     expect(json.fileCount).toBeGreaterThanOrEqual(4) // README, timeline, 1 day view, manifest
     expect(json.files).toContain('README.md')
     expect(json.files).toContain('views/timeline.md')
     expect(json.files).toContain('views/2025-01-15.md')
     expect(json.files).toContain('.journal-meta/manifest.json')
 
-    // Verify files actually written to disk
-    const readme = await readFile(join(tempDir, 'README.md'), 'utf-8')
+    // Verify files actually written to disk inside sandbox
+    const readme = await readFile(join(absoluteOutputDir, 'README.md'), 'utf-8')
     expect(readme).toContain('export_v1')
 
-    const dayView = await readFile(join(tempDir, 'views/2025-01-15.md'), 'utf-8')
+    const dayView = await readFile(join(absoluteOutputDir, 'views/2025-01-15.md'), 'utf-8')
     expect(dayView).toContain('A productive day.')
     expect(dayView).toContain('date: "2025-01-15"')
 
-    const manifest = await readFile(join(tempDir, '.journal-meta/manifest.json'), 'utf-8')
+    const manifest = await readFile(join(absoluteOutputDir, '.journal-meta/manifest.json'), 'utf-8')
     const manifestJson = JSON.parse(manifest)
     expect(manifestJson.exportedAt).toBe(json.exportedAt)
     expect(manifestJson.formatVersion).toBe('export_v1')
 
-    await rm(tempDir, { recursive: true, force: true })
+    // Ensure no files were written to cwd-relative location outside sandbox
+    await expect(access(join(process.cwd(), outputDir))).rejects.toThrow()
+
+    await rm(absoluteOutputDir, { recursive: true, force: true })
   })
 
   it('returns 404 for unknown runId', async () => {
     const res = await POST(
-      makeRequest('nonexistent-run-id', { outputDir: '/tmp/unused' }),
+      makeRequest('nonexistent-run-id', { outputDir: makeRelativeOutputDir('missing-run') }),
       { params: Promise.resolve({ runId: 'nonexistent-run-id' }) },
     )
 
@@ -202,7 +216,7 @@ describe('POST /api/distill/runs/:runId/export', () => {
 
   it('returns 400 for Run not COMPLETED', async () => {
     const res = await POST(
-      makeRequest(runningRunId, { outputDir: '/tmp/unused' }),
+      makeRequest(runningRunId, { outputDir: makeRelativeOutputDir('running') }),
       { params: Promise.resolve({ runId: runningRunId }) },
     )
 
@@ -235,11 +249,36 @@ describe('POST /api/distill/runs/:runId/export', () => {
     expect(json.error.code).toBe('INVALID_INPUT')
   })
 
+  it('returns 400 when outputDir is absolute', async () => {
+    const res = await POST(
+      makeRequest(completedRunId, { outputDir: '/tmp/pwn' }),
+      { params: Promise.resolve({ runId: completedRunId }) },
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('relative')
+  })
+
+  it('returns 400 when outputDir attempts traversal', async () => {
+    const res = await POST(
+      makeRequest(completedRunId, { outputDir: '../pwn' }),
+      { params: Promise.resolve({ runId: completedRunId }) },
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('traversal')
+  })
+
   it('public tier omits atoms/ and sources/ directories', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'export-route-pub-'))
+    const outputDir = makeRelativeOutputDir('public')
+    const absoluteOutputDir = getSandboxAbsoluteOutputDir(outputDir)
 
     const res = await POST(
-      makeRequest(completedRunId, { outputDir: tempDir, privacyTier: 'public' }),
+      makeRequest(completedRunId, { outputDir, privacyTier: 'public' }),
       { params: Promise.resolve({ runId: completedRunId }) },
     )
 
@@ -256,15 +295,15 @@ describe('POST /api/distill/runs/:runId/export', () => {
     expect(json.files.some((f: string) => f.startsWith('sources/'))).toBe(false)
 
     // Verify no atoms/ or sources/ dirs on disk
-    const topLevel = await readdir(tempDir)
+    const topLevel = await readdir(absoluteOutputDir)
     expect(topLevel.sort()).toEqual(['.journal-meta', 'README.md', 'views'])
 
-    await rm(tempDir, { recursive: true, force: true })
+    await rm(absoluteOutputDir, { recursive: true, force: true })
   })
 
   it('returns 400 for invalid privacyTier value', async () => {
     const res = await POST(
-      makeRequest(completedRunId, { outputDir: '/tmp/unused', privacyTier: 'invalid' }),
+      makeRequest(completedRunId, { outputDir: makeRelativeOutputDir('invalid-tier'), privacyTier: 'invalid' }),
       { params: Promise.resolve({ runId: completedRunId }) },
     )
 
@@ -275,29 +314,30 @@ describe('POST /api/distill/runs/:runId/export', () => {
   })
 
   it('re-export overwrites existing files (idempotent)', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'export-route-idem-'))
+    const outputDir = makeRelativeOutputDir('idem')
+    const absoluteOutputDir = getSandboxAbsoluteOutputDir(outputDir)
 
     // Export twice
     const res1 = await POST(
-      makeRequest(completedRunId, { outputDir: tempDir }),
+      makeRequest(completedRunId, { outputDir }),
       { params: Promise.resolve({ runId: completedRunId }) },
     )
     expect(res1.status).toBe(200)
 
     const res2 = await POST(
-      makeRequest(completedRunId, { outputDir: tempDir }),
+      makeRequest(completedRunId, { outputDir }),
       { params: Promise.resolve({ runId: completedRunId }) },
     )
     expect(res2.status).toBe(200)
 
     // Files exist and are valid after second export
-    const readme = await readFile(join(tempDir, 'README.md'), 'utf-8')
+    const readme = await readFile(join(absoluteOutputDir, 'README.md'), 'utf-8')
     expect(readme).toContain('export_v1')
 
     // Only expected directories present (no duplicates)
-    const topLevel = await readdir(tempDir)
+    const topLevel = await readdir(absoluteOutputDir)
     expect(topLevel.sort()).toEqual(['.journal-meta', 'README.md', 'atoms', 'sources', 'views'])
 
-    await rm(tempDir, { recursive: true, force: true })
+    await rm(absoluteOutputDir, { recursive: true, force: true })
   })
 })

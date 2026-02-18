@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildExportInput, ExportPreconditionError } from '@/lib/export/orchestrator'
 import { renderExportTree } from '@/lib/export/renderer'
-import { writeExportTree } from '@/lib/export/writer'
+import { ExportPathValidationError, resolveExportOutputDir, writeExportTree } from '@/lib/export/writer'
 import { errors, errorResponse } from '@/lib/api-utils'
 import type { PrivacyTier, PreviousManifest } from '@/lib/export/types'
 
@@ -29,7 +29,7 @@ export async function POST(
     const { runId } = await params
     const body = (await request.json().catch(() => ({}))) as Partial<ExportRequest>
 
-    if (!body.outputDir || typeof body.outputDir !== 'string') {
+    if (typeof body.outputDir !== 'string') {
       return errors.invalidInput('outputDir is required')
     }
 
@@ -53,16 +53,21 @@ export async function POST(
     // 2. Render in-memory file tree
     const tree = renderExportTree(exportInput)
 
-    // 3. Write to disk
-    await writeExportTree(tree, body.outputDir)
+    // 3. Resolve to sandboxed output directory + write to disk
+    const resolvedOutputDir = await resolveExportOutputDir(body.outputDir)
+    await writeExportTree(tree, resolvedOutputDir)
 
     return NextResponse.json({
       exportedAt,
-      outputDir: body.outputDir,
+      outputDir: resolvedOutputDir,
       fileCount: tree.size,
       files: [...tree.keys()],
     })
   } catch (error) {
+    if (error instanceof ExportPathValidationError) {
+      return errors.invalidInput(error.message)
+    }
+
     if (error instanceof ExportPreconditionError) {
       if (error.code === 'EXPORT_NOT_FOUND') {
         return errorResponse(404, error.code, error.message, error.details)
