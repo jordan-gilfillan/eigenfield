@@ -17,19 +17,29 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
 
+type SummarizeOptions = { bundleText: string; model: string; promptVersionId: string }
+type SummarizeResult = { text: string; tokensIn: number; tokensOut: number; costUsd: number }
+type BudgetSummarizeMock = (options: SummarizeOptions) => Promise<SummarizeResult>
+type BudgetTestGlobals = typeof globalThis & { __testBudgetSummarizeMock?: BudgetSummarizeMock }
+
+const budgetTestGlobals = globalThis as BudgetTestGlobals
+
 // Mock the summarizer module (same pattern as tick-real-summarize.test.ts)
 vi.mock('../summarizer', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, Function>
+  const actual = await importOriginal() as typeof import('../summarizer')
 
   return {
     ...actual,
     summarize: vi.fn().mockImplementation(
-      async (options: { bundleText: string; model: string; promptVersionId: string }) => {
+      async (options: SummarizeOptions) => {
         if (options.model.startsWith('stub')) {
           return actual.summarize(options)
         }
-        return (globalThis as Record<string, unknown>).__testBudgetSummarizeMock?.(options)
-          ?? Promise.reject(new Error('Test mock not configured for real model'))
+        const summarizeMock = budgetTestGlobals.__testBudgetSummarizeMock
+        if (summarizeMock) {
+          return summarizeMock(options)
+        }
+        return Promise.reject(new Error('Test mock not configured for real model'))
       }
     ),
   }
@@ -38,8 +48,8 @@ vi.mock('../summarizer', async (importOriginal) => {
 import { processTick } from '../tick'
 
 /** Configure the behavior of summarize() for non-stub models. */
-function mockRealSummarize(fn: (...args: unknown[]) => unknown) {
-  (globalThis as Record<string, unknown>).__testBudgetSummarizeMock = fn
+function mockRealSummarize(fn: BudgetSummarizeMock) {
+  budgetTestGlobals.__testBudgetSummarizeMock = fn
 }
 
 const realSummarizeCalls: unknown[][] = []
@@ -94,7 +104,7 @@ describe('tick budget enforcement', () => {
 
   beforeEach(async () => {
     realSummarizeCalls.length = 0
-    delete (globalThis as Record<string, unknown>).__testBudgetSummarizeMock
+    delete budgetTestGlobals.__testBudgetSummarizeMock
 
     testUniqueId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 

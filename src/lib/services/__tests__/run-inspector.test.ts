@@ -431,7 +431,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const config = run!.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const bundle = await buildBundle({
@@ -455,7 +455,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const config = run!.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const bundle = await buildBundle({
@@ -486,7 +486,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const cfg = config.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const bundle = await buildBundle({
@@ -512,7 +512,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const cfg = config.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const opts = {
@@ -603,7 +603,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const config = run!.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
     const sources = (run!.sources as string[]).map((s) => s.toLowerCase())
 
@@ -652,7 +652,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const cfg = config.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const bundle = await buildBundle({
@@ -676,7 +676,7 @@ describe('Run Inspector - input endpoint logic', () => {
 
     const cfg = config.configJson as {
       labelSpec: { model: string; promptVersionId: string }
-      filterProfileSnapshot: { mode: string; categories: string[] }
+      filterProfileSnapshot: { name: string; mode: string; categories: string[] }
     }
 
     const bundle = await buildBundle({

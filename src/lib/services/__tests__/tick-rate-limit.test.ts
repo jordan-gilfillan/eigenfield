@@ -15,6 +15,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
 
+type SummarizeOptions = { bundleText: string; model: string; promptVersionId: string }
+type SummarizeResult = { text: string; tokensIn: number; tokensOut: number; costUsd: number }
+type RateLimitSummarizeMock = (options: SummarizeOptions) => Promise<SummarizeResult>
+type RateLimitTestGlobals = typeof globalThis & { __testRateLimitSummarizeMock?: RateLimitSummarizeMock }
+
+const rateLimitTestGlobals = globalThis as RateLimitTestGlobals
+
 // Module-level tracking for spy RateLimiter
 const rateLimiterInstances: Array<{ acquireCount: number }> = []
 
@@ -23,18 +30,21 @@ const callLog: string[] = []
 
 // Mock the summarizer module
 vi.mock('../summarizer', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, Function>
+  const actual = await importOriginal() as typeof import('../summarizer')
 
   return {
     ...actual,
     summarize: vi.fn().mockImplementation(
-      async (options: { bundleText: string; model: string; promptVersionId: string }) => {
+      async (options: SummarizeOptions) => {
         if (options.model.startsWith('stub')) {
           return actual.summarize(options)
         }
         callLog.push('summarize')
-        return (globalThis as Record<string, unknown>).__testRateLimitSummarizeMock?.(options)
-          ?? Promise.reject(new Error('Test mock not configured for real model'))
+        const summarizeMock = rateLimitTestGlobals.__testRateLimitSummarizeMock
+        if (summarizeMock) {
+          return summarizeMock(options)
+        }
+        return Promise.reject(new Error('Test mock not configured for real model'))
       }
     ),
   }
@@ -69,8 +79,8 @@ vi.mock('../../llm', async (importOriginal) => {
 import { processTick } from '../tick'
 
 /** Configure the behavior of summarize() for non-stub models. */
-function mockRealSummarize(fn: (...args: unknown[]) => unknown) {
-  (globalThis as Record<string, unknown>).__testRateLimitSummarizeMock = fn
+function mockRealSummarize(fn: RateLimitSummarizeMock) {
+  rateLimitTestGlobals.__testRateLimitSummarizeMock = fn
 }
 
 function mockRealSummarizeResolved(result: { text: string; tokensIn: number; tokensOut: number; costUsd: number }) {
@@ -112,7 +122,7 @@ describe('tick rate limiting', () => {
   beforeEach(async () => {
     callLog.length = 0
     rateLimiterInstances.length = 0
-    delete (globalThis as Record<string, unknown>).__testRateLimitSummarizeMock
+    delete rateLimitTestGlobals.__testRateLimitSummarizeMock
 
     testUniqueId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
