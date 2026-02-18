@@ -1797,6 +1797,22 @@ These are not necessarily code bugs, but they create recurring audit noise.
 
 ---
 
+### AUD-095 — Input validation: regex-only dates + unchecked timezone/dayDate can produce 500s
+- **Source**: Codex review 2026-02-17
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Acceptance checks**:
+  - Invalid YYYY-MM-DD (bad month/day, non-existent date) returns 400 INVALID_INPUT (not 500).
+  - Invalid timezone returns 400 INVALID_INPUT (not 500).
+  - Day routes reject invalid dayDate early; no unchecked `new Date(dayDate)` crashes.
+  - Add route-level tests for invalid dates/timezones and confirm error code.
+  - `npx vitest run` passes.
+- **Status**: Done
+- **Resolution**: Extended shared validation in `src/lib/route-validate.ts` so `requireDateFormat()` now enforces semantic YYYY-MM-DD dates (UTC round-trip; rejects month/day overflow and day 00) and added `requireValidTimezone()` for IANA timezone validation via `Intl.DateTimeFormat`. Wired these validators into affected API routes: `src/app/api/distill/runs/route.ts`, `src/app/api/distill/search/route.ts`, `src/app/api/distill/import/route.ts`, `src/app/api/distill/import-batches/[id]/days/[dayDate]/atoms/route.ts`, `src/app/api/distill/runs/[runId]/jobs/[dayDate]/input/route.ts`, and `src/app/api/distill/runs/[runId]/jobs/[dayDate]/output/route.ts`. Added/updated route tests in `src/app/api/distill/runs/__tests__/route.test.ts`, `src/app/api/distill/import/__tests__/route.test.ts`, `src/app/api/distill/search/__tests__/route.test.ts`, `src/app/api/distill/import-batches/[id]/days/[dayDate]/atoms/__tests__/route.test.ts`, `src/app/api/distill/runs/[runId]/jobs/[dayDate]/input/__tests__/route.test.ts`, plus new output route tests in `src/app/api/distill/runs/[runId]/jobs/[dayDate]/output/__tests__/route.test.ts`. Verified by running `npx vitest run` with full suite pass.
+
+---
+
 ## Notes
 
 - When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.

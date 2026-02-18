@@ -11,8 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getImportBatch, getImportBatchDayAtoms } from '@/lib/services/import'
 import { errors } from '@/lib/api-utils'
 import { SOURCE_VALUES } from '@/lib/enums'
-
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
+import { requireDateFormat } from '@/lib/route-validate'
 
 export async function GET(
   request: NextRequest,
@@ -21,10 +20,8 @@ export async function GET(
   try {
     const { id, dayDate } = await params
 
-    // Validate dayDate format
-    if (!DATE_REGEX.test(dayDate)) {
-      return errors.invalidInput('dayDate must be in YYYY-MM-DD format')
-    }
+    const dayDateFail = requireDateFormat(dayDate, 'dayDate')
+    if (dayDateFail) return errors.invalidInput(dayDateFail)
 
     // Validate source if provided
     const source = request.nextUrl.searchParams.get('source') ?? undefined

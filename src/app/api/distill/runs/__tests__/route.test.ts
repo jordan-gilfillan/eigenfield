@@ -104,6 +104,60 @@ describe('POST /api/distill/runs — importBatchId XOR importBatchIds validation
     expect(json.error.code).toBe('INVALID_INPUT')
     expect(json.error.message).toContain('unique')
   })
+
+  it('rejects invalid startDate month with 400 INVALID_INPUT', async () => {
+    const res = await POST(
+      postRequest({
+        importBatchId: 'batch-a',
+        startDate: '2024-13-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: 'fp-1',
+        model: 'stub_v1',
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('startDate')
+  })
+
+  it('rejects invalid endDate non-existent day with 400 INVALID_INPUT', async () => {
+    const res = await POST(
+      postRequest({
+        importBatchId: 'batch-a',
+        startDate: '2024-02-01',
+        endDate: '2024-02-30',
+        sources: ['chatgpt'],
+        filterProfileId: 'fp-1',
+        model: 'stub_v1',
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('endDate')
+  })
+
+  it('rejects day 00 with 400 INVALID_INPUT', async () => {
+    const res = await POST(
+      postRequest({
+        importBatchId: 'batch-a',
+        startDate: '2024-01-00',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: 'fp-1',
+        model: 'stub_v1',
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('startDate')
+  })
 })
 
 describe('POST /api/distill/runs — multi-batch integration', () => {

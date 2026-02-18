@@ -13,6 +13,7 @@ import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
 import { buildBundle } from '@/lib/services/bundle'
 import { parseRunConfig } from '@/lib/types/run-config'
+import { requireDateFormat } from '@/lib/route-validate'
 
 export async function GET(
   request: NextRequest,
@@ -20,6 +21,8 @@ export async function GET(
 ) {
   try {
     const { runId, dayDate } = await params
+    const dayDateFail = requireDateFormat(dayDate, 'dayDate')
+    if (dayDateFail) return errors.invalidInput(dayDateFail)
 
     // Validate runId exists and get frozen config + canonical batch IDs
     const run = await prisma.run.findUnique({

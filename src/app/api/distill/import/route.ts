@@ -17,6 +17,7 @@ import { UnsupportedFormatError, AmbiguousFormatError } from '@/lib/parsers'
 import { InvalidInputError } from '@/lib/errors'
 import type { SourceApi } from '@/lib/enums'
 import { SOURCE_VALUES } from '@/lib/enums'
+import { requireValidTimezone } from '@/lib/route-validate'
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
     // Validate file
     if (!file) {
       return errors.invalidInput('No file provided')
+    }
+
+    if (timezone !== null) {
+      const timezoneFail = requireValidTimezone(timezone, 'timezone')
+      if (timezoneFail) return errors.invalidInput(timezoneFail)
     }
 
     // Read file content

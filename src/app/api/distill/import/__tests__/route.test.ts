@@ -75,4 +75,18 @@ describe('POST /api/distill/import — sourceOverride validation', () => {
     expect(body.error.message).not.toContain('Invalid source')
     expect(body.error.message).not.toContain('reserved')
   })
+
+  it('rejects invalid timezone with 400 INVALID_INPUT', async () => {
+    const req = importRequest({
+      timezone: 'Mars/Phobos',
+      file: new File(['[]'], 'empty.json', { type: 'application/json' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+
+    const body = await res.json()
+    expect(body.error.code).toBe('INVALID_INPUT')
+    expect(body.error.message).toContain('timezone')
+  })
 })
