@@ -30,11 +30,16 @@ export async function GET(
         },
         runBatches: {
           select: {
+            id: true,
             importBatchId: true,
             importBatch: {
               select: { originalFilename: true, source: true },
             },
           },
+          orderBy: [
+            { createdAt: 'asc' },
+            { id: 'asc' },
+          ],
         },
       },
     })

@@ -1756,6 +1756,27 @@ These are not necessarily code bugs, but they create recurring audit noise.
 
 ---
 
+### AUD-096 — Multi-batch ordering must be deterministic in API responses
+- **Source**: Codex review 2026-02-17
+- **Severity**: MEDIUM
+- **Type**: Contract break
+- **Docs cited**: (none)
+- **Code refs**: `src/app/api/distill/runs/route.ts:150`; `src/app/api/distill/runs/route.ts:168`; `src/app/api/distill/runs/[runId]/route.ts:31`; `src/app/api/distill/runs/[runId]/route.ts:97`; `src/app/api/distill/runs/[runId]/jobs/[dayDate]/input/route.ts:31`; `src/lib/services/run.ts:386`; `src/lib/services/run.ts:405`; `src/app/api/distill/runs/__tests__/route.test.ts:611`; `src/app/api/distill/runs/[runId]/__tests__/route.test.ts:1`
+- **Problem**: runBatches are fetched without explicit orderBy and then treated as ordered data; UI and downstream logic can drift based on DB return order.
+- **Decision**: Fix code
+- **Planned PR**: `fix/AUD-096-deterministic-runbatch-ordering`
+- **Acceptance checks**:
+  - All API responses that include runBatches return them in a deterministic canonical order.
+  - Any “first batch” logic uses the canonical order and is stable across repeated calls.
+  - Add/adjust tests to assert ordering determinism (tie-breaker included).
+  - `npm run lint` passes
+  - `npx tsc --noEmit` passes
+  - `npx vitest run` passes
+- **Status**: Done
+- **Resolution**: Standardized on canonical RunBatch ordering rule **C**: `createdAt ASC`, then `id ASC` tie-breaker. Applied explicit `orderBy` to runBatches fetches in run list/detail routes and `getRun()` service, and aligned run list/detail `importBatchId` to canonical first batch (`runBatches[0]` fallback to deprecated `run.importBatchId`). Also applied the same ordered fetch in the run job input route for stable batch-id propagation. Added route tests covering determinism across repeated calls and tie-breaker behavior when two RunBatch rows share the same `createdAt`.
+
+---
+
 ## Notes
 
 - When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.

@@ -599,3 +599,129 @@ describe('GET /api/distill/runs — importBatchIds in response', () => {
     expect(run.importBatchIds).toEqual([batchId])
   })
 })
+
+describe('GET /api/distill/runs — deterministic runBatches ordering (AUD-096)', () => {
+  let runId: string
+  let batchEarlyId: string
+  let batchLateId: string
+  let filterProfileId: string
+  let uniqueId: string
+
+  beforeEach(async () => {
+    uniqueId = `rt-aud096-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    const batchEarly = await prisma.importBatch.create({
+      data: {
+        id: `aud096-batch-early-${uniqueId}`,
+        source: 'CHATGPT',
+        originalFilename: 'early.json',
+        fileSizeBytes: 100,
+        timezone: 'America/New_York',
+        createdAt: new Date('2024-01-01T10:00:00.000Z'),
+        statsJson: {
+          message_count: 1,
+          day_count: 1,
+          coverage_start: '2024-01-01',
+          coverage_end: '2024-01-01',
+        },
+      },
+    })
+    batchEarlyId = batchEarly.id
+
+    const batchLate = await prisma.importBatch.create({
+      data: {
+        id: `aud096-batch-late-${uniqueId}`,
+        source: 'CLAUDE',
+        originalFilename: 'late.json',
+        fileSizeBytes: 100,
+        timezone: 'America/New_York',
+        createdAt: new Date('2024-01-01T11:00:00.000Z'),
+        statsJson: {
+          message_count: 1,
+          day_count: 1,
+          coverage_start: '2024-01-01',
+          coverage_end: '2024-01-01',
+        },
+      },
+    })
+    batchLateId = batchLate.id
+
+    const fp = await prisma.filterProfile.create({
+      data: {
+        id: `aud096-fp-${uniqueId}`,
+        name: `AUD096 FP ${uniqueId}`,
+        mode: 'EXCLUDE',
+        categories: ['WORK'],
+      },
+    })
+    filterProfileId = fp.id
+
+    const run = await prisma.run.create({
+      data: {
+        id: `aud096-run-${uniqueId}`,
+        status: 'QUEUED',
+        importBatchId: batchLateId,
+        startDate: new Date('2024-01-01'),
+        endDate: new Date('2024-01-01'),
+        sources: ['CHATGPT', 'CLAUDE'],
+        filterProfileId,
+        model: 'stub_v1',
+        outputTarget: 'db',
+        configJson: {
+          promptVersionIds: { summarize: 'aud096-sum-pv' },
+          labelSpec: { model: 'stub_v1', promptVersionId: 'aud096-cls-pv' },
+          filterProfileSnapshot: { name: 'aud096', mode: 'exclude', categories: ['WORK'] },
+          timezone: 'America/New_York',
+          maxInputTokens: 12000,
+          importBatchIds: [batchEarlyId, batchLateId],
+        },
+        runBatches: {
+          create: [
+            {
+              id: `aud096-rb-late-${uniqueId}`,
+              importBatchId: batchLateId,
+              createdAt: new Date('2024-01-01T11:00:00.000Z'),
+            },
+            {
+              id: `aud096-rb-early-${uniqueId}`,
+              importBatchId: batchEarlyId,
+              createdAt: new Date('2024-01-01T10:00:00.000Z'),
+            },
+          ],
+        },
+      },
+    })
+    runId = run.id
+  })
+
+  afterEach(async () => {
+    await prisma.output.deleteMany({ where: { job: { runId } } })
+    await prisma.job.deleteMany({ where: { runId } })
+    await prisma.runBatch.deleteMany({ where: { runId } })
+    await prisma.run.deleteMany({ where: { id: runId } })
+    await prisma.filterProfile.deleteMany({ where: { id: filterProfileId } })
+    await prisma.importBatch.deleteMany({ where: { id: { in: [batchEarlyId, batchLateId] } } })
+  })
+
+  it('returns importBatchIds in canonical createdAt/id order, stable across repeated calls', async () => {
+    const req = getRequest({ importBatchId: batchEarlyId })
+
+    const res1 = await GET(req)
+    expect(res1.status).toBe(200)
+    const json1 = await res1.json()
+    const run1 = json1.items.find((r: { id: string }) => r.id === runId)
+    expect(run1).toBeDefined()
+
+    const res2 = await GET(req)
+    expect(res2.status).toBe(200)
+    const json2 = await res2.json()
+    const run2 = json2.items.find((r: { id: string }) => r.id === runId)
+    expect(run2).toBeDefined()
+
+    const expected = [batchEarlyId, batchLateId]
+    expect(run1.importBatchIds).toEqual(expected)
+    expect(run2.importBatchIds).toEqual(expected)
+    expect(run1.importBatchId).toBe(expected[0])
+    expect(run2.importBatchId).toBe(expected[0])
+  })
+})

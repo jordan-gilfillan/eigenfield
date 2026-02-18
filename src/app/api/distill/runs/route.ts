@@ -146,7 +146,15 @@ export async function GET(request: NextRequest) {
       cursor: cursor ? { id: cursor } : undefined,
       skip: cursor ? 1 : 0,
       orderBy: { createdAt: 'desc' },
-      include: { runBatches: { select: { importBatchId: true } } },
+      include: {
+        runBatches: {
+          select: { importBatchId: true },
+          orderBy: [
+            { createdAt: 'asc' },
+            { id: 'asc' },
+          ],
+        },
+      },
     })
 
     const hasMore = runs.length > limit
@@ -157,7 +165,7 @@ export async function GET(request: NextRequest) {
       items: items.map((run) => ({
         id: run.id,
         status: run.status.toLowerCase(),
-        importBatchId: run.importBatchId,
+        importBatchId: run.runBatches[0]?.importBatchId ?? run.importBatchId,
         importBatchIds: run.runBatches.map((rb) => rb.importBatchId),
         model: run.model,
         createdAt: run.createdAt.toISOString(),

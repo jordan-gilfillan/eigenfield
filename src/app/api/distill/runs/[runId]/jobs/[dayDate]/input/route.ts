@@ -28,7 +28,13 @@ export async function GET(
         id: true,
         sources: true,
         configJson: true,
-        runBatches: { select: { importBatchId: true } },
+        runBatches: {
+          select: { importBatchId: true },
+          orderBy: [
+            { createdAt: 'asc' },
+            { id: 'asc' },
+          ],
+        },
       },
     })
 

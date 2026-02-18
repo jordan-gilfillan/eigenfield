@@ -386,7 +386,10 @@ export async function getRun(runId: string) {
       filterProfile: true,
       runBatches: {
         select: { importBatchId: true },
-        orderBy: { importBatchId: 'asc' },
+        orderBy: [
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
       },
     },
   })
