@@ -1378,6 +1378,19 @@ Git Export v1 is intentionally minimal (§14.1–§14.9). Export v2 adds a **top
 
 **Stop rule:** If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture (§14.18).
 
+### EPIC-104 — Demo Wizard: Import -> Classify -> Summarize -> Use (invite-only readiness)
+
+- **Origin**: UX-first demo flow request (single-page, point-and-click) for later invite-only multi-tenant demos.
+- **Status**: Spec-only proposal (non-binding); implementation not started.
+- **Design doc**: `UX_DEMO_SPEC.md` (flow, IA, safety copy rules, multi-tenant readiness, AUD-102..AUD-111 slicing).
+
+This epic does not change current normative backend behavior. It proposes a guided `/demo` route that sits on top of existing `/distill/*` contracts while keeping determinism, foreground-only execution, and spend safeguards intact.
+
+**Invariants (must hold for any EPIC-104 implementation):**
+- No background jobs, cron, or hidden scheduling loops.
+- No weakening of determinism/frozen config guarantees.
+- Dry-run-safe defaults with explicit spend controls before real-mode calls.
+
 ---
 
 End Spec v0.4.0-draft
