@@ -95,8 +95,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
   - jump to run detail.
 
 ### Requirements
-- [ ] Page uses shared distill shell nav (Dashboard active).
-- [ ] Layout: 2 columns on desktop (`primary flow` + `status/context`), 1 column on mobile.
+- [x] Page uses shared distill shell nav (Dashboard active).
+- [x] Layout: 2 columns on desktop (`primary flow` + `status/context`), 1 column on mobile.
 - [ ] "Select import batch" card supports multi-select (checkboxes or multi-select list):
   - When 1 batch selected: behaves identically to current single-batch flow.
   - When 2+ batches selected:
@@ -109,7 +109,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
       If any batch lacks classification, show per-batch warning.
   - Each batch card shows: filename, source, coverage, timezone, message/day counts.
 - [ ] Create-run card shows "{N} batches selected" with expandable list when multi-batch.
-- [ ] Classification card shows:
+- [x] Classification card shows:
   - current mode, label spec, status badge
   - processed/total progress and percent when running
   - last run timestamp
@@ -117,8 +117,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Create-run card shows frozen inputs with clear dependency states:
   - disabled reason text when blocked
   - next required action with direct link/button.
-- [ ] Latest/last run summary card shows run status, progress bar, and "View Run" CTA.
-- [ ] Empty states include explicit next action links.
+- [x] Latest/last run summary card shows run status, progress bar, and "View Run" CTA.
+- [x] Empty states include explicit next action links.
 - [ ] No auto updates unless user enabled foreground polling for visible progress.
 
 ## 4.2 `/distill/search`
@@ -127,16 +127,16 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - Fast triage across raw atoms and outputs with minimal context switching.
 
 ### Requirements
-- [ ] Search bar + scope controls remain visible at top while scanning results.
-- [ ] Scope change does not silently discard user context; show explicit re-run cue.
-- [ ] Result card hierarchy is consistent:
+- [x] Search bar + scope controls remain visible at top while scanning results.
+- [x] Scope change does not silently discard user context; show explicit re-run cue.
+- [x] Result card hierarchy is consistent:
   - type badge
   - source/day/stage metadata
   - snippet with highlights
   - destination CTA.
-- [ ] Show result count + whether more pages are available.
-- [ ] Error block includes retry action.
-- [ ] Empty state includes query + scope and one next action suggestion.
+- [x] Show result count + whether more pages are available.
+- [x] Error block includes retry action.
+- [x] Empty state includes query + scope and one next action suggestion.
 
 ## 4.3 `/distill/import/inspect`
 
@@ -144,13 +144,13 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - Inspect imported atoms by day/source quickly and with strong orientation.
 
 ### Requirements
-- [ ] Batch selection state is explicit and URL-shareable.
-- [ ] Day list + atom panel support clear active state and count visibility.
-- [ ] Top context bar includes: batch filename, source, coverage, selected day, source filter.
-- [ ] Source filter has clear/reset affordance.
-- [ ] Atom cards maintain compact metadata row (time, role, source, category/confidence).
-- [ ] Empty day/empty filter states include a recoverable next step.
-- [ ] Keep manual navigation links to Dashboard and Search visible.
+- [x] Batch selection state is explicit and URL-shareable.
+- [x] Day list + atom panel support clear active state and count visibility.
+- [x] Top context bar includes: batch filename, source, coverage, selected day, source filter.
+- [x] Source filter has clear/reset affordance.
+- [x] Atom cards maintain compact metadata row (time, role, source, category/confidence).
+- [x] Empty day/empty filter states include a recoverable next step.
+- [x] Keep manual navigation links to Dashboard and Search visible.
 
 ## 4.4 `/distill/runs/:runId`
 
@@ -158,15 +158,15 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - Operate and diagnose a run with confidence and low cognitive load.
 
 ### Requirements
-- [ ] Top status rail includes run status badge, progress counters, and primary controls.
-- [ ] Tick, reset, resume/cancel style controls are grouped and clearly state side effects.
-- [ ] Last classify stats card includes status, processed/total, percent, error summary, refresh.
-- [ ] Frozen config remains visible but collapsible after first view.
+- [x] Top status rail includes run status badge, progress counters, and primary controls.
+- [x] Tick, reset, resume/cancel style controls are grouped and clearly state side effects.
+- [x] Last classify stats card includes status, processed/total, percent, error summary, refresh.
+- [x] Frozen config remains visible but collapsible after first view.
   - Multi-batch runs: Run Info section shows list of batch IDs/filenames instead of single "Import Batch" line.
-- [ ] Jobs table defaults to compact rows; heavy inspectors are progressive disclosure.
+- [x] Jobs table defaults to compact rows; heavy inspectors are progressive disclosure.
 - [ ] Error copy includes code + human-readable action guidance.
-- [ ] All controls remain 1:1 with explicit API actions.
-- [ ] Auto-run controls (foreground tick loop per SPEC §7.4.2):
+- [x] All controls remain 1:1 with explicit API actions.
+- [x] Auto-run controls (foreground tick loop per SPEC §7.4.2):
   - "Start Auto-run" button visible when run is non-terminal and auto-run is not active.
   - "Stop Auto-run" button visible when auto-run is active.
   - While auto-run is active, manual "Tick" button is disabled OR guarded to prevent overlap (either disable or serialize behind the same loop).
@@ -211,30 +211,30 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ## 6) Long-Running Operations UX
 
 ### Classification progress
-- [ ] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error).
-- [ ] Show processed/total and percent whenever `status=running`.
-- [ ] Show latest checkpoint timestamp (`updatedAt` or equivalent) when available.
-- [ ] Expose manual `Refresh` everywhere progress is shown.
+- [x] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error).
+- [x] Show processed/total and percent whenever `status=running`.
+- [x] Show latest checkpoint timestamp (`updatedAt` or equivalent) when available.
+- [x] Expose manual `Refresh` everywhere progress is shown.
 
 ### Run progress
-- [ ] Show queued/running/succeeded/failed/cancelled counters and overall completion percent.
-- [ ] Tick actions must remain explicit user actions.
+- [x] Show queued/running/succeeded/failed/cancelled counters and overall completion percent.
+- [x] Tick actions must remain explicit user actions.
 
 ### Foreground polling policy (optional, page-open only)
-- [ ] Poll only read endpoints for progress/status.
+- [x] Poll only read endpoints for progress/status.
 - [ ] Start polling only when page is visible and operation is non-terminal.
-- [ ] Use `setTimeout` + `AbortController`, abort previous request before next tick.
+- [x] Use `setTimeout` + `AbortController`, abort previous request before next tick.
 - [ ] Stop on unmount, on terminal status, or when user disables auto-refresh.
 - [ ] Interval: 750–1500 ms (or exponential backoff); no concurrent requests. *(Aligned with SPEC §4.6; code uses 1 000 ms.)*
 
 ### Run auto-run (foreground tick loop)
-- [ ] "Start Auto-run" / "Stop Auto-run" toggle in run detail controls.
-- [ ] Auto-run state indicator visible while active ("Auto-running...").
-- [ ] While auto-run is active, manual "Tick" button is disabled OR guarded to prevent overlap.
-- [ ] Sequential POST /tick calls with maxJobs=1 (no overlap).
-- [ ] Stops on unmount, terminal status, or first tick error.
-- [ ] On error: stop, show error, allow manual Tick or restart auto-run.
-- [ ] Uses `setTimeout` + `AbortController` (same lifecycle pattern as read-only polling).
+- [x] "Start Auto-run" / "Stop Auto-run" toggle in run detail controls.
+- [x] Auto-run state indicator visible while active ("Auto-running...").
+- [x] While auto-run is active, manual "Tick" button is disabled OR guarded to prevent overlap.
+- [x] Sequential POST /tick calls with maxJobs=1 (no overlap).
+- [x] Stops on unmount, terminal status, or first tick error.
+- [x] On error: stop, show error, allow manual Tick or restart auto-run.
+- [x] Uses `setTimeout` + `AbortController` (same lifecycle pattern as read-only polling).
 
 ---
 
