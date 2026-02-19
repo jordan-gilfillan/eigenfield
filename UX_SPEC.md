@@ -312,3 +312,41 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - Add reusable foreground polling hook (read-only status endpoints, abort-safe lifecycle).
 - Wire only where explicitly enabled in UI.
 - **Status**: Done (AUD-039, AUD-040)
+
+---
+
+## 9) Demo Wizard (EPIC-104, Non-binding)
+
+This section defines a UX roadmap for a guided single-page wizard intended for invite-only demos. It does not change current `/distill/*` contract behavior. Detailed design and AUD slicing live in `UX_DEMO_SPEC.md`.
+
+## 9.1 Demo flow summary
+
+Planned route:
+- `/demo` (single page with 4 steps)
+
+Planned step labels:
+- `1. Import Conversations`
+- `2. Classify Messages`
+- `3. Summarize Days`
+- `4. Use Distilled Output`
+
+Step completion expectations:
+- Import completes after successful import summary response.
+- Classify completes at terminal classify status `succeeded`.
+- Summarize completes when run reaches terminal success path and outputs are available.
+- Use completes when a rendered output is opened and export/advanced actions are available.
+
+## 9.2 Defaults and safety requirements
+- Dry-run mode is the default for classify/summarize.
+- Safe spend caps are visible and explicit before real-mode calls.
+- Error messages must be actionable and must not include raw imported journal content.
+- No hidden retries, no hidden writes, and no background jobs.
+
+## 9.3 Information architecture direction
+- `/demo` becomes the default guided entry for invited demo users.
+- Existing `/distill/*` pages remain available as advanced tooling.
+- Advanced includes dashboard controls, inspector, search, studio, and run diagnostics routes.
+
+## 9.4 Implementation slicing
+- Proposed sequence: `AUD-102` through `AUD-111`.
+- Each slice includes goal, touch set, acceptance checks, and explicit stop rules in `UX_DEMO_SPEC.md`.
