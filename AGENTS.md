@@ -2,9 +2,11 @@
 
 This file defines repo-local operating instructions for coding agents.
 If guidance conflicts, prioritize in this order:
-1. Direct user request
+1. Direct user request (only when **explicit**; do not infer intent)
 2. This file
 3. Other repo docs
+
+Note: General phrases like "let's merge it" are **not** explicit instructions to bypass PR-first. Unless the user explicitly says "merge directly without a PR", follow PR-first.
 
 ## Project Context
 - App: `journal-distiller` (Next.js + Prisma + PostgreSQL).
@@ -43,7 +45,8 @@ STOP and ask the user (or report) before proceeding if any of the following are 
 3. Implement the smallest viable change.
 4. Add/update tests for any behavior change.
 5. Run the required validation commands.
-6. Update `REMEDIATION.md` status + resolution only when all acceptance checks pass.
+6. Open a PR (or provide compare link) for review/merge unless the user explicitly requests a direct merge.
+7. Update `REMEDIATION.md` status + resolution only when all acceptance checks pass.
 
 Work is **foreground / user-initiated only**. Do not add background scheduling, cron, or automatic jobs unless the user explicitly requests it and SPEC is updated accordingly.
 
@@ -72,7 +75,10 @@ When creating a new `AUD-###` entry in `REMEDIATION.md`, keep it short and testa
 
 ## Git Hygiene
 - Before edits: check branch and working tree status.
-- Use PR-first for changes intended to land on master (including docs-only). If `gh` is available and authenticated, open a PR; otherwise provide the compare link.
+- PR-first is the default for any change intended to land on `master` (including docs-only):
+  - Open a PR when possible (use `gh` if available/authenticated).
+  - If `gh` is unavailable, provide a GitHub compare link (or PR creation link) for the branch.
+  - Only merge directly if the user **explicitly** requests: "merge directly" / "no PR".
 - Keep `master` green: do not merge if lint/tsc/build/vitest fail.
 - Use a dedicated branch per AUD: `fix/AUD-###-short-slug`.
 - Do not revert unrelated local changes.
