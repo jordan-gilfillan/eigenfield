@@ -15,6 +15,7 @@ import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
 import { requireField } from '@/lib/route-validate'
 
 interface ClassifyRequest {
+  classifyRunId?: string
   importBatchId: string
   model: string
   promptVersionId: string
@@ -37,8 +38,15 @@ export async function POST(request: NextRequest) {
       return errors.invalidInput('mode must be "stub" or "real"')
     }
 
+    if (body.classifyRunId !== undefined) {
+      if (typeof body.classifyRunId !== 'string' || body.classifyRunId.trim().length === 0) {
+        return errors.invalidInput('classifyRunId must be a non-empty string')
+      }
+    }
+
     // Classify the batch
     const result = await classifyBatch({
+      ...(body.classifyRunId ? { classifyRunId: body.classifyRunId.trim() } : {}),
       importBatchId: body.importBatchId!,
       model: body.model!,
       promptVersionId: body.promptVersionId!,

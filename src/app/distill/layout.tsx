@@ -39,6 +39,15 @@ export default function DistillLayout({
           >
             Home
           </Link>
+          <Link
+            href="/demo"
+            className="text-sm font-medium text-blue-700 hover:text-blue-800 mr-6"
+          >
+            Guided Demo
+          </Link>
+          <span className="mr-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+            Advanced
+          </span>
           <div className="flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
               const isActive = activeHref === item.href

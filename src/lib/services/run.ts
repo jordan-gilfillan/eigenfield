@@ -9,7 +9,7 @@
 import { prisma } from '../db'
 import type { FilterMode, Source, Category } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
-import type { PricingSnapshot } from '../llm'
+import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import { parseRunConfig } from '../types/run-config'
 import { formatDate } from '../date-utils'
 import {
@@ -60,6 +60,8 @@ export interface CreateRunOptions {
   }
   /** Optional max input tokens (defaults to 12000) */
   maxInputTokens?: number
+  /** Optional frozen budget policy for summarize/tick runtime. */
+  budgetPolicy?: BudgetPolicy
 }
 
 export interface CreateRunResult {
@@ -81,6 +83,7 @@ export interface CreateRunResult {
     maxInputTokens: number
     pricingSnapshot?: PricingSnapshot
     importBatchIds?: string[]
+    budgetPolicy?: BudgetPolicy
   }
   jobCount: number
   eligibleDays: string[]
@@ -245,6 +248,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     maxInputTokens,
     pricingSnapshot: { ...pricingSnapshot },
     importBatchIds,
+    ...(options.budgetPolicy ? { budgetPolicy: { ...options.budgetPolicy } } : {}),
   }
 
   // Convert sources to uppercase for DB
@@ -301,6 +305,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       maxInputTokens: configJson.maxInputTokens,
       pricingSnapshot: configJson.pricingSnapshot,
       importBatchIds: configJson.importBatchIds,
+      budgetPolicy: configJson.budgetPolicy,
     },
     jobCount: eligibleDays.length,
     eligibleDays,

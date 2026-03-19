@@ -6,6 +6,7 @@
  */
 
 import type { PricingSnapshot } from '../llm/pricing'
+import type { BudgetPolicy } from '../llm/budget'
 
 export interface RunConfig {
   promptVersionIds: { summarize: string }
@@ -15,13 +16,14 @@ export interface RunConfig {
   maxInputTokens: number
   pricingSnapshot?: PricingSnapshot
   importBatchIds?: string[]
+  budgetPolicy?: BudgetPolicy
 }
 
 /**
  * Validates and narrows an unknown JSON value to RunConfig.
  *
  * Validates structural presence and basic types for the 5 required fields.
- * Optional fields (pricingSnapshot, importBatchIds) are passed through when present.
+ * Optional fields (pricingSnapshot, importBatchIds, budgetPolicy) are passed through when present.
  *
  * @throws Error with "Invalid RunConfig:" prefix on validation failure
  */
@@ -76,6 +78,19 @@ export function parseRunConfig(json: unknown): RunConfig {
   // maxInputTokens
   if (typeof obj.maxInputTokens !== 'number') {
     throw new Error('Invalid RunConfig: missing or invalid maxInputTokens (expected number)')
+  }
+
+  if (obj.budgetPolicy !== undefined) {
+    if (!obj.budgetPolicy || typeof obj.budgetPolicy !== 'object' || Array.isArray(obj.budgetPolicy)) {
+      throw new Error('Invalid RunConfig: budgetPolicy must be an object when present')
+    }
+    const budget = obj.budgetPolicy as Record<string, unknown>
+    if (typeof budget.maxUsdPerRun !== 'number' || !Number.isFinite(budget.maxUsdPerRun) || budget.maxUsdPerRun <= 0) {
+      throw new Error('Invalid RunConfig: budgetPolicy.maxUsdPerRun must be a positive number')
+    }
+    if (typeof budget.maxUsdPerDay !== 'number' || !Number.isFinite(budget.maxUsdPerDay) || budget.maxUsdPerDay <= 0) {
+      throw new Error('Invalid RunConfig: budgetPolicy.maxUsdPerDay must be a positive number')
+    }
   }
 
   return json as RunConfig

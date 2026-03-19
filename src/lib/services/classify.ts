@@ -65,6 +65,8 @@ const CHECKPOINT_ATOM_INTERVAL = 100
 const CHECKPOINT_MS_INTERVAL = 5000
 
 export interface ClassifyOptions {
+  /** Optional client-supplied classify run ID for foreground polling. */
+  classifyRunId?: string
   /** The import batch to classify */
   importBatchId: string
   /** Model string (for stub, must be "stub_v1") */
@@ -425,7 +427,7 @@ async function maybeCheckpointClassifyRun(
  * @throws LlmBadOutputError if LLM returns unparseable output
  */
 export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyResult> {
-  const { importBatchId, model, promptVersionId, mode } = options
+  const { classifyRunId, importBatchId, model, promptVersionId, mode } = options
 
   // Verify import batch exists
   const importBatch = await prisma.importBatch.findUnique({
@@ -493,6 +495,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
 
   const classifyRun = await prisma.classifyRun.create({
     data: {
+      ...(classifyRunId ? { id: classifyRunId } : {}),
       importBatchId,
       model,
       promptVersionId,

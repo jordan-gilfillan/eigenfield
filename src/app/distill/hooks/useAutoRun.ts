@@ -19,6 +19,8 @@ export interface AutoRunError {
 export interface AutoRunLoopOptions {
   /** URL to POST tick to. */
   url: string
+  /** Optional JSON body for each POST. Defaults to `{}`. */
+  requestBody?: unknown
   /** Called with parsed tick response on each successful tick. */
   onTick: (data: unknown) => void
   /** Return true if the run reached terminal status (stops the loop). */
@@ -51,6 +53,7 @@ export interface AutoRunLoopOptions {
 export function startAutoRunLoop(options: AutoRunLoopOptions): { stop: () => void } {
   const {
     url,
+    requestBody,
     onTick,
     isTerminal,
     onError,
@@ -78,7 +81,7 @@ export function startAutoRunLoop(options: AutoRunLoopOptions): { stop: () => voi
       const res = await fetchFn(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(requestBody ?? {}),
         signal: ac.signal,
       })
       if (stopped) return

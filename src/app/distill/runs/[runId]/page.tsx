@@ -17,6 +17,7 @@ interface RunConfig {
   filterProfile: { name: string; mode: string; categories: string[] }
   timezone: string
   maxInputTokens: number
+  budgetPolicy?: { maxUsdPerRun: number; maxUsdPerDay: number }
 }
 
 interface RunProgress {
@@ -810,6 +811,17 @@ function FrozenConfigBlock({ config }: { config: RunConfig }) {
       <ConfigSection title="Max Input Tokens">
         <span className="text-sm">{config.maxInputTokens.toLocaleString()}</span>
       </ConfigSection>
+
+      {config.budgetPolicy && (
+        <ConfigSection title="Budget Policy">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <dt className="text-gray-600">maxUsdPerRun:</dt>
+            <dd>${config.budgetPolicy.maxUsdPerRun.toFixed(2)}</dd>
+            <dt className="text-gray-600">maxUsdPerDay:</dt>
+            <dd>${config.budgetPolicy.maxUsdPerDay.toFixed(2)}</dd>
+          </dl>
+        </ConfigSection>
+      )}
     </div>
   )
 }
@@ -1272,4 +1284,3 @@ function JobRow({
     </>
   )
 }
-

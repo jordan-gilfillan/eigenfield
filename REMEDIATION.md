@@ -24,10 +24,10 @@ Each entry has:
 > **Rule:** This section must list only non-`Done` entries. If there are none, state that explicitly.
 
 - **P0 (Red build / integrity):** _none listed_
-- **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency)
-- **P2 (Docs/UX):** _none listed_
+- **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency); AUD-112 — Run detail export default path duplicates export root (`Not started`); AUD-113 — Search output deep link ignores requested day context (`Not started`); AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
+- **P2 (Blocked follow-ons):** AUD-110 → AUD-111 (`Blocked` until a fresh auth/tenant planning checkpoint after AUD-109)
 
-_Last refreshed: 2026-02-19_
+_Last refreshed: 2026-03-19_
 
 ## Ledger size policy
 
@@ -44,7 +44,14 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 ## Open entries
 
 ### Active sequence (execute in order)
+- AUD-112 — Run detail export default path duplicates export root (`Not started`)
+- AUD-113 — Search output deep link ignores requested day context (`Not started`)
+- AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
 - AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`)
+
+### Blocked follow-ons
+- AUD-110 — Invite-only auth gate + tenant-aware session context (`Blocked`)
+- AUD-111 — Tenant isolation enforcement + Delete-my-data UX (`Blocked`)
 
 ---
 
@@ -60,7 +67,9 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 - _none_
 
 ### Bucket B+ — Contract alignment (P1)
-- _none_
+- AUD-112
+- AUD-113
+- AUD-114
 
 ### Bucket E — Git Export pipeline (P1)
 - _none_
@@ -72,7 +81,8 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 - _none_
 
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
-- _none_
+- AUD-110
+- AUD-111
 
 ---
 
@@ -181,6 +191,15 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - AUD-097 — Restore lint + tsc green on master (quality gate regression) → moved to REMEDIATION_ARCHIVE.md
 - AUD-098 — Re-enable Next.js build-time lint/type gates → moved to REMEDIATION_ARCHIVE.md
 - AUD-099 — Migrate from `next lint` to ESLint CLI and document SWC constraint → moved to REMEDIATION_ARCHIVE.md
+- AUD-101 — EPIC-104 ledger canonicalization + stale volatile doc cleanup → moved to REMEDIATION_ARCHIVE.md
+- AUD-102 — Demo wizard spec lock (docs-only) → moved to REMEDIATION_ARCHIVE.md
+- AUD-103 — `/demo` route shell and stepper scaffold → moved to REMEDIATION_ARCHIVE.md
+- AUD-104 — Import step wiring → moved to REMEDIATION_ARCHIVE.md
+- AUD-105 — Classify step wiring with dry-run default → moved to REMEDIATION_ARCHIVE.md
+- AUD-106 — Summarize configuration defaults + safe caps UX → moved to REMEDIATION_ARCHIVE.md
+- AUD-107 — Foreground summarize execution loop → moved to REMEDIATION_ARCHIVE.md
+- AUD-108 — Use step output and export handoff → moved to REMEDIATION_ARCHIVE.md
+- AUD-109 — Advanced IA split and navigation polish → moved to REMEDIATION_ARCHIVE.md
 ### AUD-100 — Track upstream Next/SWC mismatch warning
 - **Source**: Codex follow-up 2026-02-18
 - **Severity**: LOW
@@ -193,11 +212,70 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Keep build gates green while warning remains
 - **Status**: Blocked
 
----
-
-
 - AUD-096 — Multi-batch ordering must be deterministic in API responses → moved to REMEDIATION_ARCHIVE.md
 - AUD-095 — Input validation: regex-only dates + unchecked timezone/dayDate can produce 500s → moved to REMEDIATION_ARCHIVE.md
+
+### AUD-110 — Invite-only auth gate + tenant-aware session context
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Blocked
+- **Goal**: Add invite-only gating and session-level tenant resolution for `/demo`, `/distill/*`, and distill APIs.
+- **Touch set**: auth/middleware/session modules, `/demo` + `/distill/*` guards, API auth checks, tests.
+- **Acceptance**:
+  - Uninvited or unauthenticated users cannot access `/demo` or `/distill/*`.
+  - Invited users resolve to session `{ userId, tenantId }`.
+  - APIs reject missing or mismatched tenant context with safe generic errors.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Blocked pending a fresh auth/tenant planning checkpoint after AUD-109. Do not leak whether a user or tenant exists.
+
+### AUD-111 — Tenant isolation enforcement + Delete-my-data UX
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Blocked
+- **Goal**: Enforce tenant data boundaries across distill-domain records and ship a foreground delete-my-data UX.
+- **Touch set**: `prisma/schema.prisma`, migrations, tenant-scoped service queries, delete UX, tests, docs.
+- **Acceptance**:
+  - All distill-domain records are tenant-scoped and queried by tenant.
+  - Delete-my-data requires explicit confirmation and removes tenant-owned distill data.
+  - Post-delete access returns safe non-leaking errors.
+  - `npm run db:migrate`, `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Blocked pending the auth/tenant planning checkpoint after AUD-109. No background purge jobs.
+
+### AUD-112 — Run detail export default path duplicates export root
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Not started
+- **Goal**: Align the run-detail export default path with the export writer so the default writes under `exports/<runId>` exactly once.
+- **Touch set**: `src/app/distill/runs/[runId]/page.tsx`, `src/lib/export/writer.ts`, targeted tests if needed.
+- **Acceptance**:
+  - Default export path no longer resolves to nested `exports/exports/<runId>`.
+  - Run-detail export UI and writer behavior agree on the default path contract.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Keep path-validation safeguards from AUD-093 intact.
+
+### AUD-113 — Search output deep link ignores requested day context
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Not started
+- **Goal**: Make search output result links preserve the requested day context when navigating to run detail.
+- **Touch set**: `src/app/distill/search/page.tsx`, `src/app/distill/runs/[runId]/page.tsx`, targeted tests.
+- **Acceptance**:
+  - Output search links that include `?day=YYYY-MM-DD` focus or reveal the requested day on the run detail page.
+  - The current search CTA is no longer misleading.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not widen scope into general run-detail layout refactors.
+
+### AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify”
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Not started
+- **Goal**: Make dashboard and run-detail classify progress/status read from the specific classify run that was launched, rather than the latest classify row for a batch/spec pair.
+- **Touch set**: classify progress UI surfaces, `src/app/api/distill/import-batches/[id]/last-classify/route.ts` only if needed, targeted tests.
+- **Acceptance**:
+  - Dashboard and run detail can display progress/status for the specific `classifyRunId` started by the user.
+  - Multi-batch runs do not collapse to the first batch when showing classify status.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Prefer the existing `GET /api/distill/classify-runs/:id` contract over adding new polling semantics.
 ## Notes
 
 - When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.

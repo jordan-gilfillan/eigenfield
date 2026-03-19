@@ -18,7 +18,7 @@ You are assisting on Journal Distiller (Journal Distillation) v0.3. The goal is 
 - Deterministic segmentation verified: stable segment IDs, metadata in Output.outputJson.meta, greedy packing.
 - Run controls verified: cancel is terminal, resume requeues only FAILED jobs, reset allows reprocessing specific days; idempotency tests added.
 - API contract audit done: error conventions per SPEC 7.8; idempotency gaps fixed; terminal status rule enforced.
-- **Last verified test count: 710 passing (2026-02-12).** Run `npx vitest run` to reproduce. *(Canonical — no other doc should contain test counts.)*
+- **Last verified test count: 1001 passing (2026-03-19).** Run `npx vitest run` to reproduce. *(Canonical — no other doc should contain test counts.)*
 - Phase 5 UI Shell complete:
   - PR-5.1 complete: run detail page (`/distill/runs/:runId`) + frozen config display
   - PR-5.2 complete: job table + per-day reset control on run detail page
@@ -155,7 +155,7 @@ Before starting any work session or PR:
   - `git log --oneline -5`
 - Do NOT create/switch branches unless explicitly requested by the user.
 - For PR work, assume a new branch is desired unless the user says otherwise.
-  - Branch naming: `phase<PHASE>/<short-topic>-pr<NN>` (e.g., `phase6/search-ui-pr62`).
+  - Branch naming: `fix/AUD-###-short-slug` (for example, `fix/AUD-103-demo-shell`).
 - Commits:
   - Stage only files relevant to the PR.
   - Ensure working tree is clean after commit.

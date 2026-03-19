@@ -4,6 +4,7 @@
 
 ### In scope (this doc)
 - UX behavior, information architecture, interaction rules, and visual consistency for:
+  - `/demo`
   - `/distill` (dashboard)
   - `/distill/search`
   - `/distill/import/inspect`
@@ -315,16 +316,16 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 
 ---
 
-## 9) Demo Wizard (EPIC-104, Non-binding)
+## 9) Demo Wizard (EPIC-104)
 
-This section defines a UX roadmap for a guided single-page wizard intended for invite-only demos. It does not change current `/distill/*` contract behavior. Detailed design and AUD slicing live in `UX_DEMO_SPEC.md`.
+This section defines the current guided single-page wizard shipped at `/demo`. It preserves current `/distill/*` behavior as advanced tooling. Detailed design and AUD slicing live in `UX_DEMO_SPEC.md`.
 
 ## 9.1 Demo flow summary
 
-Planned route:
+Current route:
 - `/demo` (single page with 4 steps)
 
-Planned step labels:
+Current step labels:
 - `1. Import Conversations`
 - `2. Classify Messages`
 - `3. Summarize Days`
@@ -344,9 +345,11 @@ Step completion expectations:
 
 ## 9.3 Information architecture direction
 - `/demo` becomes the default guided entry for invited demo users.
+- Home page and distill shell surface a Guided Demo entry while preserving existing deep links.
 - Existing `/distill/*` pages remain available as advanced tooling.
 - Advanced includes dashboard controls, inspector, search, studio, and run diagnostics routes.
 
-## 9.4 Implementation slicing
-- Proposed sequence: `AUD-102` through `AUD-111`.
+## 9.4 Implementation status
+- Delivered: `AUD-102` through `AUD-109`
+- Blocked follow-ons: `AUD-110`, `AUD-111`
 - Each slice includes goal, touch set, acceptance checks, and explicit stop rules in `UX_DEMO_SPEC.md`.

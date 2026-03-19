@@ -247,6 +247,42 @@ describe('run service', () => {
       expect(result.config.maxInputTokens).toBe(50000)
     })
 
+    it('freezes budgetPolicy into the response and persisted config', async () => {
+      const result = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'gpt-4o',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+        budgetPolicy: {
+          maxUsdPerRun: 5,
+          maxUsdPerDay: 20,
+        },
+      })
+
+      expect(result.config.budgetPolicy).toEqual({
+        maxUsdPerRun: 5,
+        maxUsdPerDay: 20,
+      })
+
+      const run = await prisma.run.findUnique({
+        where: { id: result.id },
+        select: { configJson: true },
+      })
+      const config = run!.configJson as {
+        budgetPolicy?: { maxUsdPerRun: number; maxUsdPerDay: number }
+      }
+      expect(config.budgetPolicy).toEqual({
+        maxUsdPerRun: 5,
+        maxUsdPerDay: 20,
+      })
+    })
+
     it('throws error if import batch not found', async () => {
       await expect(
         createRun({

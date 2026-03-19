@@ -182,6 +182,44 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(typeof body.classifyRunId).toBe('string')
       expect(body.importBatchId).toBe(importResult.importBatch.id)
     })
+
+    it('POST /classify route honors a client-supplied classifyRunId', async () => {
+      const content = createTestExport([
+        { id: 'msg-prog-route-client-id-1', role: 'user', text: 'route test with client id', timestamp: 1705316605, conversationId: 'conv-prog-route-client-id' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'progress-route-client-id.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `client-run-${Date.now()}`
+      const req = new NextRequest('http://localhost/api/distill/classify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          classifyRunId,
+          importBatchId: importResult.importBatch.id,
+          model: 'stub_v1',
+          promptVersionId: stubPromptVersionId,
+          mode: 'stub',
+        }),
+      })
+
+      const res = await postClassify(req)
+      expect(res.status).toBe(200)
+
+      const body = await res.json()
+      expect(body.classifyRunId).toBe(classifyRunId)
+
+      const classifyRun = await prisma.classifyRun.findUnique({
+        where: { id: classifyRunId },
+      })
+      expect(classifyRun).not.toBeNull()
+      expect(classifyRun!.importBatchId).toBe(importResult.importBatch.id)
+    })
   })
 
   describe('GET /classify-runs/:id', () => {

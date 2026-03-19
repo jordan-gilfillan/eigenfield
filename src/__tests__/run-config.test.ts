@@ -44,6 +44,21 @@ describe('parseRunConfig', () => {
     expect(result.importBatchIds).toEqual(['batch-1', 'batch-2'])
   })
 
+  it('passes through budgetPolicy when present', () => {
+    const input = {
+      ...VALID_CONFIG,
+      budgetPolicy: {
+        maxUsdPerRun: 5,
+        maxUsdPerDay: 20,
+      },
+    }
+    const result = parseRunConfig(input)
+    expect(result.budgetPolicy).toEqual({
+      maxUsdPerRun: 5,
+      maxUsdPerDay: 20,
+    })
+  })
+
   it('returns RunConfig without optional fields when absent', () => {
     const result = parseRunConfig(VALID_CONFIG)
     expect(result.pricingSnapshot).toBeUndefined()
@@ -100,6 +115,22 @@ describe('parseRunConfig', () => {
         filterProfileSnapshot: { name: 'x', mode: 'y', categories: 'notarray' },
       }
       expect(() => parseRunConfig(input)).toThrow('Invalid RunConfig: filterProfileSnapshot.categories must be an array')
+    })
+
+    it('throws when budgetPolicy.maxUsdPerRun is missing', () => {
+      const input = {
+        ...VALID_CONFIG,
+        budgetPolicy: { maxUsdPerDay: 20 },
+      }
+      expect(() => parseRunConfig(input)).toThrow('Invalid RunConfig: budgetPolicy.maxUsdPerRun must be a positive number')
+    })
+
+    it('throws when budgetPolicy.maxUsdPerDay is not positive', () => {
+      const input = {
+        ...VALID_CONFIG,
+        budgetPolicy: { maxUsdPerRun: 5, maxUsdPerDay: 0 },
+      }
+      expect(() => parseRunConfig(input)).toThrow('Invalid RunConfig: budgetPolicy.maxUsdPerDay must be a positive number')
     })
   })
 })

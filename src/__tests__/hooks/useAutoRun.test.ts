@@ -140,6 +140,29 @@ describe('startAutoRunLoop', () => {
     loop.stop()
   })
 
+  it('sends a custom JSON body when requestBody is provided', async () => {
+    const fetchFn = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(okTickResponse('running'))
+
+    const loop = startAutoRunLoop({
+      url: '/api/tick',
+      requestBody: { maxJobs: 1 },
+      onTick: vi.fn(),
+      isTerminal: () => false,
+      onError: vi.fn(),
+      onStopped: vi.fn(),
+      delayMs: 50,
+      fetchFn,
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+    expect(fetchFn).toHaveBeenCalledWith('/api/tick', expect.objectContaining({
+      body: JSON.stringify({ maxJobs: 1 }),
+    }))
+
+    loop.stop()
+  })
+
   // 4) Stop on terminal status
   it('stops when isTerminal returns true', async () => {
     const fetchFn = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()

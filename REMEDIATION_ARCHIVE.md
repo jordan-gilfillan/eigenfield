@@ -1801,3 +1801,136 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
 ---
 
 
+## Moved on 2026-03-19
+
+### AUD-101 — EPIC-104 ledger canonicalization + stale volatile doc cleanup
+- **Source**: EPIC-104 resume planning
+- **Severity**: MEDIUM
+- **Type**: Doc drift
+- **Decision**: Fix docs
+- **Acceptance**:
+  - `REMEDIATION.md` remains the single open-item ledger and contains open entries for the EPIC-104 demo wave.
+  - `AUD-102` is recorded as completed history in the archive and stubbed in the open ledger.
+  - `AUD-103` through `AUD-109` are seeded as open work; `AUD-110` and `AUD-111` are blocked pending a fresh auth/tenant checkpoint; `AUD-112` through `AUD-114` are tracked as deferred non-demo fixes.
+  - `Current top priorities` reflects the active demo-wave sequence and blocked follow-ons.
+  - `CONTEXT_PACK.md` no longer carries stale branch-naming guidance or the old 710-test claim.
+- **Status**: Done
+- **Resolution**: Canonicalized the open ledger for EPIC-104. `REMEDIATION.md` now tracks the guided demo wave (`AUD-103` through `AUD-109`), blocked auth/tenant follow-ons (`AUD-110`, `AUD-111`), and deferred non-demo audit items (`AUD-112`, `AUD-113`, `AUD-114`) while keeping `AUD-100` visible as the known upstream blocker. Refreshed `Current top priorities`, added the required archive stubs, updated `CONTEXT_PACK.md` to the `fix/AUD-###-short-slug` branch convention, and refreshed the stale test-count note with a current 2026-03-19 baseline.
+
+
+### AUD-102 — Demo wizard spec lock (docs-only)
+- **Source**: UX demo spec planning
+- **Severity**: MEDIUM
+- **Type**: UX roadmap
+- **Decision**: Fix docs
+- **Acceptance**:
+  - Demo flow, IA, multi-tenant readiness, and AUD slices are documented and cross-referenced.
+  - No conflicts with `SPEC.md` invariants are introduced.
+- **Status**: Done
+- **Resolution**: Locked the docs-only EPIC-104 demo specification in `SPEC.md`, `UX_SPEC.md`, and `UX_DEMO_SPEC.md`. The guided `/demo` flow, advanced-tool split, future auth/tenant readiness, and the `AUD-102` through `AUD-111` slice plan are documented without introducing code changes or weakening determinism/spend-safety rules.
+
+
+### AUD-103 — `/demo` route shell and stepper scaffold
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Add a single-page wizard shell at `/demo` with 4 visible steps and status chips, without triggering any write or read API calls on initial load.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`; do not change backend contracts in this AUD.
+- **Acceptance**:
+  - `/demo` renders all four step labels in order.
+  - No API calls are triggered on initial page load.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not add hidden timers, background loops, route removals, or auto-triggered write actions.
+- **Resolution**: Added the guided `/demo` wizard shell with all four steps visible at once and status-driven progression. Initial page render is static: prompt versions, filter profiles, run detail, and output reads are deferred until the user explicitly advances into those parts of the flow. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-104 — Import step wiring
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 1 of `/demo` with explicit upload/import and success-state handoff into the rest of the wizard.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`, targeted tests; only touch `src/app/api/distill/import/route.ts` if a contract gap is uncovered.
+- **Acceptance**:
+  - Clicking `Import file` maps 1:1 to one `POST /api/distill/import`.
+  - Import success state shows summary fields and enables Step 2.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not auto-classify after import and do not surface raw imported message text in errors.
+- **Resolution**: Wired Step 1 to issue exactly one `POST /api/distill/import` per user action, persist the returned `importBatchId` and import summary in wizard state, and unlock the classify step only after an explicit success response. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-105 — Classify step wiring with dry-run default
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 2 classify action and progress UX using the returned `classifyRunId`, with dry-run/stub as the recommended default.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`, classify progress hooks/utilities, targeted tests.
+- **Acceptance**:
+  - Default mode is dry-run/stub and clearly labeled as recommended.
+  - Classify runs only after explicit button click.
+  - Progress polling reads only `GET /api/distill/classify-runs/:id` while the step is visible and non-terminal.
+  - Success state captures terminal `succeeded` and enables Step 3.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not use the “last classify” endpoint in the demo flow, and do not trigger writes from status polling.
+- **Resolution**: Implemented explicit classify in Step 2 with stub mode as the recommended default. The client now supplies a `classifyRunId` to `POST /api/distill/classify`, and the wizard polls only `GET /api/distill/classify-runs/:id` while the step is active so progress remains tied to the specific launched run. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-106 — Summarize configuration defaults + safe caps UX
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 3 configuration defaults with explicit, validated spend caps for real mode, and freeze those caps into run config.
+- **Touch set**: `src/app/demo/page.tsx`, `src/app/api/distill/runs/route.ts`, `src/lib/services/run.ts`, `src/lib/types/run-config.ts`, `src/lib/llm/config.ts`, `src/lib/services/tick.ts`, targeted tests.
+- **Acceptance**:
+  - Defaults are dry-run path, `professional-only`, union sources, and `maxInputTokens=12000`.
+  - Real mode reveals editable prefilled spend caps of `$5.00/run` and `$20.00/day` before submit.
+  - Blocking validation prevents run creation on invalid cap inputs.
+  - `POST /api/distill/runs` request/response and frozen `Run.configJson` carry `budgetPolicy.maxUsdPerRun` and `budgetPolicy.maxUsdPerDay`.
+  - Tick/runtime budget enforcement uses frozen run config when present, with env caps as fallback.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: No DB schema changes in this AUD, and real mode must not become the default.
+- **Resolution**: Added Step 3 defaults for the demo flow and extended run creation to accept and freeze `budgetPolicy.maxUsdPerRun` and `budgetPolicy.maxUsdPerDay` into `Run.configJson`. Tick/runtime enforcement now prefers the frozen per-run policy when present and falls back to env caps otherwise; real mode exposes validated `$5.00/run` and `$20.00/day` defaults without changing the stub default path. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-107 — Foreground summarize execution loop
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement explicit start/stop summarize execution in `/demo` using sequential foreground tick calls and visible completion/error state.
+- **Touch set**: `src/app/demo/page.tsx`, optional shared tick-loop hook(s), targeted tests.
+- **Acceptance**:
+  - `Start summarizing` is user-initiated and sends sequential `POST /api/distill/runs/:runId/tick` calls with `maxJobs=1`.
+  - The loop stops on terminal state, first error, unmount, or explicit user stop.
+  - Step 3 completion is visible and unlocks Step 4.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: No overlapping ticks, no auto-retry, and no background processing.
+- **Resolution**: Added an explicit start/stop summarize loop for the wizard using sequential foreground `POST /api/distill/runs/:runId/tick` requests with `maxJobs=1`. The loop stops on terminal state, first error, unmount, or user stop, and Step 4 unlocks only after visible completion. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-108 — Use step output and export handoff
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 4 output browsing and explicit export handoff in the wizard context.
+- **Touch set**: `src/app/demo/page.tsx`, optional output-viewer helpers/components, targeted tests.
+- **Acceptance**:
+  - The user can open at least one rendered day output from within the wizard.
+  - Export CTA is explicit and maps 1:1 to the current export endpoint.
+  - Advanced tool links are visible and preserve selected run context.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not auto-trigger export and do not require leaving the flow for basic success.
+- **Resolution**: Implemented Step 4 output browsing inside the wizard by fetching rendered day output for succeeded jobs and added an explicit export action that maps directly to the existing export endpoint. The step also preserves run context in links back to advanced tools without forcing the user to leave the flow for the basic happy path. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-109 — Advanced IA split and navigation polish
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make `/demo` the guided entry while preserving `/distill/*` as advanced tooling with stable deep links.
+- **Touch set**: demo/distill nav surfaces, route labels/copy, `UX_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/demo` is discoverable from the home page and/or navigation.
+  - Advanced tooling is explicitly grouped and keeps current `/distill/*` routes reachable.
+  - No existing route is removed or behaviorally regressed.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Avoid route churn that breaks deep links or introduces hidden write side effects.
+- **Resolution**: Reworked the home page and distill navigation so `/demo` is presented as the guided entry while `/distill/*` remains available as explicitly labeled advanced tooling. Existing advanced routes and deep links remain intact, and `UX_SPEC.md` now reflects the guided-vs-advanced split as current behavior rather than future-only roadmap text. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
