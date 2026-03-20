@@ -593,6 +593,9 @@ export default function RunDetailPage() {
             </button>
           </div>
           <div className="grid grid-cols-3 gap-4 text-sm text-blue-700">
+            <div className="col-span-3">
+              <span className="font-medium">Prompt:</span> {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
+            </div>
             <div>
               <span className="font-medium">Total Atoms:</span> {lastClassifyStats.stats.totalAtoms}
             </div>

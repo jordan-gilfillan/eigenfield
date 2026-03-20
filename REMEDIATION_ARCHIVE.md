@@ -1962,3 +1962,17 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Notes**: Do not widen this slice into full pause/resume semantics or schema changes.
 - **Resolution**: Added live classify control/status improvements without changing the `ClassifyRun.status` model. `GET /api/distill/classify-runs/:id` now exposes `checkpoint` and `control` metadata, `POST /api/distill/classify-runs/:id/stop` requests a foreground stop, and the classify loop honors that request after the current atom by persisting a terminal `USER_STOPPED` error while preserving partial labels. `/demo` Step 2 now explains skipped invalid model outputs, shows richer checkpoint feedback, offers an explicit stop button, and treats persisted classify status as the source of truth. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`71` files, `1008` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-117 — Canonical default classify prompt selection
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Pin default classify flows to the seeded `default-classifier` prompt instead of selecting whichever active classify prompt happens to sort first.
+- **Touch set**: classify prompt resolution service/route, `/demo`, advanced `/distill` classify defaults/status surfaces, run creation default `labelSpec`, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`.
+- **Acceptance**:
+  - Default classify resolution uses `default-classifier / classify_real_v1` for real mode and `default-classifier / classify_stub_v1` for stub mode.
+  - `/demo`, advanced `/distill`, and server-side omitted-`labelSpec` run creation all use the canonical default resolver.
+  - `GET /api/distill/prompt-versions?stage=classify&default=true&mode=real|stub` fails closed when the canonical prompt/version is missing.
+  - Classify status responses surface `promptName` and `promptVersionLabel`.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Added a shared canonical classify prompt resolver keyed to `Prompt.stage=CLASSIFY`, `Prompt.name=default-classifier`, and the seeded `classify_real_v1` / `classify_stub_v1` version labels. `/demo`, advanced `/distill`, and `createRun()` now use that resolver for implicit classify defaults, while the prompt-versions route exposes an explicit `default=true&mode=...` contract and fails closed with a configuration error instead of silently falling back to unrelated active prompts. Classify status/read surfaces now include prompt name/version metadata so the UI makes the active classifier explicit, and the affected tests were hardened against local env leakage so the dry-run validation path is stable on machines configured for real LLM usage. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1011` tests; build still includes the known `AUD-100` SWC warning).

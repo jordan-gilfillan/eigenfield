@@ -13,11 +13,13 @@ import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import { parseRunConfig } from '../types/run-config'
 import { formatDate } from '../date-utils'
 import {
+  ConfigurationError,
   InvalidInputError,
   NotFoundError,
   NoEligibleDaysError,
   ConflictError,
 } from '../errors'
+import { resolveDefaultClassifyPromptVersion } from './prompt-version-defaults'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -175,7 +177,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     },
   })
   if (!summarizePromptVersion) {
-    throw new InvalidInputError('No active summarize prompt version configured')
+    throw new ConfigurationError('No active summarize prompt version configured')
   }
 
   // 4. Resolve labelSpec: use provided or select default per SPEC §7.3
@@ -190,17 +192,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     }
     labelSpec = options.labelSpec
   } else {
-    // Default: active classify PromptVersion + default classifier model (stub_v1)
-    const activeClassifyVersion = await prisma.promptVersion.findFirst({
-      where: {
-        isActive: true,
-        prompt: { stage: 'CLASSIFY' },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    if (!activeClassifyVersion) {
-      throw new InvalidInputError('No active classify prompt version configured')
-    }
+    const activeClassifyVersion = await resolveDefaultClassifyPromptVersion('stub')
     labelSpec = {
       model: DEFAULT_CLASSIFY_MODEL,
       promptVersionId: activeClassifyVersion.id,

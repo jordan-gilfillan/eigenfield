@@ -17,6 +17,8 @@ export interface LastClassifyStats {
     tokensOut: number | null
     costUsd: number | null
     mode: string
+    promptVersionLabel: string
+    promptName: string
     errorJson: {
       code: string
       message: string

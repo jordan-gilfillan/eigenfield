@@ -48,6 +48,9 @@ describe('Classify progress + classify-runs endpoint', () => {
 
   beforeEach(async () => {
     process.env = { ...originalEnv }
+    delete process.env.LLM_MODE
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
     process.env.LLM_MIN_DELAY_MS = '0'
 
     const classifyPrompt = await prisma.prompt.upsert({
@@ -269,7 +272,12 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Verify shape
       expect(body.id).toBe(classifyResult.classifyRunId)
       expect(body.importBatchId).toBe(importResult.importBatch.id)
-      expect(body.labelSpec).toEqual({ model: 'stub_v1', promptVersionId: stubPromptVersionId })
+      expect(body.labelSpec).toEqual({
+        model: 'stub_v1',
+        promptVersionId: stubPromptVersionId,
+        promptVersionLabel: 'classify_stub_v1',
+        promptName: 'default-classifier',
+      })
       expect(body.mode).toBe('stub')
       expect(body.status).toBe('succeeded')
 

@@ -22,6 +22,18 @@ export async function GET(
 
     const classifyRun = await prisma.classifyRun.findUnique({
       where: { id },
+      include: {
+        promptVersion: {
+          select: {
+            versionLabel: true,
+            prompt: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     })
 
     if (!classifyRun) {
@@ -37,6 +49,8 @@ export async function GET(
       labelSpec: {
         model: classifyRun.model,
         promptVersionId: classifyRun.promptVersionId,
+        promptVersionLabel: classifyRun.promptVersion.versionLabel,
+        promptName: classifyRun.promptVersion.prompt.name,
       },
       mode: classifyRun.mode,
       status: classifyRun.status,

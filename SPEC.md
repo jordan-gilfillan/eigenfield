@@ -435,6 +435,10 @@ POST `/api/distill/classify`
 - `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
 - `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
 - `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server records the caller-provided `promptVersionId` unchanged in labels; it need not be `classify_stub_v1`. No guardrails are applied to `promptVersionId` in stub mode.
+- When the UI or server resolves a **default** classify PromptVersion implicitly (rather than from a caller-supplied `promptVersionId`), it MUST use the seeded canonical classify prompt `Prompt.name="default-classifier"`:
+  - `mode="real"` default version = `classify_real_v1`
+  - `mode="stub"` default version = `classify_stub_v1`
+- Default selection MUST NOT fall back to an arbitrary active CLASSIFY PromptVersion from another `Prompt.name`.
 
 Stub mode must be deterministic for tests.
 
@@ -458,7 +462,12 @@ Status endpoint response (normative):
 {
   "id": "string",
   "importBatchId": "string",
-  "labelSpec": {"model": "string", "promptVersionId": "string"},
+  "labelSpec": {
+    "model": "string",
+    "promptVersionId": "string",
+    "promptVersionLabel": "string",
+    "promptName": "string"
+  },
   "mode": "real|stub",
   "status": "running|succeeded|failed",
   "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
@@ -501,9 +510,9 @@ UI: `/distill` dashboard
   1) Resolve `importBatchIds` (see Input rules above). All referenced ImportBatches MUST exist; else HTTP 404 `NOT_FOUND`.
   2) Timezone uniformity: all selected batches must share the same timezone. If not → HTTP 400 `TIMEZONE_MISMATCH` `{ message, timezones: string[], batchIds: string[] }`.
   3) Freeze `promptVersionIds` for summarize (and redact/classify when those stages are added).
-  4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
+4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
      - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
-     - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
+     - If `labelSpec` is omitted, the server MUST select the canonical default classify labelSpec using `Prompt.name="default-classifier"` and the default classifier model for the chosen mode (v0.3 default: `stub_v1` with `classify_stub_v1`).
      - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   5) Freeze `filterProfileSnapshot`
   6) Determine eligible days: days where at least one **role = user** MessageAtom matches

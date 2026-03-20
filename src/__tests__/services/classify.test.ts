@@ -19,8 +19,16 @@ describe('Classification Service', () => {
   const createdBatchIds: string[] = []
   const createdPromptVersionIds: string[] = []
   let defaultPromptVersionId: string
+  const originalEnv = { ...process.env }
 
   beforeEach(async () => {
+    delete process.env.LLM_MODE
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.LLM_MAX_USD_PER_RUN
+    delete process.env.LLM_MAX_USD_PER_DAY
+    process.env.LLM_MIN_DELAY_MS = '0'
+
     // Get or create the default classify prompt version
     const classifyPrompt = await prisma.prompt.upsert({
       where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
@@ -50,6 +58,8 @@ describe('Classification Service', () => {
   })
 
   afterEach(async () => {
+    process.env = { ...originalEnv }
+
     // Clean up test data in correct order
     for (const id of createdBatchIds) {
       await prisma.classifyRun.deleteMany({ where: { importBatchId: id } })
@@ -437,7 +447,10 @@ describe('Classification Service', () => {
             versionLabel: 'classify_real_v1',
           },
         },
-        update: {},
+        update: {
+          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
+          isActive: true,
+        },
         create: {
           promptId: classifyPrompt!.id,
           versionLabel: 'classify_real_v1',
@@ -649,7 +662,10 @@ describe('Classification Service', () => {
             versionLabel: 'classify_real_v1',
           },
         },
-        update: {},
+        update: {
+          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
+          isActive: true,
+        },
         create: {
           promptId: classifyPrompt!.id,
           versionLabel: 'classify_real_v1',

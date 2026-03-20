@@ -19,6 +19,8 @@ interface LastClassifyResponse {
     aliasedCount: number
     labeledTotal: number
     mode: string
+    promptVersionLabel: string
+    promptName: string
     errorJson: {
       code: string
       message: string
@@ -203,6 +205,8 @@ describe('ClassifyRun audit trail', () => {
     expect(last.stats).toBeDefined()
     expect(last.stats!.status).toBe('succeeded')
     expect(last.stats!.processedAtoms).toBe(last.stats!.totalAtoms)
+    expect(last.stats!.promptVersionLabel).toBe('classify_real_v1_audit_test')
+    expect(last.stats!.promptName).toBe('default-classifier')
     expect(last.stats!.errorJson).toBeNull()
   })
 

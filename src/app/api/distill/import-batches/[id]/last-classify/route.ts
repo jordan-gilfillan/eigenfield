@@ -42,6 +42,18 @@ export async function GET(
         promptVersionId,
       },
       orderBy: { createdAt: 'desc' },
+      include: {
+        promptVersion: {
+          select: {
+            versionLabel: true,
+            prompt: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     })
 
     if (!classifyRun) {
@@ -63,6 +75,8 @@ export async function GET(
         tokensOut: classifyRun.tokensOut,
         costUsd: classifyRun.costUsd,
         mode: classifyRun.mode,
+        promptVersionLabel: classifyRun.promptVersion.versionLabel,
+        promptName: classifyRun.promptVersion.prompt.name,
         errorJson: classifyRun.errorJson,
         lastAtomStableIdProcessed: classifyRun.lastAtomStableIdProcessed,
         startedAt: classifyRun.startedAt.toISOString(),

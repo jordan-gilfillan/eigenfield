@@ -11,19 +11,35 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { errors } from '@/lib/api-utils'
+import { errorResponse, errors } from '@/lib/api-utils'
+import { ServiceError } from '@/lib/errors'
+import { resolveDefaultClassifyPromptVersion } from '@/lib/services/prompt-version-defaults'
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const stage = searchParams.get('stage')?.toUpperCase()
     const activeOnly = searchParams.get('active') === 'true'
+    const defaultOnly = searchParams.get('default') === 'true'
     const versionLabel = searchParams.get('versionLabel')
+    const mode = searchParams.get('mode')
 
     // Validate stage if provided
     const validStages = ['CLASSIFY', 'SUMMARIZE', 'REDACT']
     if (stage && !validStages.includes(stage)) {
       return errors.invalidInput(`Invalid stage: ${stage}`, { validStages })
+    }
+
+    if (defaultOnly) {
+      if (stage !== 'CLASSIFY') {
+        return errors.invalidInput('default=true currently requires stage=classify')
+      }
+      if (mode !== 'stub' && mode !== 'real') {
+        return errors.invalidInput('mode must be "stub" or "real" when default=true and stage=classify')
+      }
+
+      const promptVersion = await resolveDefaultClassifyPromptVersion(mode)
+      return NextResponse.json({ promptVersion })
     }
 
     // Query by versionLabel: returns single promptVersion (like active+stage)
@@ -88,6 +104,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ promptVersions })
   } catch (error) {
     console.error('Prompt versions error:', error)
+    if (error instanceof ServiceError) {
+      return errorResponse(error.httpStatus, error.code, error.message, error.details)
+    }
     return errors.internal()
   }
 }

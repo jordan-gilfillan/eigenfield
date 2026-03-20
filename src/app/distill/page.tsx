@@ -58,7 +58,7 @@ interface PromptVersion {
   id: string
   versionLabel: string
   isActive?: boolean
-  prompt: { stage: string }
+  prompt: { stage: string; name: string }
 }
 
 interface ImportBatch {
@@ -198,26 +198,19 @@ function DashboardContent() {
     async function fetchPromptVersions() {
       setLoadingPromptVersions(true)
       try {
-        const res = await fetch('/api/distill/prompt-versions?stage=classify')
-        if (!res.ok) {
+        const loadCanonicalPromptVersion = async (mode: 'stub' | 'real') => {
+          const res = await fetch(`/api/distill/prompt-versions?stage=classify&default=true&mode=${mode}`)
           const data = await res.json().catch(() => ({}))
-          setLoadError(data.error?.message || `Failed to load prompt versions (${res.status})`)
-          return
+          if (!res.ok) {
+            throw new Error(data.error?.message || `Failed to load ${mode} classify prompt (${res.status})`)
+          }
+          return ((data as { promptVersion?: PromptVersion }).promptVersion ?? null) as PromptVersion | null
         }
-        const data: { promptVersions?: PromptVersion[] } = await res.json()
-        const promptVersions = data.promptVersions ?? []
 
-        const stubPromptVersion = (
-          promptVersions.find((pv) => pv.versionLabel === 'classify_stub_v1') ??
-          promptVersions.find((pv) => pv.versionLabel.toLowerCase().includes('stub')) ??
-          null
-        )
-
-        const realPromptVersion = (
-          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub') && pv.isActive) ??
-          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub')) ??
-          null
-        )
+        const [stubPromptVersion, realPromptVersion] = await Promise.all([
+          loadCanonicalPromptVersion('stub'),
+          loadCanonicalPromptVersion('real'),
+        ])
 
         setClassifyPromptVersions({
           stub: stubPromptVersion,
@@ -790,6 +783,11 @@ function DashboardContent() {
                     ? 'Assigns categories using deterministic stub algorithm'
                     : 'Assigns categories using LLM provider (costs apply)'}
                 </span>
+                {activeClassifyPv && (
+                  <span className="text-sm text-blue-700">
+                    Default prompt: {activeClassifyPv.prompt.name} / {activeClassifyPv.versionLabel}
+                  </span>
+                )}
               </div>
 
               {/* Live Classify Progress (foreground polling while classify is running) */}
@@ -820,6 +818,9 @@ function DashboardContent() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-indigo-700">
+                    <div className="col-span-2">
+                      Prompt: {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
+                    </div>
                     <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
                     <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
                     {lastClassifyStats.stats.skippedBadOutput > 0 && (
@@ -866,6 +867,9 @@ function DashboardContent() {
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
+                    <div className="col-span-2">
+                      Prompt: {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
+                    </div>
                     <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
                     <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
                     <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>

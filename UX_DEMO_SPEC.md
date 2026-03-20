@@ -47,11 +47,11 @@ Hard constraints (must remain true):
 - **Primary action:** leave mode at default and click `Classify now`
 - **Defaults:**
   - classification mode defaults to `Dry run (Recommended)` (maps to deterministic stub mode)
-  - selected prompt/version is visible before submit
+  - selected canonical prompt/version is visible before submit
 - **Success criteria (step completes):**
   - classify run reaches `succeeded`
   - UI shows totals (`messageAtoms`, `labeled`, `newlyLabeled`, `skippedAlreadyLabeled`)
-  - while running, UI surfaces processed/remaining state, latest checkpoint, skipped-invalid-output explanation, and an explicit `Stop classify` control
+  - while running, UI surfaces processed/remaining state, latest checkpoint, the prompt name/version in use, skipped-invalid-output explanation, and an explicit `Stop classify` control
   - if the user stops classify, the step remains incomplete and the UI explains that rerunning later will skip already-labeled atoms
   - "Continue to Summarize" button becomes enabled
 

@@ -13,6 +13,7 @@ describe('run service', () => {
   let testImportBatchId: string
   let testFilterProfileId: string
   let testClassifyPromptVersionId: string
+  let defaultClassifyPromptVersionId: string
   let testSummarizePromptVersionId: string
   let testClassifyPromptId: string
   let testSummarizePromptId: string
@@ -72,6 +73,34 @@ describe('run service', () => {
     })
     testClassifyPromptVersionId = classifyVersion.id
 
+    const defaultClassifyPrompt = await prisma.prompt.upsert({
+      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
+      update: {},
+      create: {
+        stage: 'CLASSIFY',
+        name: 'default-classifier',
+      },
+    })
+
+    const defaultClassifyVersion = await prisma.promptVersion.upsert({
+      where: {
+        promptId_versionLabel: {
+          promptId: defaultClassifyPrompt.id,
+          versionLabel: 'classify_stub_v1',
+        },
+      },
+      update: {
+        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
+      },
+      create: {
+        promptId: defaultClassifyPrompt.id,
+        versionLabel: 'classify_stub_v1',
+        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
+        isActive: false,
+      },
+    })
+    defaultClassifyPromptVersionId = defaultClassifyVersion.id
+
     const summarizePrompt = await prisma.prompt.create({
       data: {
         stage: 'SUMMARIZE',
@@ -128,6 +157,16 @@ describe('run service', () => {
             model: 'stub_v1',
             promptVersionId: testClassifyPromptVersionId,
             category: 'PERSONAL', confidence: 1.0, // Will pass EXCLUDE 'coding' filter
+          },
+        })
+
+        await prisma.messageLabel.create({
+          data: {
+            messageAtomId: atom.id,
+            model: 'stub_v1',
+            promptVersionId: defaultClassifyPromptVersionId,
+            category: 'PERSONAL',
+            confidence: 1.0,
           },
         })
       }
@@ -335,10 +374,8 @@ describe('run service', () => {
     })
 
     it('selects default labelSpec when omitted (SPEC §7.3)', async () => {
-      // The test's CLASSIFY PromptVersion has createdAt=2099, ensuring it
-      // always wins createRun's default selection (findFirst orderBy
-      // createdAt desc) even when parallel tests create their own active
-      // CLASSIFY versions. Labels already point at testClassifyPromptVersionId.
+      // The service must ignore stray active classify prompts and pin to the
+      // canonical seeded default-classifier / classify_stub_v1 pair.
 
       // Call createRun without labelSpec — server should pick default
       const result = await createRun({
@@ -358,7 +395,7 @@ describe('run service', () => {
       // Verify server-selected default labelSpec uses this test's version
       expect(result.config.labelSpec).toEqual({
         model: 'stub_v1',
-        promptVersionId: testClassifyPromptVersionId,
+        promptVersionId: defaultClassifyPromptVersionId,
       })
     })
 

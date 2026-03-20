@@ -46,6 +46,10 @@ interface PromptVersion {
   id: string
   versionLabel: string
   isActive?: boolean
+  prompt: {
+    stage: string
+    name: string
+  }
 }
 
 interface ClassifyResult {
@@ -64,7 +68,12 @@ interface ClassifyResult {
 interface ClassifyRunStatus {
   id: string
   importBatchId: string
-  labelSpec: { model: string; promptVersionId: string }
+  labelSpec: {
+    model: string
+    promptVersionId: string
+    promptVersionLabel: string
+    promptName: string
+  }
   mode: ClassifyMode
   status: 'running' | 'succeeded' | 'failed'
   totals: {
@@ -365,20 +374,20 @@ export default function DemoClient() {
     setLoadingPromptVersions(true)
     setPromptVersionError(null)
     try {
-      const res = await fetch('/api/distill/prompt-versions?stage=classify')
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setPromptVersionError(formatApiError(data, `Failed to load prompt versions (${res.status})`))
-        return
+      const loadCanonicalPromptVersion = async (mode: ClassifyMode) => {
+        const res = await fetch(`/api/distill/prompt-versions?stage=classify&default=true&mode=${mode}`)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(formatApiError(data, `Failed to load ${mode} classify prompt (${res.status})`))
+        }
+
+        return ((data as { promptVersion?: PromptVersion }).promptVersion ?? null) as PromptVersion | null
       }
 
-      const promptVersions = (data.promptVersions ?? []) as PromptVersion[]
-      const stub = promptVersions.find((pv) => pv.versionLabel === 'classify_stub_v1') ??
-        promptVersions.find((pv) => pv.versionLabel.toLowerCase().includes('stub')) ??
-        null
-      const real = promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub') && pv.isActive) ??
-        promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub')) ??
-        null
+      const [stub, real] = await Promise.all([
+        loadCanonicalPromptVersion('stub'),
+        loadCanonicalPromptVersion('real'),
+      ])
 
       setClassifyPromptVersions({ stub, real })
     } catch (error) {
@@ -1309,6 +1318,12 @@ export default function DemoClient() {
                         </div>
                       )}
                       <dl className="mt-4 grid gap-x-4 gap-y-2 text-sm md:grid-cols-2">
+                        <div className="md:col-span-2">
+                          <dt className="text-gray-500">Prompt</dt>
+                          <dd className="font-medium text-gray-900">
+                            {classifyStatus.labelSpec.promptName} / {classifyStatus.labelSpec.promptVersionLabel}
+                          </dd>
+                        </div>
                         <div>
                           <dt className="text-gray-500">Remaining</dt>
                           <dd className="font-medium text-gray-900">
