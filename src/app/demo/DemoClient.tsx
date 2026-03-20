@@ -3,6 +3,14 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import {
+  getImportBatchSources,
+  isDuplicateImportResult,
+  isReusableImportBatch,
+  toDemoImportBatch,
+  type DemoImportBatch,
+  type DemoImportResult,
+} from './import-batch-utils'
 import { usePolling } from '../distill/hooks/usePolling'
 import { startAutoRunLoop } from '../distill/hooks/useAutoRun'
 import {
@@ -16,6 +24,7 @@ type UploadStatus = 'idle' | 'uploading' | 'success' | 'error'
 type ClassifyMode = 'stub' | 'real'
 type SummarizeMode = 'stub' | 'real'
 type StepState = 'locked' | 'ready' | 'working' | 'done'
+type ImportEntryMode = 'upload' | 'existing'
 
 const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> = {
   openai: {
@@ -31,31 +40,6 @@ const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> =
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'cancelled', 'failed'])
 const TERMINAL_CLASSIFY_STATUSES = new Set(['succeeded', 'failed'])
 const CLASSIFY_POLL_INTERVAL_MS = 800
-
-interface ImportStats {
-  message_count: number
-  day_count: number
-  coverage_start: string
-  coverage_end: string
-  per_source_counts: Record<string, number>
-}
-
-interface ImportResult {
-  importBatch: {
-    id: string
-    createdAt: string
-    source: string
-    originalFilename: string
-    fileSizeBytes: number
-    timezone: string
-    stats: ImportStats
-  }
-  created: {
-    messageAtoms: number
-    rawEntries: number
-  }
-  warnings: string[]
-}
 
 interface PromptVersion {
   id: string
@@ -270,9 +254,16 @@ export default function DemoClient() {
   const [file, setFile] = useState<File | null>(null)
   const [sourceOverride, setSourceOverride] = useState('')
   const [timezone, setTimezone] = useState('America/Los_Angeles')
+  const [importEntryMode, setImportEntryMode] = useState<ImportEntryMode>('upload')
   const [importStatus, setImportStatus] = useState<UploadStatus>('idle')
-  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [importResult, setImportResult] = useState<DemoImportResult | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [importRecoveryMessage, setImportRecoveryMessage] = useState<string | null>(null)
+  const [selectedImportBatch, setSelectedImportBatch] = useState<DemoImportBatch | null>(null)
+  const [existingBatches, setExistingBatches] = useState<DemoImportBatch[]>([])
+  const [loadingExistingBatches, setLoadingExistingBatches] = useState(false)
+  const [existingBatchesError, setExistingBatchesError] = useState<string | null>(null)
+  const [existingBatchesLoaded, setExistingBatchesLoaded] = useState(false)
 
   const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
     stub: PromptVersion | null
@@ -321,15 +312,14 @@ export default function DemoClient() {
   const classifyAbortRef = useRef<AbortController | null>(null)
   const summarizeLoopRef = useRef<{ stop: () => void } | null>(null)
 
-  const importBatch = importResult?.importBatch ?? null
+  const importBatch = selectedImportBatch
   const activeClassifyPromptVersion =
     classifyMode === 'stub' ? classifyPromptVersions.stub : classifyPromptVersions.real
   const classifyDone = !!classifyResult
   const runDone = runDetail?.status === 'completed'
   const availableSources = useMemo(() => {
     if (!importBatch) return []
-    const keys = Object.keys(importBatch.stats.per_source_counts)
-    return (keys.length > 0 ? keys : [importBatch.source]).map((source) => source.toLowerCase()).sort()
+    return getImportBatchSources(importBatch)
   }, [importBatch])
   const modelOptions = PROVIDER_MODELS[provider].models
   const effectiveSummarizeModel = summarizeMode === 'stub' ? 'stub_summarizer_v1' : model
@@ -340,7 +330,7 @@ export default function DemoClient() {
   const selectedOutputJob = succeededJobs.find((job) => job.dayDate === selectedOutputDay) ?? succeededJobs[0] ?? null
 
   const step1State: StepState =
-    importStatus === 'success' ? 'done' : importStatus === 'uploading' ? 'working' : 'ready'
+    importBatch ? 'done' : importStatus === 'uploading' ? 'working' : 'ready'
   const step2State: StepState =
     !importBatch ? 'locked' : classifyDone ? 'done' : classifyInFlight ? 'working' : 'ready'
   const step3State: StepState =
@@ -403,6 +393,29 @@ export default function DemoClient() {
       setLoadingFilterProfiles(false)
     }
   }, [filterProfiles.length, loadingFilterProfiles])
+
+  const loadExistingBatches = useCallback(async (force = false) => {
+    if (loadingExistingBatches || (existingBatchesLoaded && !force)) return
+
+    setLoadingExistingBatches(true)
+    setExistingBatchesError(null)
+    try {
+      const res = await fetch('/api/distill/import-batches?limit=50')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setExistingBatchesError(formatApiError(data, `Failed to load import batches (${res.status})`))
+        return
+      }
+
+      const batches = ((data.items ?? []) as DemoImportBatch[]).filter((batch) => isReusableImportBatch(batch))
+      setExistingBatches(batches)
+      setExistingBatchesLoaded(true)
+    } catch (error) {
+      setExistingBatchesError(error instanceof Error ? error.message : 'Failed to load import batches')
+    } finally {
+      setLoadingExistingBatches(false)
+    }
+  }, [existingBatchesLoaded, loadingExistingBatches])
 
   const fetchRunDetail = useCallback(async (runId: string) => {
     try {
@@ -533,13 +546,54 @@ export default function DemoClient() {
     setExportResult(null)
   }
 
+  const clearSelectedImportBatch = () => {
+    setSelectedImportBatch(null)
+    setStartDate('')
+    setEndDate('')
+    setSelectedSources([])
+  }
+
+  const bindSelectedImportBatch = (batch: DemoImportBatch) => {
+    clearSelectedImportBatch()
+    resetDownstreamState()
+    setSelectedImportBatch(batch)
+    setStartDate(batch.stats.coverage_start)
+    setEndDate(batch.stats.coverage_end)
+    setSelectedSources(getImportBatchSources(batch))
+    setImportStatus('success')
+    setImportError(null)
+  }
+
+  const handleImportEntryModeChange = async (nextMode: ImportEntryMode) => {
+    if (nextMode === importEntryMode) return
+
+    setImportEntryMode(nextMode)
+    setImportError(null)
+    setImportRecoveryMessage(null)
+    setImportStatus('idle')
+    clearSelectedImportBatch()
+    resetDownstreamState()
+
+    if (nextMode === 'existing') {
+      await loadExistingBatches()
+    }
+  }
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0] ?? null
     setFile(nextFile)
+    setImportEntryMode('upload')
     setImportStatus('idle')
     setImportResult(null)
     setImportError(null)
+    setImportRecoveryMessage(null)
+    clearSelectedImportBatch()
     resetDownstreamState()
+  }
+
+  const handleExistingBatchSelect = (batch: DemoImportBatch) => {
+    setImportRecoveryMessage(null)
+    bindSelectedImportBatch(batch)
   }
 
   const handleSourceToggle = (source: string) => {
@@ -552,8 +606,12 @@ export default function DemoClient() {
     event.preventDefault()
     if (!file) return
 
+    setImportEntryMode('upload')
     setImportStatus('uploading')
     setImportError(null)
+    setImportRecoveryMessage(null)
+    setExistingBatchesLoaded(false)
+    clearSelectedImportBatch()
     resetDownstreamState()
 
     const formData = new FormData()
@@ -570,14 +628,19 @@ export default function DemoClient() {
         return
       }
 
-      const result = data as ImportResult
+      const result = data as DemoImportResult
       setImportResult(result)
-      setImportStatus('success')
-      setStartDate(result.importBatch.stats.coverage_start)
-      setEndDate(result.importBatch.stats.coverage_end)
-      setSelectedSources(
-        Object.keys(result.importBatch.stats.per_source_counts).map((source) => source.toLowerCase()),
-      )
+      if (isDuplicateImportResult(result)) {
+        setImportStatus('success')
+        setImportEntryMode('existing')
+        setImportRecoveryMessage(
+          'This file was already imported. Choose an existing import batch with stored atoms to continue.',
+        )
+        await loadExistingBatches(true)
+        return
+      }
+
+      bindSelectedImportBatch(toDemoImportBatch(result))
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Import failed')
       setImportStatus('error')
@@ -829,62 +892,161 @@ export default function DemoClient() {
               number="1"
               title="Import"
               state={step1State}
-              summary="Upload one export file and capture the imported batch summary."
+              summary="Upload a new export file or choose an existing reusable import batch."
             >
-              <form className="space-y-4" onSubmit={handleImport}>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">Export file</label>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleFileChange}
-                    className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-full file:border-0 file:bg-gray-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-gray-700"
-                  />
-                  {file && (
-                    <p className="mt-2 text-sm text-gray-600">
-                      {file.name} · {formatBytes(file.size)}
-                    </p>
+              <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4">
+                <div className="text-sm font-medium text-gray-900">Choose your starting point</div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleImportEntryModeChange('upload')
+                    }}
+                    className={`rounded-full px-4 py-2 text-sm font-medium ${
+                      importEntryMode === 'upload'
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    Import new file
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleImportEntryModeChange('existing')
+                    }}
+                    className={`rounded-full px-4 py-2 text-sm font-medium ${
+                      importEntryMode === 'existing'
+                        ? 'bg-blue-700 text-white'
+                        : 'border border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    Use existing import batch
+                  </button>
+                </div>
+              </div>
+
+              {importEntryMode === 'upload' && (
+                <form className="space-y-4" onSubmit={handleImport}>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700">Export file</label>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileChange}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-full file:border-0 file:bg-gray-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-gray-700"
+                    />
+                    {file && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        {file.name} · {formatBytes(file.size)}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">Source override</label>
+                      <select
+                        value={sourceOverride}
+                        onChange={(event) => setSourceOverride(event.target.value)}
+                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto-detect</option>
+                        <option value="chatgpt">ChatGPT</option>
+                        <option value="claude">Claude</option>
+                        <option value="grok">Grok</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">Timezone</label>
+                      <select
+                        value={timezone}
+                        onChange={(event) => setTimezone(event.target.value)}
+                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+                        <option value="America/Denver">Mountain (Denver)</option>
+                        <option value="America/Chicago">Central (Chicago)</option>
+                        <option value="America/New_York">Eastern (New York)</option>
+                        <option value="UTC">UTC</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!file || importStatus === 'uploading'}
+                    className="rounded-full bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  >
+                    {importStatus === 'uploading' ? 'Importing…' : 'Import file'}
+                  </button>
+                </form>
+              )}
+
+              {importEntryMode === 'existing' && (
+                <div className="space-y-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
+                  <div className="text-sm font-medium text-blue-900">Reusable import batches</div>
+                  <p className="text-sm text-blue-700">
+                    Pick one previously imported batch with stored atoms. The wizard stays single-batch for now.
+                  </p>
+
+                  {loadingExistingBatches && (
+                    <p className="text-sm text-gray-500">Loading existing import batches…</p>
+                  )}
+
+                  {existingBatchesError && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {existingBatchesError}
+                    </div>
+                  )}
+
+                  {!loadingExistingBatches && !existingBatchesError && existingBatches.length === 0 && (
+                    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+                      No reusable import batches are available yet. Import a file first.
+                    </div>
+                  )}
+
+                  {!loadingExistingBatches && existingBatches.length > 0 && (
+                    <div className="space-y-3">
+                      {existingBatches.map((batch) => {
+                        const isSelected = selectedImportBatch?.id === batch.id
+                        return (
+                          <button
+                            key={batch.id}
+                            type="button"
+                            onClick={() => handleExistingBatchSelect(batch)}
+                            className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
+                              isSelected
+                                ? 'border-blue-700 bg-white shadow-sm'
+                                : 'border-blue-200 bg-white hover:border-blue-400'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{batch.originalFilename}</div>
+                                <div className="mt-1 text-xs text-gray-500">
+                                  {batch.id} · {new Date(batch.createdAt).toLocaleString()}
+                                </div>
+                              </div>
+                              <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-blue-700">
+                                {batch.source}
+                              </span>
+                            </div>
+                            <div className="mt-3 grid gap-2 text-sm text-gray-600 md:grid-cols-2">
+                              <div>
+                                Coverage: {batch.stats.coverage_start} to {batch.stats.coverage_end}
+                              </div>
+                              <div>Timezone: {batch.timezone}</div>
+                              <div>Stored atoms: {batch.storedCounts.messageAtoms}</div>
+                              <div>Raw entries: {batch.storedCounts.rawEntries}</div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">Source override</label>
-                    <select
-                      value={sourceOverride}
-                      onChange={(event) => setSourceOverride(event.target.value)}
-                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Auto-detect</option>
-                      <option value="chatgpt">ChatGPT</option>
-                      <option value="claude">Claude</option>
-                      <option value="grok">Grok</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">Timezone</label>
-                    <select
-                      value={timezone}
-                      onChange={(event) => setTimezone(event.target.value)}
-                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
-                      <option value="America/Denver">Mountain (Denver)</option>
-                      <option value="America/Chicago">Central (Chicago)</option>
-                      <option value="America/New_York">Eastern (New York)</option>
-                      <option value="UTC">UTC</option>
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!file || importStatus === 'uploading'}
-                  className="rounded-full bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                >
-                  {importStatus === 'uploading' ? 'Importing…' : 'Import file'}
-                </button>
-              </form>
+              )}
 
               {importError && (
                 <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -892,9 +1054,15 @@ export default function DemoClient() {
                 </div>
               )}
 
+              {importRecoveryMessage && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {importRecoveryMessage}
+                </div>
+              )}
+
               {importResult && (
-                <div className="space-y-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
-                  <div className="text-sm font-medium text-green-800">Import complete</div>
+                <div className="space-y-3 rounded-2xl border border-gray-200 bg-white px-5 py-4">
+                  <div className="text-sm font-medium text-gray-900">Last upload attempt</div>
                   <dl className="grid gap-x-4 gap-y-2 text-sm md:grid-cols-2">
                     <div>
                       <dt className="text-gray-500">Batch</dt>
@@ -915,12 +1083,12 @@ export default function DemoClient() {
                       <dd className="font-medium text-gray-900">{importResult.importBatch.timezone}</dd>
                     </div>
                     <div>
-                      <dt className="text-gray-500">Message atoms</dt>
+                      <dt className="text-gray-500">Stored message atoms</dt>
                       <dd className="font-medium text-gray-900">{importResult.created.messageAtoms}</dd>
                     </div>
                     <div>
-                      <dt className="text-gray-500">Days</dt>
-                      <dd className="font-medium text-gray-900">{importResult.importBatch.stats.day_count}</dd>
+                      <dt className="text-gray-500">Stored raw entries</dt>
+                      <dd className="font-medium text-gray-900">{importResult.created.rawEntries}</dd>
                     </div>
                   </dl>
                   {importResult.warnings.length > 0 && (
@@ -932,6 +1100,40 @@ export default function DemoClient() {
                   )}
                 </div>
               )}
+
+              {selectedImportBatch && (
+                <div className="space-y-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
+                  <div className="text-sm font-medium text-green-800">Selected batch for this run</div>
+                  <dl className="grid gap-x-4 gap-y-2 text-sm md:grid-cols-2">
+                    <div>
+                      <dt className="text-gray-500">Batch</dt>
+                      <dd className="font-medium text-gray-900">{selectedImportBatch.id}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Source</dt>
+                      <dd className="font-medium capitalize text-gray-900">{selectedImportBatch.source}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Coverage</dt>
+                      <dd className="font-medium text-gray-900">
+                        {selectedImportBatch.stats.coverage_start} to {selectedImportBatch.stats.coverage_end}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Timezone</dt>
+                      <dd className="font-medium text-gray-900">{selectedImportBatch.timezone}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Stored message atoms</dt>
+                      <dd className="font-medium text-gray-900">{selectedImportBatch.storedCounts.messageAtoms}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Stored raw entries</dt>
+                      <dd className="font-medium text-gray-900">{selectedImportBatch.storedCounts.rawEntries}</dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
             </StepCard>
 
             <StepCard
@@ -941,7 +1143,7 @@ export default function DemoClient() {
               summary="Run stub classification by default, or switch to real mode explicitly."
             >
               {!importBatch && (
-                <p className="text-sm text-gray-500">Import a file first to unlock classification.</p>
+                <p className="text-sm text-gray-500">Import a file or select an existing batch first to unlock classification.</p>
               )}
 
               {importBatch && (

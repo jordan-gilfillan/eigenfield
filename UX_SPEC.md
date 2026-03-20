@@ -332,10 +332,15 @@ Current step labels:
 - `4. Use Distilled Output`
 
 Step completion expectations:
-- Import completes after successful import summary response.
+- Import completes after the wizard binds to one reusable batch, either from a fresh import with stored atoms or from explicit existing-batch selection.
 - Classify completes at terminal classify status `succeeded`.
 - Summarize completes when run reaches terminal success path and outputs are available.
 - Use completes when a rendered output is opened and export/advanced actions are available.
+
+Step 1 reuse behavior:
+- Step 1 offers `Import new file` and `Use existing import batch` as explicit entry modes.
+- Existing-batch selection is loaded on demand and stays single-batch for the guided flow.
+- Duplicate re-imports may still create audit-only empty batches, but the wizard does not treat those as completed Step 1 selections.
 
 ## 9.2 Defaults and safety requirements
 - Dry-run mode is the default for classify/summarize.

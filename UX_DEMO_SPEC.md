@@ -31,13 +31,15 @@ Hard constraints (must remain true):
 
 ### Step 1: Import
 - **User-visible label:** `1. Import Conversations`
-- **Primary action:** click `Choose file` -> select one export file -> click `Import file`
+- **Primary action:** either click `Choose file` -> select one export file -> click `Import file`, or explicitly choose `Use existing import batch`
 - **Defaults:**
   - timezone defaults to current app default behavior (`America/Los_Angeles` when omitted)
   - source detection remains automatic unless explicitly overridden in advanced controls
 - **Success criteria (step completes):**
-  - `POST /api/distill/import` succeeds
-  - UI shows import summary (filename, detected source, date coverage, total messages, total days)
+  - a reusable batch is selected for the wizard
+  - fresh upload path: `POST /api/distill/import` succeeds with stored atoms/raw entries
+  - existing-batch path: user selects a previously imported batch with stored atoms
+  - duplicate uploads can surface recovery UI but must not silently bind an empty batch
   - "Continue to Classify" button becomes enabled
 
 ### Step 2: Classify

@@ -276,6 +276,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Multi-batch runs do not collapse to the first batch when showing classify status.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Notes**: Prefer the existing `GET /api/distill/classify-runs/:id` contract over adding new polling semantics.
+- AUD-115 — `/demo` existing-import reuse path → moved to REMEDIATION_ARCHIVE.md
 ## Notes
 
 - When closing an entry, add a short "Resolution" bullet linking to the PR and stating what changed.

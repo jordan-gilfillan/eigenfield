@@ -1934,3 +1934,17 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Notes**: Avoid route churn that breaks deep links or introduces hidden write side effects.
 - **Resolution**: Reworked the home page and distill navigation so `/demo` is presented as the guided entry while `/distill/*` remains available as explicitly labeled advanced tooling. Existing advanced routes and deep links remain intact, and `UX_SPEC.md` now reflects the guided-vs-advanced split as current behavior rather than future-only roadmap text. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-115 — `/demo` existing-import reuse path
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Let `/demo` continue from previously imported data without treating duplicate re-import audit batches as usable workflow inputs.
+- **Touch set**: `src/app/demo/*`, import-batch read routes/services, targeted tests, `UX_SPEC.md`.
+- **Acceptance**:
+  - `GET /api/distill/import-batches` and `GET /api/distill/import-batches/:id` include `storedCounts.messageAtoms` and `storedCounts.rawEntries`.
+  - `/demo` Step 1 supports explicit `Import new file` and `Use existing import batch` paths without fetching batches on initial load.
+  - Duplicate uploads (`created.messageAtoms === 0`) show recovery UI, do not bind the empty batch, and guide the user to a reusable existing batch.
+  - Required gates pass (`npm run lint`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`).
+- **Resolution**: Added persisted `storedCounts` to import-batch reads so empty duplicate audit batches are distinguishable from reusable batches. `/demo` Step 1 now binds the flow to an explicit selected batch, supports on-demand existing-batch selection, and routes duplicate uploads into an amber recovery state instead of unlocking the rest of the wizard on an empty batch. Added route coverage for the new read shape and targeted demo batch-selection utility tests.
