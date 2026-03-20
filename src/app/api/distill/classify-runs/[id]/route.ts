@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
+import { parseClassifyWarningDetailsJson } from '@/lib/classify-warning-details'
 import { isClassifyStopRequested } from '@/lib/services/classify'
 
 export async function GET(
@@ -42,6 +43,7 @@ export async function GET(
 
     const stopRequested = classifyRun.status === 'running' && isClassifyStopRequested(classifyRun.errorJson)
     const lastError = stopRequested ? null : classifyRun.errorJson
+    const warningDetails = parseClassifyWarningDetailsJson(classifyRun.warningDetailsJson)
 
     return NextResponse.json({
       id: classifyRun.id,
@@ -72,6 +74,7 @@ export async function GET(
       warnings: {
         skippedBadOutput: classifyRun.skippedBadOutput,
         aliasedCount: classifyRun.aliasedCount,
+        ...(warningDetails ? { details: warningDetails } : {}),
       },
       checkpoint: {
         lastAtomStableIdProcessed: classifyRun.lastAtomStableIdProcessed,

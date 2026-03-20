@@ -473,7 +473,22 @@ Status endpoint response (normative):
   "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
   "progress": {"processedAtoms": 0, "totalAtoms": 0},
   "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},
-  "warnings": {"skippedBadOutput": 0, "aliasedCount": 0},
+  "warnings": {
+    "skippedBadOutput": 0,
+    "aliasedCount": 0,
+    "details": {
+      "badOutputReasons": {
+        "invalid_json": 0,
+        "non_object": 0,
+        "bad_category_field": 0,
+        "invalid_category_value": 0,
+        "bad_confidence_field": 0,
+        "confidence_out_of_range": 0
+      },
+      "badCategorySamples": ["string"],
+      "aliasedCategorySamples": ["string"]
+    }
+  },
   "checkpoint": {"lastAtomStableIdProcessed": "string | null"},
   "control": {"canStop": true, "stopRequested": false},
   "lastError": null,
@@ -486,6 +501,7 @@ Status endpoint response (normative):
 Notes:
 - `progress`, `usage`, and `warnings` MAY be partial while `status="running"`.
 - `warnings` contains classification-quality counters separate from progress tracking.
+- `warnings.details` is optional and, when present, MUST contain only safe aggregates/samples; raw model output and raw message text MUST NOT be persisted there.
 - `checkpoint.lastAtomStableIdProcessed` is optional progress detail for foreground diagnostics and SHOULD NOT include raw message text.
 - `control.stopRequested` is only meaningful while `status="running"`.
 - If the user stops classify, the terminal record remains `status="failed"` with `lastError.code="USER_STOPPED"`. Partial labels already written remain durable; a later rerun may skip them.

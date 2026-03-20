@@ -22,6 +22,16 @@ import {
   LlmBadOutputError,
 } from '../llm'
 import type { LlmCallContext } from '../llm'
+import {
+  cloneClassifyWarningDetails,
+  createEmptyClassifyWarningDetails,
+  formatClassifyWarningDetailsForLog,
+  hasClassifyWarningDetails,
+  recordAliasedCategory,
+  recordBadOutputReason,
+  type BadOutputReasonKey,
+  type ClassifyWarningDetails,
+} from '../classify-warning-details'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
 // Import from shared errors + re-export for backward compatibility
@@ -60,7 +70,6 @@ const CATEGORY_ALIASES: Readonly<Record<string, Category>> = {
 
 /** Batch size for processing to avoid Postgres bind variable limits */
 const BATCH_SIZE = 10000
-const SAMPLE_CAP = 5
 const CHECKPOINT_ATOM_INTERVAL = 100
 const CHECKPOINT_MS_INTERVAL = 5000
 
@@ -219,6 +228,7 @@ export function parseClassifyOutput(text: string): { category: Category; confide
 
   if (parsed === undefined) {
     throw new LlmBadOutputError('LLM output is not valid JSON', {
+      reason: 'invalid_json',
       rawOutput: text,
       candidatesTried: parseErrors.length,
       parseErrors: parseErrors.slice(0, 3),
@@ -226,32 +236,50 @@ export function parseClassifyOutput(text: string): { category: Category; confide
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new LlmBadOutputError('LLM output is not a JSON object', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output is not a JSON object', {
+      reason: 'non_object',
+      rawOutput: text,
+    })
   }
 
   const obj = parsed as Record<string, unknown>
 
   // Validate category
   if (typeof obj.category !== 'string') {
-    throw new LlmBadOutputError('LLM output missing or invalid "category" field', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output missing or invalid "category" field', {
+      reason: 'bad_category_field',
+      rawOutput: text,
+    })
   }
   const normalized = normalizeCategory(obj.category)
   const categoryUpper = normalized.category
   if (!ALL_CATEGORIES.has(categoryUpper)) {
     throw new LlmBadOutputError(
       `LLM output has invalid category: "${obj.category}"`,
-      { rawOutput: text, category: obj.category, validCategories: [...ALL_CATEGORIES] }
+      {
+        reason: 'invalid_category_value',
+        rawOutput: text,
+        category: obj.category,
+        validCategories: [...ALL_CATEGORIES],
+      }
     )
   }
 
   // Validate confidence
   if (typeof obj.confidence !== 'number') {
-    throw new LlmBadOutputError('LLM output missing or invalid "confidence" field', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output missing or invalid "confidence" field', {
+      reason: 'bad_confidence_field',
+      rawOutput: text,
+    })
   }
   if (obj.confidence < 0 || obj.confidence > 1) {
     throw new LlmBadOutputError(
       `LLM output has confidence out of range [0, 1]: ${obj.confidence}`,
-      { rawOutput: text, confidence: obj.confidence }
+      {
+        reason: 'confidence_out_of_range',
+        rawOutput: text,
+        confidence: obj.confidence,
+      }
     )
   }
 
@@ -271,6 +299,7 @@ interface ClassifyProgress {
   tokensOut: number
   costUsd: number
   lastAtomStableIdProcessed: string | null
+  warningDetails: ClassifyWarningDetails
 }
 
 interface CheckpointState {
@@ -471,6 +500,46 @@ function buildProgressSnapshot(
   }
 }
 
+function getBadOutputReason(error: LlmBadOutputError): BadOutputReasonKey {
+  const reason = error.details?.reason
+  switch (reason) {
+    case 'invalid_json':
+    case 'non_object':
+    case 'bad_category_field':
+    case 'invalid_category_value':
+    case 'bad_confidence_field':
+    case 'confidence_out_of_range':
+      return reason
+    default:
+      return 'invalid_json'
+  }
+}
+
+function buildPersistedWarningDetails(progress: ClassifyProgress): ClassifyWarningDetails | null {
+  return hasClassifyWarningDetails(progress.warningDetails)
+    ? cloneClassifyWarningDetails(progress.warningDetails)
+    : null
+}
+
+function toPersistedWarningDetailsJson(details: ClassifyWarningDetails | null): Prisma.InputJsonObject | null {
+  if (!details) return null
+  return JSON.parse(JSON.stringify(details)) as Prisma.InputJsonObject
+}
+
+function buildClassifyWarnings(progress: ClassifyProgress): ClassifyResult['warnings'] | undefined {
+  const details = buildPersistedWarningDetails(progress)
+  if (!details && progress.skippedBadOutput === 0 && progress.aliasedCount === 0) {
+    return undefined
+  }
+
+  return {
+    skippedBadOutput: progress.skippedBadOutput,
+    aliasedCount: progress.aliasedCount,
+    badCategorySamples: details?.badCategorySamples ?? [],
+    aliasedCategorySamples: details?.aliasedCategorySamples ?? [],
+  }
+}
+
 async function maybeCheckpointClassifyRun(
   classifyRunId: string,
   mode: 'stub' | 'real',
@@ -489,6 +558,8 @@ async function maybeCheckpointClassifyRun(
   }
 
   const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
+  const warningDetails = buildPersistedWarningDetails(progress)
+  const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
 
   await prisma.classifyRun.update({
     where: { id: classifyRunId },
@@ -507,14 +578,16 @@ async function maybeCheckpointClassifyRun(
             costUsd: progress.costUsd,
           }
         : {}),
+      ...(warningDetailsJson ? { warningDetailsJson } : {}),
     },
   })
 
   const usageSuffix = mode === 'real'
     ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
     : ''
+  const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
   console.info(
-    `[classify] checkpoint ${classifyRunId} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}`,
+    `[classify] checkpoint ${classifyRunId} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
   )
 
   checkpointState.lastWriteMs = now
@@ -595,6 +668,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     tokensOut: 0,
     costUsd: 0,
     lastAtomStableIdProcessed: null,
+    warningDetails: createEmptyClassifyWarningDetails(),
   }
   const checkpointState: CheckpointState = {
     lastWriteMs: Date.now(),
@@ -649,6 +723,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
           errorJson: Prisma.DbNull,
+          warningDetailsJson: Prisma.DbNull,
         },
       })
 
@@ -683,6 +758,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
           errorJson: Prisma.DbNull,
+          warningDetailsJson: Prisma.DbNull,
         },
       })
 
@@ -716,6 +792,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       )
     }
 
+    const warningDetails = buildPersistedWarningDetails(progress)
+    const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
     await prisma.classifyRun.update({
       where: { id: classifyRun.id },
       data: {
@@ -737,13 +815,24 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
             }
           : {}),
         errorJson: Prisma.DbNull,
+        warningDetailsJson: warningDetailsJson ?? Prisma.DbNull,
       },
     })
+
+    const usageSuffix = mode === 'real'
+      ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+      : ''
+    const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
+    console.info(
+      `[classify] finished ${classifyRun.id} processed=${result.totals.messageAtoms}/${totalAtoms} newlyLabeled=${result.totals.newlyLabeled} skippedBadOutput=${progress.skippedBadOutput} aliased=${progress.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+    )
 
     return result
   } catch (error) {
     try {
       const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
+      const warningDetails = buildPersistedWarningDetails(progress)
+      const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
 
       await prisma.classifyRun.update({
         where: { id: classifyRun.id },
@@ -765,12 +854,21 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
               }
             : {}),
           errorJson: toPersistedClassifyError(error),
+          warningDetailsJson: warningDetailsJson ?? Prisma.DbNull,
         },
       })
 
+      const usageSuffix = mode === 'real'
+        ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+        : ''
+      const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
       if (error instanceof ClassifyStoppedError) {
         console.info(
-          `[classify] stopped ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms}`,
+          `[classify] stopped ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+        )
+      } else {
+        console.info(
+          `[classify] failed ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
         )
       }
     } catch (persistError) {
@@ -898,14 +996,7 @@ async function classifyBatchReal(
   const budgetPolicy = getSpendCaps()
   const daySpendAtStart = await getCalendarDaySpendUsd()
   let sessionSpentUsd = progress.costUsd
-  const badCategorySamples: string[] = []
-  const aliasedCategorySamples: string[] = []
   let cursor: string | undefined
-
-  const addSample = (samples: string[], value: string) => {
-    if (samples.length >= SAMPLE_CAP || samples.includes(value)) return
-    samples.push(value)
-  }
 
   while (true) {
     await assertClassifyRunContinuing(classifyRunId)
@@ -983,12 +1074,15 @@ async function classifyBatchReal(
         parsed = parseClassifyOutput(response.text)
       } catch (error) {
         if (error instanceof LlmBadOutputError) {
+          const reason = getBadOutputReason(error)
           progress.skippedBadOutput += 1
           progress.processedAtoms += 1
           progress.lastAtomStableIdProcessed = atom.atomStableId
-          if (typeof error.details?.category === 'string') {
-            addSample(badCategorySamples, error.details.category)
-          }
+          recordBadOutputReason(
+            progress.warningDetails,
+            reason,
+            typeof error.details?.category === 'string' ? error.details.category : undefined,
+          )
           await maybeCheckpointClassifyRun(
             classifyRunId,
             'real',
@@ -1005,7 +1099,7 @@ async function classifyBatchReal(
 
       if (parsed.aliasedFrom) {
         progress.aliasedCount += 1
-        addSample(aliasedCategorySamples, parsed.aliasedFrom)
+        recordAliasedCategory(progress.warningDetails, parsed.aliasedFrom)
       }
 
       // Write label (skipDuplicates for concurrency safety)
@@ -1040,6 +1134,8 @@ async function classifyBatchReal(
 
   const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
+  const warnings = buildClassifyWarnings(progress)
+
   return {
     classifyRunId,
     importBatchId,
@@ -1051,12 +1147,7 @@ async function classifyBatchReal(
       newlyLabeled: progress.newlyLabeled,
       skippedAlreadyLabeled: Math.max(totalLabeled - progress.newlyLabeled, 0),
     },
-    warnings: {
-      skippedBadOutput: progress.skippedBadOutput,
-      aliasedCount: progress.aliasedCount,
-      badCategorySamples,
-      aliasedCategorySamples,
-    },
+    warnings,
   }
 }
 

@@ -278,6 +278,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - **Notes**: Prefer the existing `GET /api/distill/classify-runs/:id` contract over adding new polling semantics.
 
 - AUD-117 — Canonical default classify prompt selection → moved to REMEDIATION_ARCHIVE.md
+- AUD-118 — Durable classify bad-output diagnostics → moved to REMEDIATION_ARCHIVE.md
 - AUD-116 — `/demo` classify feedback + stop control → moved to REMEDIATION_ARCHIVE.md
 - AUD-115 — `/demo` existing-import reuse path → moved to REMEDIATION_ARCHIVE.md
 ## Notes

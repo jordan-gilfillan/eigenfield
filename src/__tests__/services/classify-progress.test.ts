@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import type { ClassifyWarningDetails } from '../../lib/classify-warning-details'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
@@ -299,6 +300,7 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Warnings
       expect(body.warnings).toBeDefined()
       expect(body.warnings.skippedBadOutput).toBe(0)
+      expect(body.warnings.details).toBeUndefined()
       expect(body.control).toEqual({ canStop: false, stopRequested: false })
       expect(typeof body.checkpoint.lastAtomStableIdProcessed).toBe('string')
 
@@ -419,6 +421,105 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(body.lastError).toBeTruthy()
       expect(body.lastError.code).toBe('TEST_FAIL')
       expect(body.finishedAt).toBeTruthy()
+    })
+
+    it('returns persisted warning details while running and after completion', async () => {
+      const messages = Array.from({ length: 105 }, (_, i) => ({
+        id: `msg-cr-warn-${i + 1}`,
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        text: `warning message ${i + 1}`,
+        timestamp: 1705316810 + i,
+        conversationId: 'conv-cr-warn',
+      }))
+      const content = createTestExport(messages)
+
+      const importResult = await importExport({
+        content,
+        filename: 'cr-warn.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `warn-run-${Date.now()}`
+      const deferredSuccess = deferred<{
+        text: string
+        tokensIn: number
+        tokensOut: number
+        costUsd: number
+        dryRun: boolean
+      }>()
+      let callCount = 0
+      let holdPointSeen!: () => void
+      const holdPointStarted = new Promise<void>((resolve) => {
+        holdPointSeen = resolve
+      })
+
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount <= 100) {
+          return {
+            text: '{"category":"GALACTIC","confidence":0.61}',
+            tokensIn: 10,
+            tokensOut: 10,
+            costUsd: 0.001,
+            dryRun: false,
+          }
+        }
+        if (callCount === 101) {
+          holdPointSeen()
+          return deferredSuccess.promise
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+
+      const classifyPromise = classifyBatch({
+        classifyRunId,
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      await holdPointStarted
+
+      const midRes = await callGetClassifyRun(classifyRunId)
+      expect(midRes.status).toBe(200)
+      const midBody = await midRes.json()
+      const midDetails = midBody.warnings.details as ClassifyWarningDetails | undefined
+
+      expect(midBody.status).toBe('running')
+      expect(midBody.warnings.skippedBadOutput).toBe(100)
+      expect(midDetails).toBeDefined()
+      expect(midDetails?.badOutputReasons.invalid_category_value).toBe(100)
+      expect(midDetails?.badCategorySamples).toEqual(['GALACTIC'])
+
+      deferredSuccess.resolve({
+        text: '{"category":"WORK","confidence":0.8}',
+        tokensIn: 10,
+        tokensOut: 10,
+        costUsd: 0.001,
+        dryRun: false,
+      })
+
+      const result = await classifyPromise
+      expect(result.totals.newlyLabeled).toBe(5)
+
+      const finalRes = await callGetClassifyRun(classifyRunId)
+      expect(finalRes.status).toBe(200)
+      const finalBody = await finalRes.json()
+      const finalDetails = finalBody.warnings.details as ClassifyWarningDetails | undefined
+
+      expect(finalBody.status).toBe('succeeded')
+      expect(finalBody.warnings.skippedBadOutput).toBe(100)
+      expect(finalDetails?.badOutputReasons.invalid_category_value).toBe(100)
+      expect(finalDetails?.badCategorySamples).toEqual(['GALACTIC'])
+      expect(finalDetails?.aliasedCategorySamples).toEqual([])
     })
   })
 

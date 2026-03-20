@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import type { BadOutputReasonKey, ClassifyWarningDetails } from '@/lib/classify-warning-details'
 import {
   getImportBatchSources,
   isDuplicateImportResult,
@@ -41,6 +42,14 @@ const TERMINAL_RUN_STATUSES = new Set(['completed', 'cancelled', 'failed'])
 const TERMINAL_CLASSIFY_STATUSES = new Set(['succeeded', 'failed'])
 const CLASSIFY_POLL_INTERVAL_MS = 800
 const USER_STOPPED_CODE = 'USER_STOPPED'
+const BAD_OUTPUT_REASON_LABELS: Record<BadOutputReasonKey, string> = {
+  invalid_json: 'Invalid JSON',
+  non_object: 'Non-object JSON',
+  bad_category_field: 'Bad category field',
+  invalid_category_value: 'Invalid category value',
+  bad_confidence_field: 'Bad confidence field',
+  confidence_out_of_range: 'Confidence out of range',
+}
 
 interface PromptVersion {
   id: string
@@ -94,6 +103,7 @@ interface ClassifyRunStatus {
   warnings: {
     skippedBadOutput: number
     aliasedCount: number
+    details?: ClassifyWarningDetails
   }
   checkpoint: {
     lastAtomStableIdProcessed: string | null
@@ -1382,6 +1392,49 @@ export default function DemoClient() {
                         validation. Those atoms are safely skipped for this run. The dev-server CLI now prints classify
                         checkpoints so you can watch counts and spend move while real mode is running.
                       </div>
+                      {classifyStatus.warnings.details && (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+                          <div className="text-sm font-medium">Bad-output diagnostics</div>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {Object.entries(classifyStatus.warnings.details.badOutputReasons)
+                              .filter(([, count]) => count > 0)
+                              .map(([reason, count]) => (
+                                <div key={reason} className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2">
+                                  <span>{BAD_OUTPUT_REASON_LABELS[reason as BadOutputReasonKey]}</span>
+                                  <span className="font-medium">{count}</span>
+                                </div>
+                              ))}
+                          </div>
+                          {classifyStatus.warnings.details.badCategorySamples.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-xs font-medium uppercase tracking-[0.12em] text-amber-700">
+                                Sample invalid categories
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {classifyStatus.warnings.details.badCategorySamples.map((sample) => (
+                                  <code key={sample} className="rounded bg-white px-2 py-1 text-xs text-amber-900">
+                                    {sample}
+                                  </code>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {classifyStatus.warnings.details.aliasedCategorySamples.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-xs font-medium uppercase tracking-[0.12em] text-amber-700">
+                                Sample aliased categories
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {classifyStatus.warnings.details.aliasedCategorySamples.map((sample) => (
+                                  <code key={sample} className="rounded bg-white px-2 py-1 text-xs text-amber-900">
+                                    {sample}
+                                  </code>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {classifyStatus.lastError?.code === USER_STOPPED_CODE && (
                         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                           Classification stopped by user. You can start a new classify run later; already-labeled atoms

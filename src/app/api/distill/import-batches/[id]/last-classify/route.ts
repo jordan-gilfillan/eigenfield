@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
+import { parseClassifyWarningDetailsJson } from '@/lib/classify-warning-details'
 
 export async function GET(
   request: NextRequest,
@@ -60,6 +61,8 @@ export async function GET(
       return NextResponse.json({ hasStats: false })
     }
 
+    const warningDetails = parseClassifyWarningDetailsJson(classifyRun.warningDetailsJson)
+
     return NextResponse.json({
       hasStats: true,
       stats: {
@@ -77,6 +80,7 @@ export async function GET(
         mode: classifyRun.mode,
         promptVersionLabel: classifyRun.promptVersion.versionLabel,
         promptName: classifyRun.promptVersion.prompt.name,
+        ...(warningDetails ? { warningDetails } : {}),
         errorJson: classifyRun.errorJson,
         lastAtomStableIdProcessed: classifyRun.lastAtomStableIdProcessed,
         startedAt: classifyRun.startedAt.toISOString(),

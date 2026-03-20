@@ -523,6 +523,56 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       expect(labels).toHaveLength(1)
       expect(labels[0].category).toBe('WORK')
     })
+
+    it('logs compact safe warning summaries without raw output', async () => {
+      const content = createTestExport([
+        { id: 'msg-logwarn-1', role: 'user', text: 'logging test 1', timestamp: 1705316405, conversationId: 'conv-logwarn' },
+        { id: 'msg-logwarn-2', role: 'assistant', text: 'logging test 2', timestamp: 1705316406, conversationId: 'conv-logwarn' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'logwarn.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      let callCount = 0
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount === 1) {
+          return {
+            text: '{"category":"GALACTIC","confidence":0.61}',
+            tokensIn: 10,
+            tokensOut: 10,
+            costUsd: 0.001,
+            dryRun: false,
+          }
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+      await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      const joinedLogs = consoleInfoSpy.mock.calls.map((call) => call.join(' ')).join('\n')
+      expect(joinedLogs).toContain('[classify] finished')
+      expect(joinedLogs).toContain('reasons=invalid_category_value=1')
+      expect(joinedLogs).toContain('invalidCategories=GALACTIC')
+      expect(joinedLogs).not.toContain('rawOutput')
+      expect(joinedLogs).not.toContain('logging test 1')
+    })
   })
 
   describe('parseClassifyOutput', () => {

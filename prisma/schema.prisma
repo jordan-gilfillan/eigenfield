@@ -297,6 +297,7 @@ model ClassifyRun {
   tokensOut            Int?     // null for stub mode
   costUsd              Float?   // null for stub mode
   errorJson            Json?
+  warningDetailsJson   Json?
   lastAtomStableIdProcessed String?
   startedAt            DateTime @default(now())
   finishedAt           DateTime?

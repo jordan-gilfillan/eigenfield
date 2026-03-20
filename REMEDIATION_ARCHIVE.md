@@ -1976,3 +1976,17 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - Classify status responses surface `promptName` and `promptVersionLabel`.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Resolution**: Added a shared canonical classify prompt resolver keyed to `Prompt.stage=CLASSIFY`, `Prompt.name=default-classifier`, and the seeded `classify_real_v1` / `classify_stub_v1` version labels. `/demo`, advanced `/distill`, and `createRun()` now use that resolver for implicit classify defaults, while the prompt-versions route exposes an explicit `default=true&mode=...` contract and fails closed with a configuration error instead of silently falling back to unrelated active prompts. Classify status/read surfaces now include prompt name/version metadata so the UI makes the active classifier explicit, and the affected tests were hardened against local env leakage so the dry-run validation path is stable on machines configured for real LLM usage. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1011` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-118 — Durable classify bad-output diagnostics
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Persist safe classify bad-output diagnostics so the UI and CLI can explain skipped outputs without storing raw model output or raw message text.
+- **Touch set**: `prisma/schema.prisma`, classify migration SQL, `src/lib/services/classify.ts`, classify status/read routes, `/demo` Step 2 status UI, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`, seed invariant follow-up required for `db:seed`.
+- **Acceptance**:
+  - `ClassifyRun` persists durable warning details with fixed bad-output reason keys and capped sample arrays.
+  - `GET /api/distill/classify-runs/:id` includes optional `warnings.details` and `GET /api/distill/import-batches/:id/last-classify` exposes the same persisted diagnostics for the selected run.
+  - `/demo` Step 2 shows prompt metadata plus safe reason/sample diagnostics when present.
+  - Classify checkpoint/final CLI logs include compact safe warning summaries.
+  - Database verification passes with committed migration SQL applied plus reseed, and standard quality gates pass.
+- **Resolution**: Added `ClassifyRun.warningDetailsJson`, a committed migration, and shared warning-detail normalization so classify checkpoints/finalization persist only safe aggregates: fixed reason counters plus capped invalid-category and aliased-category samples. The classify status route now exposes `warnings.details`, the last-classify read exposes matching `warningDetails`, `/demo` Step 2 renders the reason breakdown and sample chips, and classify checkpoint/final logs now print compact safe summaries without raw output. As a prerequisite to keep DB validation green, the seed invariant was narrowed to the seeded default prompts it owns instead of arbitrary custom prompts already present in the dev DB. Verified with `npx prisma migrate deploy`, `npx prisma generate`, `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1014` tests; build still includes the known `AUD-100` SWC warning). `npm run db:migrate` was not used because this repo’s `prisma migrate dev` flow is interactive and attempts unrelated destructive reconciliation against unmanaged FTS columns.

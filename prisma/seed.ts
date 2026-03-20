@@ -287,23 +287,25 @@ Do NOT use any of the following:
   console.log(`    PromptVersion: v1 (inactive)`)
 
   // ==========================================================================
-  // Invariant check: exactly one active PromptVersion per stage (SPEC §6.7)
+  // Invariant check: at most one active PromptVersion per Prompt
   // ==========================================================================
 
-  const stages = ['CLASSIFY', 'SUMMARIZE', 'REDACT'] as const
-  for (const stage of stages) {
+  const seededPrompts = [classifyPrompt, summarizePrompt, redactPrompt]
+  for (const prompt of seededPrompts) {
     const activeCount = await prisma.promptVersion.count({
       where: {
+        promptId: prompt.id,
         isActive: true,
-        prompt: { stage },
       },
     })
+
+    const label = `${prompt.stage}/${prompt.name}`
     if (activeCount > 1) {
       throw new Error(
-        `Invariant violated: stage ${stage} has ${activeCount} active PromptVersions (expected at most 1)`
+        `Invariant violated: prompt ${label} has ${activeCount} active PromptVersions (expected at most 1)`
       )
     }
-    console.log(`  Invariant OK: ${stage} has ${activeCount} active PromptVersion(s)`)
+    console.log(`  Invariant OK: ${label} has ${activeCount} active PromptVersion(s)`)
   }
 
   console.log('Seed complete.')

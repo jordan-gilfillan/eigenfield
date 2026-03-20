@@ -2,6 +2,8 @@
  * Shared types used by dashboard and run detail pages.
  */
 
+import type { ClassifyWarningDetails } from '@/lib/classify-warning-details'
+
 export interface LastClassifyStats {
   hasStats: boolean
   stats?: {
@@ -19,6 +21,7 @@ export interface LastClassifyStats {
     mode: string
     promptVersionLabel: string
     promptName: string
+    warningDetails?: ClassifyWarningDetails
     errorJson: {
       code: string
       message: string
