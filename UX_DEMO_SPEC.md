@@ -51,6 +51,8 @@ Hard constraints (must remain true):
 - **Success criteria (step completes):**
   - classify run reaches `succeeded`
   - UI shows totals (`messageAtoms`, `labeled`, `newlyLabeled`, `skippedAlreadyLabeled`)
+  - while running, UI surfaces processed/remaining state, latest checkpoint, skipped-invalid-output explanation, and an explicit `Stop classify` control
+  - if the user stops classify, the step remains incomplete and the UI explains that rerunning later will skip already-labeled atoms
   - "Continue to Summarize" button becomes enabled
 
 ### Step 3: Summarize

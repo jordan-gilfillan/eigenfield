@@ -1948,3 +1948,17 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - Duplicate uploads (`created.messageAtoms === 0`) show recovery UI, do not bind the empty batch, and guide the user to a reusable existing batch.
   - Required gates pass (`npm run lint`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`).
 - **Resolution**: Added persisted `storedCounts` to import-batch reads so empty duplicate audit batches are distinguishable from reusable batches. `/demo` Step 1 now binds the flow to an explicit selected batch, supports on-demand existing-batch selection, and routes duplicate uploads into an amber recovery state instead of unlocking the rest of the wizard on an empty batch. Added route coverage for the new read shape and targeted demo batch-selection utility tests.
+
+### AUD-116 — `/demo` classify feedback + stop control
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make `/demo` real classify runs easier to understand in-flight and let the user stop safely without relying on silent client aborts.
+- **Touch set**: `src/app/demo/*`, classify status/control routes, `src/lib/services/classify.ts`, targeted tests, `SPEC.md`, `UX_SPEC.md`.
+- **Acceptance**:
+  - `/demo` classify status explains what skipped bad outputs mean, shows clearer live checkpoint detail, and surfaces a user-stop affordance while classify is running.
+  - Stopping classify is explicit and foreground-only: the current atom may finish, no background retry is introduced, and already-written labels remain durable.
+  - A stopped classify run lands in a user-visible terminal state with safe explanatory copy; rerunning classify later remains possible and skips already-labeled atoms.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not widen this slice into full pause/resume semantics or schema changes.
+- **Resolution**: Added live classify control/status improvements without changing the `ClassifyRun.status` model. `GET /api/distill/classify-runs/:id` now exposes `checkpoint` and `control` metadata, `POST /api/distill/classify-runs/:id/stop` requests a foreground stop, and the classify loop honors that request after the current atom by persisting a terminal `USER_STOPPED` error while preserving partial labels. `/demo` Step 2 now explains skipped invalid model outputs, shows richer checkpoint feedback, offers an explicit stop button, and treats persisted classify status as the source of truth. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`71` files, `1008` tests; build still includes the known `AUD-100` SWC warning).

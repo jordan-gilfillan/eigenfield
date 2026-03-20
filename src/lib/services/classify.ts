@@ -9,7 +9,8 @@
 
 import { prisma } from '../db'
 import { sha256, hashToUint32 } from '../hash'
-import type { Category, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Category } from '@prisma/client'
 import {
   callLlm,
   inferProvider,
@@ -19,13 +20,12 @@ import {
   assertWithinBudget,
   RateLimiter,
   LlmBadOutputError,
-  BudgetExceededError,
 } from '../llm'
 import type { LlmCallContext } from '../llm'
 import { getCalendarDaySpendUsd } from './budget-queries'
 
 // Import from shared errors + re-export for backward compatibility
-import { InvalidInputError, NotFoundError } from '../errors'
+import { InvalidInputError, NotFoundError, ServiceError } from '../errors'
 export { InvalidInputError }
 
 /**
@@ -64,6 +64,9 @@ const SAMPLE_CAP = 5
 const CHECKPOINT_ATOM_INTERVAL = 100
 const CHECKPOINT_MS_INTERVAL = 5000
 
+export const CLASSIFY_STOP_REQUESTED_CODE = 'USER_STOP_REQUESTED'
+export const CLASSIFY_STOPPED_CODE = 'USER_STOPPED'
+
 export interface ClassifyOptions {
   /** Optional client-supplied classify run ID for foreground polling. */
   classifyRunId?: string
@@ -97,6 +100,12 @@ export interface ClassifyResult {
     badCategorySamples: string[]
     aliasedCategorySamples: string[]
   }
+}
+
+export interface RequestClassifyStopResult {
+  id: string
+  status: string
+  stopRequested: boolean
 }
 
 /**
@@ -327,6 +336,98 @@ function toPersistedClassifyError(error: unknown): Prisma.InputJsonObject {
   }
 }
 
+function getPersistedErrorCode(errorJson: unknown): string | null {
+  if (!errorJson || typeof errorJson !== 'object' || Array.isArray(errorJson)) {
+    return null
+  }
+
+  const code = (errorJson as { code?: unknown }).code
+  return typeof code === 'string' ? code : null
+}
+
+export function isClassifyStopRequested(errorJson: unknown): boolean {
+  return getPersistedErrorCode(errorJson) === CLASSIFY_STOP_REQUESTED_CODE
+}
+
+export function isClassifyStoppedError(errorJson: unknown): boolean {
+  return getPersistedErrorCode(errorJson) === CLASSIFY_STOPPED_CODE
+}
+
+function buildStopRequestedPayload(): Prisma.InputJsonObject {
+  return {
+    code: CLASSIFY_STOP_REQUESTED_CODE,
+    message: 'Stop requested by user. Classification will stop after the current atom.',
+    requestedAt: new Date().toISOString(),
+  }
+}
+
+export class ClassifyStoppedError extends ServiceError {
+  constructor(message = 'Classification stopped by user') {
+    super(message, { code: CLASSIFY_STOPPED_CODE, httpStatus: 409 })
+  }
+}
+
+export async function requestClassifyStop(classifyRunId: string): Promise<RequestClassifyStopResult> {
+  const classifyRun = await prisma.classifyRun.findUnique({
+    where: { id: classifyRunId },
+    select: { id: true, status: true, errorJson: true },
+  })
+
+  if (!classifyRun) {
+    throw new NotFoundError('ClassifyRun', classifyRunId)
+  }
+
+  if (classifyRun.status !== 'running') {
+    return {
+      id: classifyRun.id,
+      status: classifyRun.status,
+      stopRequested: false,
+    }
+  }
+
+  if (isClassifyStopRequested(classifyRun.errorJson)) {
+    return {
+      id: classifyRun.id,
+      status: classifyRun.status,
+      stopRequested: true,
+    }
+  }
+
+  await prisma.classifyRun.update({
+    where: { id: classifyRun.id },
+    data: {
+      errorJson: buildStopRequestedPayload(),
+    },
+  })
+
+  console.info(`[classify] stop requested ${classifyRun.id}`)
+
+  return {
+    id: classifyRun.id,
+    status: classifyRun.status,
+    stopRequested: true,
+  }
+}
+
+async function assertClassifyRunContinuing(classifyRunId: string): Promise<void> {
+  const classifyRun = await prisma.classifyRun.findUnique({
+    where: { id: classifyRunId },
+    select: { status: true, errorJson: true },
+  })
+
+  if (!classifyRun) {
+    throw new NotFoundError('ClassifyRun', classifyRunId)
+  }
+
+  if (isClassifyStopRequested(classifyRun.errorJson)) {
+    throw new ClassifyStoppedError()
+  }
+
+  if (classifyRun.status !== 'running') {
+    throw new ClassifyStoppedError('Classification is no longer running')
+  }
+}
+
 async function countLabelsForSpec(
   importBatchId: string,
   promptVersionId: string,
@@ -408,6 +509,13 @@ async function maybeCheckpointClassifyRun(
         : {}),
     },
   })
+
+  const usageSuffix = mode === 'real'
+    ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+    : ''
+  console.info(
+    `[classify] checkpoint ${classifyRunId} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}`,
+  )
 
   checkpointState.lastWriteMs = now
   checkpointState.lastWrittenProcessedAtoms = progress.processedAtoms
@@ -540,6 +648,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
+          errorJson: Prisma.DbNull,
         },
       })
 
@@ -573,6 +682,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
+          errorJson: Prisma.DbNull,
         },
       })
 
@@ -626,6 +736,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
               costUsd: progress.costUsd,
             }
           : {}),
+        errorJson: Prisma.DbNull,
       },
     })
 
@@ -656,6 +767,12 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           errorJson: toPersistedClassifyError(error),
         },
       })
+
+      if (error instanceof ClassifyStoppedError) {
+        console.info(
+          `[classify] stopped ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms}`,
+        )
+      }
     } catch (persistError) {
       console.error('Failed to persist classify failure audit trail:', persistError)
     }
@@ -680,6 +797,8 @@ async function classifyBatchStub(
   let cursor: string | undefined
 
   while (true) {
+    await assertClassifyRunContinuing(classifyRunId)
+
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
@@ -721,6 +840,8 @@ async function classifyBatchStub(
       progress,
       checkpointState,
     )
+
+    await assertClassifyRunContinuing(classifyRunId)
 
     if (atomsBatch.length < BATCH_SIZE) break
   }
@@ -787,6 +908,8 @@ async function classifyBatchReal(
   }
 
   while (true) {
+    await assertClassifyRunContinuing(classifyRunId)
+
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
@@ -803,6 +926,8 @@ async function classifyBatchReal(
     if (atomsBatch.length === 0) break
 
     for (const atom of atomsBatch) {
+      await assertClassifyRunContinuing(classifyRunId)
+
       // Rate limit
       await rateLimiter.acquire()
 
@@ -872,6 +997,7 @@ async function classifyBatchReal(
             progress,
             checkpointState,
           )
+          await assertClassifyRunContinuing(classifyRunId)
           continue
         }
         throw error
@@ -905,6 +1031,7 @@ async function classifyBatchReal(
         progress,
         checkpointState,
       )
+      await assertClassifyRunContinuing(classifyRunId)
     }
 
     cursor = atomsBatch[atomsBatch.length - 1].id

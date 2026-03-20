@@ -215,6 +215,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [x] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error).
 - [x] Show processed/total and percent whenever `status=running`.
 - [x] Show latest checkpoint timestamp (`updatedAt` or equivalent) when available.
+- [x] Explain that skipped bad outputs are invalid model responses (JSON/category/confidence validation failures), not silent data loss.
+- [x] Expose a foreground stop control while classify is running; stopping may finish the current atom but must not introduce background retry/resume work.
 - [x] Expose manual `Refresh` everywhere progress is shown.
 
 ### Run progress

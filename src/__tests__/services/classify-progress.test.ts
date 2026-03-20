@@ -5,12 +5,14 @@ import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
 import * as llmModule from '../../lib/llm'
 import { GET as getClassifyRun } from '../../app/api/distill/classify-runs/[id]/route'
+import { POST as postStopClassify } from '../../app/api/distill/classify-runs/[id]/stop/route'
 import { POST as postClassify } from '../../app/api/distill/classify/route'
 
 /**
  * Integration tests for:
  * - POST /classify returns classifyRunId
  * - GET /classify-runs/:id returns correct shapes
+ * - POST /classify-runs/:id/stop requests a foreground stop
  * - GET /classify-runs/:id is read-only (no side effects)
  * - Progress updates persist during execution
  */
@@ -20,6 +22,22 @@ import { createTestExport } from '../fixtures/export-factories'
 async function callGetClassifyRun(id: string) {
   const req = new NextRequest(`http://localhost/api/distill/classify-runs/${id}`)
   return getClassifyRun(req, { params: Promise.resolve({ id }) })
+}
+
+async function callStopClassifyRun(id: string) {
+  const req = new NextRequest(`http://localhost/api/distill/classify-runs/${id}/stop`, {
+    method: 'POST',
+  })
+  return postStopClassify(req, { params: Promise.resolve({ id }) })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    void rej
+  })
+  return { promise, resolve }
 }
 
 describe('Classify progress + classify-runs endpoint', () => {
@@ -273,6 +291,8 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Warnings
       expect(body.warnings).toBeDefined()
       expect(body.warnings.skippedBadOutput).toBe(0)
+      expect(body.control).toEqual({ canStop: false, stopRequested: false })
+      expect(typeof body.checkpoint.lastAtomStableIdProcessed).toBe('string')
 
       // Timestamps
       expect(body.createdAt).toBeDefined()
@@ -312,6 +332,8 @@ describe('Classify progress + classify-runs endpoint', () => {
 
       // SPEC §7.2.1: warnings is a separate top-level key with quality counters
       expect(Object.keys(body.warnings).sort()).toEqual(['aliasedCount', 'skippedBadOutput'])
+      expect(Object.keys(body.checkpoint).sort()).toEqual(['lastAtomStableIdProcessed'])
+      expect(Object.keys(body.control).sort()).toEqual(['canStop', 'stopRequested'])
 
       // Ensure skippedBadOutput/aliasedCount are NOT in progress
       expect(body.progress).not.toHaveProperty('skippedBadOutput')
@@ -320,7 +342,7 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Top-level response keys match normative schema
       const expectedKeys = [
         'id', 'importBatchId', 'labelSpec', 'mode', 'status',
-        'totals', 'progress', 'usage', 'warnings', 'lastError',
+        'totals', 'progress', 'usage', 'warnings', 'checkpoint', 'control', 'lastError',
         'createdAt', 'updatedAt', 'startedAt', 'finishedAt',
       ].sort()
       expect(Object.keys(body).sort()).toEqual(expectedKeys)
@@ -389,6 +411,101 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(body.lastError).toBeTruthy()
       expect(body.lastError.code).toBe('TEST_FAIL')
       expect(body.finishedAt).toBeTruthy()
+    })
+  })
+
+  describe('POST /classify-runs/:id/stop', () => {
+    it('requests stop for a running classify and persists a stopped-by-user terminal result', async () => {
+      const content = createTestExport([
+        { id: 'msg-stop-1', role: 'user', text: 'stop test 1', timestamp: 1705317200, conversationId: 'conv-stop' },
+        { id: 'msg-stop-2', role: 'assistant', text: 'stop test 2', timestamp: 1705317201, conversationId: 'conv-stop' },
+        { id: 'msg-stop-3', role: 'user', text: 'stop test 3', timestamp: 1705317202, conversationId: 'conv-stop' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'stop.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `stop-run-${Date.now()}`
+      const firstResponse = deferred<{
+        text: string
+        tokensIn: number
+        tokensOut: number
+        costUsd: number
+        dryRun: boolean
+      }>()
+      let callCount = 0
+      let firstCallSeen!: () => void
+      const firstCallStarted = new Promise<void>((resolve) => {
+        firstCallSeen = resolve
+      })
+
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount === 1) {
+          firstCallSeen()
+          return firstResponse.promise
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 8,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+
+      const classifyPromise = classifyBatch({
+        classifyRunId,
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      await firstCallStarted
+
+      const stopRes = await callStopClassifyRun(classifyRunId)
+      expect(stopRes.status).toBe(200)
+      const stopBody = await stopRes.json()
+      expect(stopBody).toEqual({
+        id: classifyRunId,
+        status: 'running',
+        stopRequested: true,
+      })
+
+      const midRes = await callGetClassifyRun(classifyRunId)
+      const midBody = await midRes.json()
+      expect(midBody.control).toEqual({ canStop: true, stopRequested: true })
+      expect(midBody.lastError).toBeNull()
+
+      firstResponse.resolve({
+        text: '{"category":"WORK","confidence":0.8}',
+        tokensIn: 10,
+        tokensOut: 8,
+        costUsd: 0.001,
+        dryRun: false,
+      })
+
+      await expect(classifyPromise).rejects.toMatchObject({
+        code: 'USER_STOPPED',
+      })
+      expect(callCount).toBe(1)
+
+      const finalRes = await callGetClassifyRun(classifyRunId)
+      expect(finalRes.status).toBe(200)
+      const finalBody = await finalRes.json()
+      expect(finalBody.status).toBe('failed')
+      expect(finalBody.progress.processedAtoms).toBe(1)
+      expect(finalBody.totals.newlyLabeled).toBe(1)
+      expect(finalBody.control).toEqual({ canStop: false, stopRequested: false })
+      expect(finalBody.lastError).toMatchObject({
+        code: 'USER_STOPPED',
+      })
+      expect(finalBody.finishedAt).toBeTruthy()
     })
   })
 

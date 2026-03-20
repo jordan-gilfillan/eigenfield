@@ -449,6 +449,7 @@ Normative behavior:
 Endpoints:
 - `POST /api/distill/classify` returns `classifyRunId`.
 - `GET /api/distill/classify-runs/:id` returns progress/status for that classify run.
+- `POST /api/distill/classify-runs/:id/stop` requests that a running classify stop after the current atom.
 
 `ClassifyRun.status` is: `running|succeeded|failed`. **Terminal states:** `succeeded`, `failed`.
 
@@ -464,6 +465,8 @@ Status endpoint response (normative):
   "progress": {"processedAtoms": 0, "totalAtoms": 0},
   "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},
   "warnings": {"skippedBadOutput": 0, "aliasedCount": 0},
+  "checkpoint": {"lastAtomStableIdProcessed": "string | null"},
+  "control": {"canStop": true, "stopRequested": false},
   "lastError": null,
   "createdAt": "RFC3339",
   "updatedAt": "RFC3339",
@@ -474,6 +477,9 @@ Status endpoint response (normative):
 Notes:
 - `progress`, `usage`, and `warnings` MAY be partial while `status="running"`.
 - `warnings` contains classification-quality counters separate from progress tracking.
+- `checkpoint.lastAtomStableIdProcessed` is optional progress detail for foreground diagnostics and SHOULD NOT include raw message text.
+- `control.stopRequested` is only meaningful while `status="running"`.
+- If the user stops classify, the terminal record remains `status="failed"` with `lastError.code="USER_STOPPED"`. Partial labels already written remain durable; a later rerun may skip them.
 - The status endpoint MUST be read-only and MUST NOT trigger classification work.
 
 **Deterministic stub algorithm (stub_v1):**

@@ -40,6 +40,7 @@ const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> =
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'cancelled', 'failed'])
 const TERMINAL_CLASSIFY_STATUSES = new Set(['succeeded', 'failed'])
 const CLASSIFY_POLL_INTERVAL_MS = 800
+const USER_STOPPED_CODE = 'USER_STOPPED'
 
 interface PromptVersion {
   id: string
@@ -84,6 +85,13 @@ interface ClassifyRunStatus {
   warnings: {
     skippedBadOutput: number
     aliasedCount: number
+  }
+  checkpoint: {
+    lastAtomStableIdProcessed: string | null
+  }
+  control: {
+    canStop: boolean
+    stopRequested: boolean
   }
   lastError: {
     code: string
@@ -273,6 +281,7 @@ export default function DemoClient() {
   const [promptVersionError, setPromptVersionError] = useState<string | null>(null)
   const [classifyMode, setClassifyMode] = useState<ClassifyMode>('stub')
   const [classifyInFlight, setClassifyInFlight] = useState(false)
+  const [classifyStopInFlight, setClassifyStopInFlight] = useState(false)
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null)
   const [classifyStatus, setClassifyStatus] = useState<ClassifyRunStatus | null>(null)
   const [classifyPollRunId, setClassifyPollRunId] = useState<string | null>(null)
@@ -315,7 +324,19 @@ export default function DemoClient() {
   const importBatch = selectedImportBatch
   const activeClassifyPromptVersion =
     classifyMode === 'stub' ? classifyPromptVersions.stub : classifyPromptVersions.real
-  const classifyDone = !!classifyResult
+  const effectiveClassifyResult = classifyResult ?? (
+    classifyStatus?.status === 'succeeded'
+      ? {
+          classifyRunId: classifyStatus.id,
+          importBatchId: classifyStatus.importBatchId,
+          labelSpec: classifyStatus.labelSpec,
+          mode: classifyStatus.mode,
+          totals: classifyStatus.totals,
+        }
+      : null
+  )
+  const classifyRunning = classifyInFlight || classifyStatus?.status === 'running'
+  const classifyDone = !!effectiveClassifyResult
   const runDone = runDetail?.status === 'completed'
   const availableSources = useMemo(() => {
     if (!importBatch) return []
@@ -332,7 +353,7 @@ export default function DemoClient() {
   const step1State: StepState =
     importBatch ? 'done' : importStatus === 'uploading' ? 'working' : 'ready'
   const step2State: StepState =
-    !importBatch ? 'locked' : classifyDone ? 'done' : classifyInFlight ? 'working' : 'ready'
+    !importBatch ? 'locked' : classifyDone ? 'done' : classifyRunning ? 'working' : 'ready'
   const step3State: StepState =
     !classifyDone ? 'locked' : runDone ? 'done' : createRunInFlight || summarizing || !!runDetail ? 'working' : 'ready'
   const step4State: StepState =
@@ -529,6 +550,7 @@ export default function DemoClient() {
     classifyAbortRef.current = null
     summarizeLoopRef.current = null
     setClassifyInFlight(false)
+    setClassifyStopInFlight(false)
     setClassifyResult(null)
     setClassifyStatus(null)
     setClassifyPollRunId(null)
@@ -690,6 +712,11 @@ export default function DemoClient() {
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
+        if ((data as ApiErrorResponse).error?.code === USER_STOPPED_CODE) {
+          setClassifyError(null)
+          await refreshClassifyStatus(classifyRunId).catch(() => {})
+          return
+        }
         setClassifyError(formatApiError(data, 'Classification failed'))
         await refreshClassifyStatus(classifyRunId).catch(() => {})
         return
@@ -708,13 +735,39 @@ export default function DemoClient() {
     }
   }
 
+  const handleStopClassify = async () => {
+    const activeRunId = classifyStatus?.id ?? classifyPollRunId
+    if (!activeRunId) return
+
+    setClassifyStopInFlight(true)
+    setClassifyError(null)
+
+    try {
+      const res = await fetch(`/api/distill/classify-runs/${activeRunId}/stop`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setClassifyError(formatApiError(data, 'Failed to stop classification'))
+        return
+      }
+
+      classifyAbortRef.current?.abort()
+      await refreshClassifyStatus(activeRunId).catch(() => {})
+    } catch (error) {
+      setClassifyError(error instanceof Error ? error.message : 'Failed to stop classification')
+    } finally {
+      setClassifyStopInFlight(false)
+    }
+  }
+
   const handleProviderChange = (nextProvider: ProviderId) => {
     setProvider(nextProvider)
     setModel(PROVIDER_MODELS[nextProvider].models[0])
   }
 
   const handleCreateRun = async () => {
-    if (!importBatch || !classifyResult) return
+    if (!importBatch || !effectiveClassifyResult) return
     if (!selectedFilterProfileId) {
       setCreateRunError('Select a filter profile before creating a run.')
       return
@@ -769,7 +822,7 @@ export default function DemoClient() {
           sources: selectedSources,
           filterProfileId: selectedFilterProfileId,
           model: effectiveSummarizeModel,
-          labelSpec: classifyResult.labelSpec,
+          labelSpec: effectiveClassifyResult.labelSpec,
           maxInputTokens: parsedMaxInputTokens,
           ...(budgetPolicy ? { budgetPolicy } : {}),
         }),
@@ -1157,7 +1210,7 @@ export default function DemoClient() {
                           name="classify-mode"
                           checked={classifyMode === 'stub'}
                           onChange={() => setClassifyMode('stub')}
-                          disabled={classifyInFlight}
+                          disabled={classifyRunning}
                         />
                         Stub (Recommended)
                       </label>
@@ -1167,7 +1220,7 @@ export default function DemoClient() {
                           name="classify-mode"
                           checked={classifyMode === 'real'}
                           onChange={() => setClassifyMode('real')}
-                          disabled={classifyInFlight}
+                          disabled={classifyRunning}
                         />
                         Real (LLM-backed)
                       </label>
@@ -1189,11 +1242,21 @@ export default function DemoClient() {
                     <button
                       type="button"
                       onClick={handleClassify}
-                      disabled={classifyInFlight || loadingPromptVersions || !activeClassifyPromptVersion}
+                      disabled={classifyRunning || classifyStopInFlight || loadingPromptVersions || !activeClassifyPromptVersion}
                       className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-gray-300"
                     >
-                      {classifyInFlight ? 'Classifying…' : `Classify (${classifyMode})`}
+                      {classifyRunning ? 'Classifying…' : `Classify (${classifyMode})`}
                     </button>
+                    {(classifyRunning || classifyStatus?.control.stopRequested) && (
+                      <button
+                        type="button"
+                        onClick={handleStopClassify}
+                        disabled={classifyStopInFlight || classifyStatus?.control.stopRequested}
+                        className="rounded-full border border-amber-300 bg-white px-5 py-2.5 text-sm font-medium text-amber-800 hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:border-amber-200 disabled:text-amber-500"
+                      >
+                        {classifyStopInFlight || classifyStatus?.control.stopRequested ? 'Stopping…' : 'Stop classify'}
+                      </button>
+                    )}
                     {loadingPromptVersions && (
                       <span className="text-sm text-gray-500">Loading prompt versions…</span>
                     )}
@@ -1240,7 +1303,18 @@ export default function DemoClient() {
                           />
                         </div>
                       </div>
+                      {classifyStatus.control.stopRequested && (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                          Stop requested. The current atom may finish before classify stops.
+                        </div>
+                      )}
                       <dl className="mt-4 grid gap-x-4 gap-y-2 text-sm md:grid-cols-2">
+                        <div>
+                          <dt className="text-gray-500">Remaining</dt>
+                          <dd className="font-medium text-gray-900">
+                            {Math.max(classifyStatus.progress.totalAtoms - classifyStatus.progress.processedAtoms, 0)}
+                          </dd>
+                        </div>
                         <div>
                           <dt className="text-gray-500">Newly labeled</dt>
                           <dd className="font-medium text-gray-900">{classifyStatus.totals.newlyLabeled}</dd>
@@ -1250,7 +1324,7 @@ export default function DemoClient() {
                           <dd className="font-medium text-gray-900">{classifyStatus.totals.skippedAlreadyLabeled}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-500">Bad outputs</dt>
+                          <dt className="text-gray-500">Skipped invalid model outputs</dt>
                           <dd className="font-medium text-gray-900">{classifyStatus.warnings.skippedBadOutput}</dd>
                         </div>
                         <div>
@@ -1263,15 +1337,42 @@ export default function DemoClient() {
                             <dd className="font-medium text-gray-900">${classifyStatus.usage.costUsd.toFixed(4)}</dd>
                           </div>
                         )}
+                        <div>
+                          <dt className="text-gray-500">Latest checkpoint</dt>
+                          <dd className="font-medium text-gray-900">{new Date(classifyStatus.updatedAt).toLocaleTimeString()}</dd>
+                        </div>
+                        {classifyStatus.checkpoint.lastAtomStableIdProcessed && (
+                          <div className="md:col-span-2">
+                            <dt className="text-gray-500">Last processed atom</dt>
+                            <dd className="font-medium text-gray-900">
+                              <code className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">
+                                {classifyStatus.checkpoint.lastAtomStableIdProcessed}
+                              </code>
+                            </dd>
+                          </div>
+                        )}
                         {classifyStatus.lastError && (
                           <div className="md:col-span-2">
                             <dt className="text-gray-500">Last error</dt>
-                            <dd className="font-medium text-red-700">
+                            <dd className={`font-medium ${
+                              classifyStatus.lastError.code === USER_STOPPED_CODE ? 'text-amber-700' : 'text-red-700'
+                            }`}>
                               [{classifyStatus.lastError.code}] {classifyStatus.lastError.message}
                             </dd>
                           </div>
                         )}
                       </dl>
+                      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                        Skipped invalid model outputs are non-fatal responses that failed JSON, category, or confidence
+                        validation. Those atoms are safely skipped for this run. The dev-server CLI now prints classify
+                        checkpoints so you can watch counts and spend move while real mode is running.
+                      </div>
+                      {classifyStatus.lastError?.code === USER_STOPPED_CODE && (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                          Classification stopped by user. You can start a new classify run later; already-labeled atoms
+                          will be skipped.
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
