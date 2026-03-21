@@ -477,6 +477,7 @@ Prompt management is advanced/user-initiated only.
 Endpoints:
 - `GET /api/distill/prompts?stage=CLASSIFY|SUMMARIZE|REDACT` returns prompt-family summaries plus version metadata.
 - `GET /api/distill/prompts/:promptId` returns full version detail, including template text.
+- `GET /api/distill/prompt-versions` may return either a list of prompt versions or a single `promptVersion` object; single-object responses used by selection UIs MUST include `templateText`.
 - `POST /api/distill/prompts/:promptId/versions` creates a new immutable PromptVersion within an existing prompt family.
 - `POST /api/distill/prompts/:promptId/activate` sets the active version within that prompt family.
 - `POST /api/distill/prompt-defaults/:slot` reassigns an implicit default slot to a compatible version within the canonical family for that slot.

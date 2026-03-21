@@ -93,8 +93,39 @@ describe('GET /api/distill/prompt-versions', () => {
     expect(body.promptVersion.id).toBe(canonicalVersion.id)
     expect(body.promptVersion.versionLabel).toBe('classify_real_v1')
     expect(body.promptVersion.prompt.name).toBe('default-classifier')
+    expect(body.promptVersion.templateText).toBe('Return ONLY JSON with category and confidence.')
     expect(body.promptVersion.defaultSlots).toContain('CLASSIFY_REAL')
     expect(body.promptVersion.compatibility.CLASSIFY_REAL.valid).toBe(true)
+  })
+
+  it('returns templateText when querying a singular prompt version by versionLabel', async () => {
+    const prompt = await prisma.prompt.create({
+      data: {
+        stage: 'SUMMARIZE',
+        name: `prompt-version-lookup-${Date.now()}`,
+      },
+    })
+    createdPromptIds.push(prompt.id)
+
+    await prisma.promptVersion.create({
+      data: {
+        promptId: prompt.id,
+        versionLabel: 'previewable_v1',
+        templateText: 'Write a concise daily narrative.',
+        isActive: true,
+      },
+    })
+
+    const { GET } = await loadRoute()
+    const req = new NextRequest(
+      'http://localhost/api/distill/prompt-versions?stage=summarize&versionLabel=previewable_v1',
+    )
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.promptVersion.versionLabel).toBe('previewable_v1')
+    expect(body.promptVersion.templateText).toBe('Write a concise daily narrative.')
   })
 
   it('rejects default=true classify requests without a mode', async () => {

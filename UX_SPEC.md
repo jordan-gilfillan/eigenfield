@@ -117,6 +117,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
   - last run timestamp
   - explicit `Refresh` button.
 - [x] Classification card shows the current classify prompt family/version and includes an inline `Change prompt` flow.
+- [x] Classification card keeps the selected prompt text visible even when the inline selector is collapsed.
+- [x] Inline classify prompt selection uses a preview-first flow: choosing a version updates the preview, and `Use this prompt` commits it for the current session.
 - [x] Incompatible real classify prompts are blocked before submit with a clear reason and a link to `/distill/prompts`.
 - [ ] Create-run card shows frozen inputs with clear dependency states:
   - disabled reason text when blocked
@@ -134,6 +136,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [x] Stage tabs exist for `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
 - [x] Prompt family list shows canonical/custom state, version count, and current default-slot badges.
 - [x] Prompt detail shows version history, template text, created time, compatibility state, and default-slot eligibility.
+- [x] Selected-version detail includes a clearly labeled read-only `Prompt text` preview area, visually separated from default controls and the create-version form.
 - [x] `Create version` creates a new immutable PromptVersion under the selected family; there is no in-place edit or delete action.
 - [x] `Activate version` changes only the active version within the selected family.
 - [x] `Make default` is available only for canonical families and only when the selected version is compatible with the requested slot.

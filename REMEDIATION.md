@@ -27,7 +27,7 @@ Each entry has:
 - **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency); AUD-112 — Run detail export default path duplicates export root (`Not started`); AUD-113 — Search output deep link ignores requested day context (`Not started`); AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
 - **P2 (Blocked follow-ons):** AUD-110 → AUD-111 (`Blocked` until a fresh auth/tenant planning checkpoint after AUD-109)
 
-_Last refreshed: 2026-03-20_
+_Last refreshed: 2026-03-21_
 
 ## Ledger size policy
 
@@ -282,6 +282,7 @@ These are not necessarily code bugs, but they create recurring audit noise.
 - AUD-119 — Prompt defaults, compatibility, and write APIs → moved to REMEDIATION_ARCHIVE.md
 - AUD-120 — Advanced prompt manager for all stages → moved to REMEDIATION_ARCHIVE.md
 - AUD-121 — Inline classify prompt recovery in `/demo` and `/distill` → moved to REMEDIATION_ARCHIVE.md
+- AUD-122 — Make selected prompt text obvious in prompt manager and classify selectors → moved to REMEDIATION_ARCHIVE.md
 - AUD-116 — `/demo` classify feedback + stop control → moved to REMEDIATION_ARCHIVE.md
 - AUD-115 — `/demo` existing-import reuse path → moved to REMEDIATION_ARCHIVE.md
 ## Notes

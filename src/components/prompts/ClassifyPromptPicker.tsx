@@ -1,12 +1,20 @@
 'use client'
 
+import React from 'react'
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   ManagedPromptFamily,
   ManagedPromptVersion,
   PromptDefaultSlotApi,
 } from '@/lib/types/prompt-management'
+import { PromptTextPreview } from './PromptTextPreview'
+import {
+  canApplyPromptPreview,
+  getPreferredPromptFamilyId,
+  getPromptVersionForDisplay,
+  hasPendingPromptSelection,
+} from './classify-prompt-picker-state'
 
 type ClassifyMode = 'stub' | 'real'
 
@@ -45,6 +53,7 @@ export function ClassifyPromptPicker({
   const [familiesError, setFamiliesError] = useState<string | null>(null)
   const [familyDetails, setFamilyDetails] = useState<Record<string, ManagedPromptFamily>>({})
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(value?.prompt.id ?? null)
+  const [previewVersionId, setPreviewVersionId] = useState<string | null>(value?.id ?? null)
   const [loadingFamilyId, setLoadingFamilyId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -54,10 +63,9 @@ export function ClassifyPromptPicker({
   }, [forceExpanded])
 
   useEffect(() => {
-    if (value?.prompt.id) {
-      setSelectedFamilyId((current) => current ?? value.prompt.id)
-    }
-  }, [value?.prompt.id])
+    setSelectedFamilyId(value?.prompt.id ?? null)
+    setPreviewVersionId(value?.id ?? null)
+  }, [value?.id, value?.prompt.id])
 
   const loadFamilies = useCallback(async () => {
     setLoadingFamilies(true)
@@ -71,19 +79,13 @@ export function ClassifyPromptPicker({
 
       const items = ((data as { items?: ManagedPromptFamily[] }).items ?? []) as ManagedPromptFamily[]
       setFamilies(items)
-
-      const preferredFamilyId =
-        value?.prompt.id ??
-        items.find((family) => family.defaultSlots.includes(slot))?.id ??
-        items[0]?.id ??
-        null
-      setSelectedFamilyId(preferredFamilyId)
+      setSelectedFamilyId(getPreferredPromptFamilyId({ families: items, slot, value }))
     } catch (error) {
       setFamiliesError(error instanceof Error ? error.message : 'Failed to load classify prompts')
     } finally {
       setLoadingFamilies(false)
     }
-  }, [slot, value?.prompt.id])
+  }, [slot, value])
 
   const loadFamilyDetail = useCallback(async (promptId: string) => {
     setLoadingFamilyId(promptId)
@@ -119,15 +121,42 @@ export function ClassifyPromptPicker({
     void loadFamilyDetail(selectedFamilyId)
   }, [expanded, familyDetails, loadFamilyDetail, loadingFamilyId, selectedFamilyId])
 
+  const resolvedCurrentValue = useMemo(() => {
+    if (!value) return null
+    const detail = familyDetails[value.prompt.id]
+    return detail?.versions.find((version) => version.id === value.id) ?? value
+  }, [familyDetails, value])
+
   const selectedFamily =
     (selectedFamilyId ? familyDetails[selectedFamilyId] : null) ??
     families.find((family) => family.id === selectedFamilyId) ??
     null
+  const waitingOnSelectedFamilyDetail = !!selectedFamilyId && loadingFamilyId === selectedFamilyId && !familyDetails[selectedFamilyId]
 
-  const selectedCompatibility = value?.compatibility[slot]
+  const previewVersion = useMemo(
+    () =>
+      getPromptVersionForDisplay({
+        family: waitingOnSelectedFamilyDetail ? null : selectedFamily,
+        previewVersionId,
+        value: resolvedCurrentValue,
+      }),
+    [previewVersionId, resolvedCurrentValue, selectedFamily, waitingOnSelectedFamilyDetail],
+  )
+
+  const currentCompatibility = resolvedCurrentValue?.compatibility[slot]
+  const previewCompatibility = previewVersion?.compatibility[slot]
+  const pendingSelection = hasPendingPromptSelection({
+    value: resolvedCurrentValue,
+    previewVersion,
+  })
+  const canApplyPreview = canApplyPromptPreview({
+    slot,
+    value: resolvedCurrentValue,
+    previewVersion,
+  })
   const currentPromptStatus =
-    value && selectedCompatibility
-      ? selectedCompatibility.valid
+    resolvedCurrentValue && currentCompatibility
+      ? currentCompatibility.valid
         ? `Compatible for ${compatibilityLabel(mode)}`
         : `Incompatible for ${compatibilityLabel(mode)}`
       : 'No prompt selected'
@@ -139,12 +168,12 @@ export function ClassifyPromptPicker({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
             Classify Prompt
           </p>
-          {value ? (
+          {resolvedCurrentValue ? (
             <>
               <p className="mt-1 text-sm font-medium text-gray-900">
-                {value.prompt.name} / {value.versionLabel}
+                {resolvedCurrentValue.prompt.name} / {resolvedCurrentValue.versionLabel}
               </p>
-              <p className={`mt-1 text-sm ${selectedCompatibility?.valid ? 'text-green-700' : 'text-amber-700'}`}>
+              <p className={`mt-1 text-sm ${currentCompatibility?.valid ? 'text-green-700' : 'text-amber-700'}`}>
                 {currentPromptStatus}
               </p>
             </>
@@ -166,20 +195,32 @@ export function ClassifyPromptPicker({
         </div>
       </div>
 
-      {value && selectedCompatibility && !selectedCompatibility.valid && selectedCompatibility.reasons.length > 0 && (
+      {resolvedCurrentValue && currentCompatibility && !currentCompatibility.valid && currentCompatibility.reasons.length > 0 && (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="font-medium">This prompt cannot run in {mode} mode.</p>
           <ul className="mt-1 space-y-1">
-            {selectedCompatibility.reasons.map((reason) => (
+            {currentCompatibility.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>
         </div>
       )}
 
+      <div className="mt-4">
+        <PromptTextPreview
+          templateText={resolvedCurrentValue?.templateText}
+          description="The currently selected prompt stays visible here even when the selector is collapsed."
+          emptyMessage="Prompt text unavailable."
+        />
+      </div>
+
       {expanded && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <div className="mt-4 grid gap-4 xl:grid-cols-[220px_280px_minmax(0,1fr)]">
           <div className="space-y-2">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Prompt families</h3>
+              <p className="mt-1 text-xs text-gray-500">Choose a family to inspect its versions.</p>
+            </div>
             {loadingFamilies ? (
               <p className="text-sm text-gray-500">Loading classify prompts...</p>
             ) : families.length === 0 ? (
@@ -191,7 +232,10 @@ export function ClassifyPromptPicker({
                   <button
                     key={family.id}
                     type="button"
-                    onClick={() => setSelectedFamilyId(family.id)}
+                    onClick={() => {
+                      setSelectedFamilyId(family.id)
+                      setPreviewVersionId(null)
+                    }}
                     className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
                       isSelected
                         ? 'border-blue-500 bg-blue-50 text-blue-800'
@@ -212,6 +256,8 @@ export function ClassifyPromptPicker({
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             {!selectedFamily ? (
               <p className="text-sm text-gray-500">Choose a prompt family to inspect versions.</p>
+            ) : loadingFamilyId === selectedFamily.id && !familyDetails[selectedFamily.id] ? (
+              <p className="text-sm text-gray-500">Loading prompt versions...</p>
             ) : (
               <>
                 <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -235,73 +281,128 @@ export function ClassifyPromptPicker({
                   )}
                 </div>
 
-                {loadingFamilyId === selectedFamily.id && !familyDetails[selectedFamily.id] ? (
-                  <p className="text-sm text-gray-500">Loading prompt versions...</p>
-                ) : (
-                  <div className="space-y-3">
-                    {selectedFamily.versions.map((version) => {
-                      const compatibility = version.compatibility[slot]
-                      const isCurrent = value?.id === version.id
+                <div className="space-y-3">
+                  {selectedFamily.versions.map((version) => {
+                    const compatibility = version.compatibility[slot]
+                    const isCurrent = resolvedCurrentValue?.id === version.id
+                    const isPreviewed = previewVersion?.id === version.id
 
-                      return (
-                        <div key={version.id} className="rounded-lg border border-gray-200 p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-gray-900">{version.versionLabel}</p>
-                            {version.isActive && (
-                              <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
-                                active
-                              </span>
-                            )}
-                            {version.defaultSlots.includes(slot) && (
-                              <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-                                default for {mode}
-                              </span>
-                            )}
-                            {isCurrent && (
-                              <span className="rounded-full bg-gray-900 px-2 py-1 text-xs font-medium text-white">
-                                current
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-2 text-xs text-gray-500">{new Date(version.createdAt).toLocaleString()}</p>
-                          {version.templateText && (
-                            <pre className="mt-3 overflow-x-auto rounded-md bg-gray-950 p-3 text-xs text-gray-100 whitespace-pre-wrap">
-                              {version.templateText}
-                            </pre>
+                    return (
+                      <button
+                        key={version.id}
+                        type="button"
+                        onClick={() => setPreviewVersionId(version.id)}
+                        className={`w-full rounded-lg border p-3 text-left ${
+                          isPreviewed
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-gray-900">{version.versionLabel}</p>
+                          {version.isActive && (
+                            <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
+                              active
+                            </span>
                           )}
-                          {compatibility.notes.length > 0 && (
-                            <div className="mt-3 space-y-1 text-xs text-blue-700">
-                              {compatibility.notes.map((note) => (
-                                <p key={note}>{note}</p>
-                              ))}
-                            </div>
+                          {version.defaultSlots.includes(slot) && (
+                            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                              default for {mode}
+                            </span>
                           )}
-                          {!compatibility.valid && compatibility.reasons.length > 0 && (
-                            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                              {compatibility.reasons.map((reason) => (
-                                <p key={reason}>{reason}</p>
-                              ))}
-                            </div>
+                          {isCurrent && (
+                            <span className="rounded-full bg-gray-900 px-2 py-1 text-xs font-medium text-white">
+                              current
+                            </span>
                           )}
-                          <div className="mt-3">
-                            <button
-                              type="button"
-                              disabled={!compatibility.valid || isCurrent}
-                              onClick={() => onSelect(version)}
-                              className={`rounded-md px-3 py-2 text-sm font-medium ${
-                                !compatibility.valid || isCurrent
-                                  ? 'cursor-not-allowed bg-gray-200 text-gray-500'
-                                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                              }`}
-                            >
-                              {isCurrent ? 'Selected' : 'Use this prompt'}
-                            </button>
-                          </div>
+                          {isPreviewed && !isCurrent && (
+                            <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-medium text-white">
+                              previewing
+                            </span>
+                          )}
                         </div>
-                      )
-                    })}
+                        <p className="mt-2 text-xs text-gray-500">{new Date(version.createdAt).toLocaleString()}</p>
+                        <p className={`mt-2 text-xs ${compatibility.valid ? 'text-green-700' : 'text-amber-700'}`}>
+                          {compatibility.valid
+                            ? `Compatible for ${compatibilityLabel(mode)}`
+                            : `Incompatible for ${compatibilityLabel(mode)}`}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            {waitingOnSelectedFamilyDetail ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <p className="text-sm text-gray-500">Loading prompt preview...</p>
+              </div>
+            ) : !previewVersion ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <p className="text-sm text-gray-500">Choose a prompt version to preview it before applying.</p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Previewing {previewVersion.prompt.name} / {previewVersion.versionLabel}
+                    </h3>
+                    {previewVersion.isActive && (
+                      <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
+                        active
+                      </span>
+                    )}
+                    {previewVersion.defaultSlots.includes(slot) && (
+                      <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                        default for {mode}
+                      </span>
+                    )}
                   </div>
-                )}
+
+                  <p className="mt-2 text-xs text-gray-500">{new Date(previewVersion.createdAt).toLocaleString()}</p>
+
+                  <div className="mt-4">
+                    <PromptTextPreview
+                      templateText={previewVersion.templateText}
+                      description="Inspect the full prompt text here before applying it to the current classify session."
+                    />
+                  </div>
+
+                  {previewCompatibility?.notes.length ? (
+                    <div className="mt-4 space-y-1 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
+                      {previewCompatibility.notes.map((note) => (
+                        <p key={note}>{note}</p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {!previewCompatibility?.valid && previewCompatibility?.reasons.length ? (
+                    <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                      {previewCompatibility.reasons.map((reason) => (
+                        <p key={reason}>{reason}</p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      disabled={!canApplyPreview}
+                      onClick={() => previewVersion && onSelect(previewVersion)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium ${
+                        !canApplyPreview
+                          ? 'cursor-not-allowed bg-gray-200 text-gray-500'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      {!pendingSelection ? 'Selected for this session' : 'Use this prompt'}
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>

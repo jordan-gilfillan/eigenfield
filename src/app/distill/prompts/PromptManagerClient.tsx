@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { PromptTextPreview } from '@/components/prompts/PromptTextPreview'
 import type {
   ManagedPromptFamily,
   PromptDefaultSlotApi,
@@ -345,10 +346,42 @@ export default function PromptManagerClient() {
                             </span>
                           )}
                         </div>
-                        <pre className="mt-4 overflow-x-auto rounded-lg bg-gray-950 p-4 text-xs text-gray-100 whitespace-pre-wrap">
-                          {selectedVersion.templateText || 'Template text unavailable.'}
-                        </pre>
-                        <div className="mt-4 space-y-3">
+                        <p className="mt-2 text-sm text-gray-600">
+                          Selected version details stay read-only here. Use the panel below to inspect the full prompt text.
+                        </p>
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            disabled={saving || selectedVersion.isActive}
+                            onClick={() => handleActivate(selectedVersion.id)}
+                            className={`rounded-md px-4 py-2 text-sm font-medium ${
+                              saving || selectedVersion.isActive
+                                ? 'cursor-not-allowed bg-gray-200 text-gray-500'
+                                : 'bg-gray-900 text-white hover:bg-gray-800'
+                            }`}
+                          >
+                            {selectedVersion.isActive ? 'Active version' : 'Activate version'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <PromptTextPreview
+                        templateText={selectedVersion.templateText}
+                        description="Read-only prompt body for the selected version."
+                        actions={
+                          <button
+                            type="button"
+                            onClick={() => setTemplateText(selectedVersion.templateText || '')}
+                            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            Copy selected template
+                          </button>
+                        }
+                      />
+
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <h3 className="text-lg font-semibold text-gray-900">Default eligibility</h3>
+                        <div className="space-y-3">
                           {defaultSlotsForStage(stage).map((slot) => {
                             const compatibility = selectedVersion.compatibility[slot]
                             const isDefault = selectedVersion.defaultSlots.includes(slot)
@@ -386,27 +419,6 @@ export default function PromptManagerClient() {
                               </div>
                             )
                           })}
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            disabled={saving || selectedVersion.isActive}
-                            onClick={() => handleActivate(selectedVersion.id)}
-                            className={`rounded-md px-4 py-2 text-sm font-medium ${
-                              saving || selectedVersion.isActive
-                                ? 'cursor-not-allowed bg-gray-200 text-gray-500'
-                                : 'bg-gray-900 text-white hover:bg-gray-800'
-                            }`}
-                          >
-                            {selectedVersion.isActive ? 'Active version' : 'Activate version'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTemplateText(selectedVersion.templateText || '')}
-                            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                          >
-                            Copy selected template
-                          </button>
                         </div>
                       </div>
 

@@ -2029,3 +2029,16 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - Incompatible real classify prompts are blocked before submit with a clear reason and link to `/distill/prompts`.
   - Inline selection is session-local and does not change global defaults.
 - **Resolution**: Added a shared classify prompt picker used by `/demo` and `/distill`, backed by the new prompt-management APIs. Both classify surfaces now show the current prompt family/version, allow an on-demand prompt switch, disable classify when the selected prompt is incompatible with the current mode, and route users to `/distill/prompts` for version/default management instead of failing late at submit time.
+
+### AUD-122 — Make selected prompt text obvious in prompt manager and classify selectors
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make the selected prompt body obvious anywhere a user is inspecting or selecting prompt versions, without adding new prompt-management behavior.
+- **Touch set**: `GET /api/distill/prompt-versions`, shared prompt preview/picker UI, `/distill/prompts`, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`.
+- **Acceptance**:
+  - Singular `GET /api/distill/prompt-versions` responses used by selection UIs include `templateText`.
+  - `/distill/prompts` shows a clearly labeled read-only `Prompt text` preview for the selected version.
+  - `/demo` and advanced `/distill` keep the selected prompt text visible even when the classify picker is collapsed.
+  - Classify prompt selection becomes preview-first: choosing a version updates the preview, and `Use this prompt` commits it for the current session.
+- **Resolution**: Extended singular `GET /api/distill/prompt-versions` responses to include `templateText`, which lets the current/default classify prompt render with its full body before any extra prompt-family fetch. Added a shared `PromptTextPreview` card plus picker state helpers, refactored the shared classify prompt picker into a preview-first flow with compact family/version lists and a dedicated preview/confirm pane, and kept the selected prompt text visible while the picker is collapsed. Updated `/distill/prompts` to surface the selected version’s prompt body in a clearly labeled standalone preview area, separate from default controls and version creation. Added targeted route, render, and picker-state tests, and synced `SPEC.md`, `UX_SPEC.md`, and `UX_DEMO_SPEC.md`. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`79` files, `1027` tests; build still includes the known `AUD-100` SWC warning).

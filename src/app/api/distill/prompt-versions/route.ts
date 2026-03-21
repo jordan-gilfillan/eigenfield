@@ -31,6 +31,7 @@ function serializePromptVersion(
     defaultAssignments?: Array<{ slot: 'CLASSIFY_STUB' | 'CLASSIFY_REAL' | 'SUMMARIZE' | 'REDACT' }>
   },
   forcedDefaultSlots?: Array<'CLASSIFY_STUB' | 'CLASSIFY_REAL' | 'SUMMARIZE' | 'REDACT'>,
+  includeTemplateText = false,
 ) {
   return {
     id: promptVersion.id,
@@ -40,6 +41,7 @@ function serializePromptVersion(
     prompt: promptVersion.prompt,
     defaultSlots: forcedDefaultSlots ?? (promptVersion.defaultAssignments ?? []).map((item) => item.slot),
     compatibility: getPromptCompatibilityMap(promptVersion),
+    ...(includeTemplateText ? { templateText: promptVersion.templateText } : {}),
   }
 }
 
@@ -68,7 +70,11 @@ export async function GET(request: NextRequest) {
 
       const promptVersion = await resolveDefaultClassifyPromptVersion(mode)
       return NextResponse.json({
-        promptVersion: serializePromptVersion(promptVersion, [classifyModeToPromptDefaultSlot(mode)]),
+        promptVersion: serializePromptVersion(
+          promptVersion,
+          [classifyModeToPromptDefaultSlot(mode)],
+          true,
+        ),
       })
     }
 
@@ -94,7 +100,7 @@ export async function GET(request: NextRequest) {
       })
 
       return NextResponse.json({
-        promptVersion: promptVersion ? serializePromptVersion(promptVersion) : null,
+        promptVersion: promptVersion ? serializePromptVersion(promptVersion, undefined, true) : null,
       })
     }
 

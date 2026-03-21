@@ -48,7 +48,9 @@ Hard constraints (must remain true):
 - **Defaults:**
   - classification mode defaults to `Dry run (Recommended)` (maps to deterministic stub mode)
   - current prompt family/version is visible before submit
+  - selected prompt text remains visible even when the inline selector is collapsed
   - inline `Change prompt` flow is available without leaving `/demo`
+  - inline prompt selection is preview-first: inspecting a version updates the preview, and `Use this prompt` commits it for the current demo session
   - incompatible real classify prompts are blocked before submit with a clear reason and a link to `/distill/prompts`
 - **Success criteria (step completes):**
   - classify run reaches `succeeded`
