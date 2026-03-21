@@ -33,6 +33,7 @@ import {
   type ClassifyWarningDetails,
 } from '../classify-warning-details'
 import { getCalendarDaySpendUsd } from './budget-queries'
+import { resolveDefaultClassifyPromptVersion, type DefaultClassifyPromptMode } from './prompt-version-defaults'
 
 // Import from shared errors + re-export for backward compatibility
 import { InvalidInputError, NotFoundError, ServiceError } from '../errors'
@@ -1152,19 +1153,8 @@ async function classifyBatchReal(
 }
 
 /**
- * Gets the active PromptVersion for the classify stage.
- * Returns null if none is active.
+ * Gets the default PromptVersion for classify.
  */
-export async function getActiveClassifyPromptVersion() {
-  return prisma.promptVersion.findFirst({
-    where: {
-      isActive: true,
-      prompt: {
-        stage: 'CLASSIFY',
-      },
-    },
-    include: {
-      prompt: true,
-    },
-  })
+export async function getActiveClassifyPromptVersion(mode: DefaultClassifyPromptMode = 'real') {
+  return resolveDefaultClassifyPromptVersion(mode)
 }

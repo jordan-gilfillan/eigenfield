@@ -6,6 +6,7 @@
 - UX behavior, information architecture, interaction rules, and visual consistency for:
   - `/demo`
   - `/distill` (dashboard)
+  - `/distill/prompts`
   - `/distill/search`
   - `/distill/import/inspect`
   - `/distill/runs/:runId`
@@ -115,9 +116,28 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
   - processed/total progress and percent when running
   - last run timestamp
   - explicit `Refresh` button.
+- [x] Classification card shows the current classify prompt family/version and includes an inline `Change prompt` flow.
+- [x] Incompatible real classify prompts are blocked before submit with a clear reason and a link to `/distill/prompts`.
 - [ ] Create-run card shows frozen inputs with clear dependency states:
   - disabled reason text when blocked
   - next required action with direct link/button.
+
+## 4.1a `/distill/prompts`
+
+### Goals
+- Inspect all prompt families by stage.
+- Create immutable prompt versions without editing history in place.
+- Reassign canonical default slots explicitly.
+
+### Requirements
+- [x] Page is reachable from shared distill nav as `Prompts`.
+- [x] Stage tabs exist for `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
+- [x] Prompt family list shows canonical/custom state, version count, and current default-slot badges.
+- [x] Prompt detail shows version history, template text, created time, compatibility state, and default-slot eligibility.
+- [x] `Create version` creates a new immutable PromptVersion under the selected family; there is no in-place edit or delete action.
+- [x] `Activate version` changes only the active version within the selected family.
+- [x] `Make default` is available only for canonical families and only when the selected version is compatible with the requested slot.
+- [x] `REDACT` can show “No default assigned” without error.
 - [x] Latest/last run summary card shows run status, progress bar, and "View Run" CTA.
 - [x] Empty states include explicit next action links.
 - [ ] No auto updates unless user enabled foreground polling for visible progress.

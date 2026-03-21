@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { BadOutputReasonKey, ClassifyWarningDetails } from '@/lib/classify-warning-details'
+import { ClassifyPromptPicker } from '@/components/prompts/ClassifyPromptPicker'
+import type { ManagedPromptVersion } from '@/lib/types/prompt-management'
 import {
   getImportBatchSources,
   isDuplicateImportResult,
@@ -51,15 +53,7 @@ const BAD_OUTPUT_REASON_LABELS: Record<BadOutputReasonKey, string> = {
   confidence_out_of_range: 'Confidence out of range',
 }
 
-interface PromptVersion {
-  id: string
-  versionLabel: string
-  isActive?: boolean
-  prompt: {
-    stage: string
-    name: string
-  }
-}
+type PromptVersion = ManagedPromptVersion
 
 interface ClassifyResult {
   classifyRunId: string
@@ -292,7 +286,11 @@ export default function DemoClient() {
   const [existingBatchesError, setExistingBatchesError] = useState<string | null>(null)
   const [existingBatchesLoaded, setExistingBatchesLoaded] = useState(false)
 
-  const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
+  const [defaultClassifyPromptVersions, setDefaultClassifyPromptVersions] = useState<{
+    stub: PromptVersion | null
+    real: PromptVersion | null
+  }>({ stub: null, real: null })
+  const [selectedClassifyPromptVersions, setSelectedClassifyPromptVersions] = useState<{
     stub: PromptVersion | null
     real: PromptVersion | null
   }>({ stub: null, real: null })
@@ -342,7 +340,13 @@ export default function DemoClient() {
 
   const importBatch = selectedImportBatch
   const activeClassifyPromptVersion =
-    classifyMode === 'stub' ? classifyPromptVersions.stub : classifyPromptVersions.real
+    classifyMode === 'stub'
+      ? selectedClassifyPromptVersions.stub ?? defaultClassifyPromptVersions.stub
+      : selectedClassifyPromptVersions.real ?? defaultClassifyPromptVersions.real
+  const activeClassifyCompatibility = activeClassifyPromptVersion?.compatibility[
+    classifyMode === 'stub' ? 'CLASSIFY_STUB' : 'CLASSIFY_REAL'
+  ]
+  const classifyPromptInvalid = !!activeClassifyPromptVersion && !activeClassifyCompatibility?.valid
   const effectiveClassifyResult = classifyResult ?? (
     classifyStatus?.status === 'succeeded'
       ? {
@@ -379,7 +383,7 @@ export default function DemoClient() {
     !runDone ? 'locked' : outputResponse || exportResult ? 'done' : exportInFlight || outputLoading ? 'working' : 'ready'
 
   const ensurePromptVersions = useCallback(async () => {
-    if (loadingPromptVersions || (classifyPromptVersions.stub && classifyPromptVersions.real)) return
+    if (loadingPromptVersions || (defaultClassifyPromptVersions.stub && defaultClassifyPromptVersions.real)) return
 
     setLoadingPromptVersions(true)
     setPromptVersionError(null)
@@ -399,13 +403,17 @@ export default function DemoClient() {
         loadCanonicalPromptVersion('real'),
       ])
 
-      setClassifyPromptVersions({ stub, real })
+      setDefaultClassifyPromptVersions({ stub, real })
+      setSelectedClassifyPromptVersions((current) => ({
+        stub: current.stub ?? stub,
+        real: current.real ?? real,
+      }))
     } catch (error) {
       setPromptVersionError(error instanceof Error ? error.message : 'Failed to load prompt versions')
     } finally {
       setLoadingPromptVersions(false)
     }
-  }, [classifyPromptVersions.real, classifyPromptVersions.stub, loadingPromptVersions])
+  }, [defaultClassifyPromptVersions.real, defaultClassifyPromptVersions.stub, loadingPromptVersions])
 
   const ensureFilterProfiles = useCallback(async () => {
     if (loadingFilterProfiles || filterProfiles.length > 0) return
@@ -693,12 +701,18 @@ export default function DemoClient() {
 
     await ensurePromptVersions()
 
-    const promptVersion = classifyMode === 'stub' ? classifyPromptVersions.stub : classifyPromptVersions.real
+    const promptVersion = activeClassifyPromptVersion
     if (!promptVersion) {
       setClassifyError(
         classifyMode === 'real'
           ? 'No real classify prompt version found. Run `npx prisma db seed`.'
           : 'No stub classify prompt version found. Run `npx prisma db seed`.',
+      )
+      return
+    }
+    if (classifyPromptInvalid) {
+      setClassifyError(
+        activeClassifyCompatibility?.reasons[0] || 'Selected prompt is incompatible with the requested classify mode.',
       )
       return
     }
@@ -1257,11 +1271,29 @@ export default function DemoClient() {
                     </div>
                   )}
 
+                  <ClassifyPromptPicker
+                    mode={classifyMode}
+                    value={activeClassifyPromptVersion}
+                    forceExpanded={!!promptVersionError || !activeClassifyPromptVersion || classifyPromptInvalid}
+                    onSelect={(version) =>
+                      setSelectedClassifyPromptVersions((current) => ({
+                        ...current,
+                        [classifyMode]: version,
+                      }))
+                    }
+                  />
+
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={handleClassify}
-                      disabled={classifyRunning || classifyStopInFlight || loadingPromptVersions || !activeClassifyPromptVersion}
+                      disabled={
+                        classifyRunning ||
+                        classifyStopInFlight ||
+                        loadingPromptVersions ||
+                        !activeClassifyPromptVersion ||
+                        classifyPromptInvalid
+                      }
                       className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-gray-300"
                     >
                       {classifyRunning ? 'Classifying…' : `Classify (${classifyMode})`}

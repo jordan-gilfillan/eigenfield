@@ -42,14 +42,27 @@ describe('GET /api/distill/prompt-versions', () => {
         },
       },
       update: {
-        templateText: 'Canonical real classify prompt',
+        templateText: 'Return ONLY JSON with category and confidence.',
         isActive: true,
       },
       create: {
         promptId: canonicalPrompt.id,
         versionLabel: 'classify_real_v1',
-        templateText: 'Canonical real classify prompt',
+        templateText: 'Return ONLY JSON with category and confidence.',
         isActive: true,
+      },
+    })
+
+    await prisma.promptDefault.upsert({
+      where: { slot: 'CLASSIFY_REAL' },
+      update: {
+        promptId: canonicalPrompt.id,
+        promptVersionId: canonicalVersion.id,
+      },
+      create: {
+        slot: 'CLASSIFY_REAL',
+        promptId: canonicalPrompt.id,
+        promptVersionId: canonicalVersion.id,
       },
     })
 
@@ -80,6 +93,8 @@ describe('GET /api/distill/prompt-versions', () => {
     expect(body.promptVersion.id).toBe(canonicalVersion.id)
     expect(body.promptVersion.versionLabel).toBe('classify_real_v1')
     expect(body.promptVersion.prompt.name).toBe('default-classifier')
+    expect(body.promptVersion.defaultSlots).toContain('CLASSIFY_REAL')
+    expect(body.promptVersion.compatibility.CLASSIFY_REAL.valid).toBe(true)
   })
 
   it('rejects default=true classify requests without a mode', async () => {

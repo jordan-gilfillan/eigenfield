@@ -1990,3 +1990,42 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - Classify checkpoint/final CLI logs include compact safe warning summaries.
   - Database verification passes with committed migration SQL applied plus reseed, and standard quality gates pass.
 - **Resolution**: Added `ClassifyRun.warningDetailsJson`, a committed migration, and shared warning-detail normalization so classify checkpoints/finalization persist only safe aggregates: fixed reason counters plus capped invalid-category and aliased-category samples. The classify status route now exposes `warnings.details`, the last-classify read exposes matching `warningDetails`, `/demo` Step 2 renders the reason breakdown and sample chips, and classify checkpoint/final logs now print compact safe summaries without raw output. As a prerequisite to keep DB validation green, the seed invariant was narrowed to the seeded default prompts it owns instead of arbitrary custom prompts already present in the dev DB. Verified with `npx prisma migrate deploy`, `npx prisma generate`, `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1014` tests; build still includes the known `AUD-100` SWC warning). `npm run db:migrate` was not used because this repo’s `prisma migrate dev` flow is interactive and attempts unrelated destructive reconciliation against unmanaged FTS columns.
+
+### AUD-119 — Prompt defaults, compatibility, and write APIs
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Replace stage-wide prompt default assumptions with explicit prompt-default slots, compatibility metadata, and immutable prompt-management APIs.
+- **Touch set**: `prisma/schema.prisma`, prompt-default migration SQL, `prisma/seed.ts`, prompt default/compatibility services, prompt-management APIs, `SPEC.md`, targeted tests.
+- **Acceptance**:
+  - Prompt defaults resolve through explicit slots (`CLASSIFY_STUB`, `CLASSIFY_REAL`, `SUMMARIZE`, `REDACT`) instead of stage-wide `isActive`.
+  - Only canonical prompt families can own implicit default slots; custom prompt families remain explicit-only.
+  - Prompt management APIs support list/detail/version creation/family activation/default assignment with immutable PromptVersions.
+  - `createRun()` and classify default resolution stop using stage-wide active prompt selection.
+- **Resolution**: Added `PromptDefaultSlot` and `PromptDefault` to the schema with a committed migration, seeded canonical default assignments for classify stub/real and summarize, and replaced runtime default resolution with slot-based resolvers. Added shared prompt compatibility metadata, prompt-management services, `GET /api/distill/prompts`, `GET /api/distill/prompts/:promptId`, `POST /api/distill/prompts/:promptId/versions`, `POST /api/distill/prompts/:promptId/activate`, and `POST /api/distill/prompt-defaults/:slot`. Updated `GET /api/distill/prompt-versions` to surface compatibility/default-slot metadata and to resolve classify defaults through prompt-default slots. Added targeted service/route tests plus `createRun()` regression coverage for summarize default resolution.
+
+### AUD-120 — Advanced prompt manager for all stages
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Add an advanced prompt-management surface for browsing prompt families, inspecting versions, creating immutable versions, activating versions, and managing canonical defaults.
+- **Touch set**: `/distill` nav shell, new `/distill/prompts` page/client, prompt-management API consumers, `UX_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/distill/prompts` exists and is reachable from advanced nav.
+  - Stage tabs cover `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
+  - Prompt detail shows version history, template text, compatibility, active state, and default-slot badges.
+  - Users can create a new immutable version, activate a family version, and reassign canonical defaults from the UI.
+- **Resolution**: Added `/distill/prompts` with stage tabs, prompt-family list, version inspection, immutable version creation, family activation, and canonical default-slot assignment. The page surfaces compatibility notes/reasons directly from the new prompt APIs and supports redaction’s “no default assigned” state without treating it as an error.
+
+### AUD-121 — Inline classify prompt recovery in `/demo` and `/distill`
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Let users inspect and change classify prompts inline in `/demo` and `/distill`, and block incompatible real classify prompts before submit.
+- **Touch set**: shared classify prompt picker UI, `/demo`, `/distill`, prompt metadata contracts, `UX_SPEC.md`, `UX_DEMO_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/demo` Step 2 and the advanced dashboard classify card always show the current prompt family/version.
+  - Both surfaces include an inline `Change prompt` flow backed by prompt-management APIs.
+  - Incompatible real classify prompts are blocked before submit with a clear reason and link to `/distill/prompts`.
+  - Inline selection is session-local and does not change global defaults.
+- **Resolution**: Added a shared classify prompt picker used by `/demo` and `/distill`, backed by the new prompt-management APIs. Both classify surfaces now show the current prompt family/version, allow an on-demand prompt switch, disable classify when the selected prompt is incompatible with the current mode, and route users to `/distill/prompts` for version/default management instead of failing late at submit time.

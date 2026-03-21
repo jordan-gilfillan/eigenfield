@@ -72,6 +72,13 @@ enum Stage {
   REDACT
 }
 
+enum PromptDefaultSlot {
+  CLASSIFY_STUB
+  CLASSIFY_REAL
+  SUMMARIZE
+  REDACT
+}
+
 // =============================================================================
 // MODELS (Section 6)
 // =============================================================================
@@ -184,7 +191,8 @@ model Prompt {
   createdAt DateTime @default(now())
 
   // Relations
-  versions PromptVersion[]
+  versions           PromptVersion[]
+  defaultAssignments PromptDefault[] @relation("PromptDefaultPrompt")
 
   @@unique([stage, name])
   @@map("prompts")
@@ -200,14 +208,31 @@ model PromptVersion {
   isActive     Boolean  @default(false)
 
   // Relations
-  prompt        Prompt         @relation(fields: [promptId], references: [id])
-  messageLabels MessageLabel[]
-  outputs       Output[]
-  classifyRuns  ClassifyRun[]
+  prompt              Prompt           @relation(fields: [promptId], references: [id])
+  messageLabels       MessageLabel[]
+  outputs             Output[]
+  classifyRuns        ClassifyRun[]
+  defaultAssignments  PromptDefault[]  @relation("PromptDefaultVersion")
 
   @@unique([promptId, versionLabel])
   @@index([promptId])
   @@map("prompt_versions")
+}
+
+model PromptDefault {
+  slot            PromptDefaultSlot @id
+  promptId        String
+  promptVersionId String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  prompt        Prompt        @relation("PromptDefaultPrompt", fields: [promptId], references: [id])
+  promptVersion PromptVersion @relation("PromptDefaultVersion", fields: [promptVersionId], references: [id])
+
+  @@index([promptId])
+  @@index([promptVersionId])
+  @@map("prompt_defaults")
 }
 
 // Section 6.8: Run

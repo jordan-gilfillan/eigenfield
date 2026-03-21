@@ -10,7 +10,7 @@
  * - PromptVersions: classify_stub_v1 (inactive), classify_real_v1 (active), summarize_v1 (active),
  *   journal_v1/v2/v3 (inactive), redact_v1 (inactive)
  *
- * Invariant: at most one active PromptVersion per stage (SPEC §6.7).
+ * Invariant: at most one active PromptVersion per Prompt family (SPEC §6.7).
  * v0.3: redact has 0 active (stage not yet implemented).
  */
 
@@ -133,6 +133,24 @@ Rules:
   })
   console.log(`    PromptVersion: classify_real_v1 (active)`)
 
+  const classifyStubVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_stub_v1',
+      },
+    },
+  })
+
+  const classifyRealVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_real_v1',
+      },
+    },
+  })
+
   // Summarize prompt with placeholder version
   const summarizePrompt = await prisma.prompt.upsert({
     where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
@@ -171,6 +189,15 @@ Output as markdown with clear headings.`,
     },
   })
   console.log(`    PromptVersion: v1 (active)`)
+
+  const summarizeDefaultVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: summarizePrompt.id,
+        versionLabel: 'v1',
+      },
+    },
+  })
 
   // Journal-friendly summarize prompt versions (all inactive)
   const journalVersions = [
@@ -286,8 +313,51 @@ Do NOT use any of the following:
   })
   console.log(`    PromptVersion: v1 (inactive)`)
 
+  await prisma.promptDefault.upsert({
+    where: { slot: 'CLASSIFY_STUB' },
+    update: {
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyStubVersion.id,
+    },
+    create: {
+      slot: 'CLASSIFY_STUB',
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyStubVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: CLASSIFY_STUB -> classify_stub_v1`)
+
+  await prisma.promptDefault.upsert({
+    where: { slot: 'CLASSIFY_REAL' },
+    update: {
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyRealVersion.id,
+    },
+    create: {
+      slot: 'CLASSIFY_REAL',
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyRealVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: CLASSIFY_REAL -> classify_real_v1`)
+
+  await prisma.promptDefault.upsert({
+    where: { slot: 'SUMMARIZE' },
+    update: {
+      promptId: summarizePrompt.id,
+      promptVersionId: summarizeDefaultVersion.id,
+    },
+    create: {
+      slot: 'SUMMARIZE',
+      promptId: summarizePrompt.id,
+      promptVersionId: summarizeDefaultVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: SUMMARIZE -> v1`)
+
   // ==========================================================================
-  // Invariant check: at most one active PromptVersion per Prompt
+  // Invariant checks: at most one active PromptVersion per Prompt family,
+  // and canonical prompt defaults point to their owning family.
   // ==========================================================================
 
   const seededPrompts = [classifyPrompt, summarizePrompt, redactPrompt]
@@ -306,6 +376,29 @@ Do NOT use any of the following:
       )
     }
     console.log(`  Invariant OK: ${label} has ${activeCount} active PromptVersion(s)`)
+  }
+
+  const promptDefaults = await prisma.promptDefault.findMany({
+    include: {
+      prompt: {
+        select: { id: true, stage: true, name: true },
+      },
+      promptVersion: {
+        select: { id: true, promptId: true, versionLabel: true },
+      },
+    },
+    orderBy: { slot: 'asc' },
+  })
+
+  for (const promptDefault of promptDefaults) {
+    if (promptDefault.promptId !== promptDefault.promptVersion.promptId) {
+      throw new Error(
+        `Invariant violated: prompt default ${promptDefault.slot} points to mismatched prompt version ${promptDefault.promptVersion.id}`
+      )
+    }
+    console.log(
+      `  Invariant OK: ${promptDefault.slot} -> ${promptDefault.prompt.name}/${promptDefault.promptVersion.versionLabel}`
+    )
   }
 
   console.log('Seed complete.')

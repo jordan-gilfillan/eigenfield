@@ -310,16 +310,29 @@ Seeded profiles (required):
 Determinism:
 - The default profile used by the UI MUST be `professional-only`.
 
-### 6.7 Prompt / PromptVersion
-Prompts exist per stage (classify/summarize/redact). One version may be active per stage.
+### 6.7 Prompt / PromptVersion / PromptDefault
+Prompts exist per stage (classify/summarize/redact). `Prompt.name` defines the prompt family within a stage.
 
 Minimum fields (required):
 - Prompt: `id`, `stage (classify|summarize|redact)`, `name`, `createdAt`
 - PromptVersion: `id`, `promptId`, `versionLabel` (e.g. `v3`), `templateText`, `createdAt`, `isActive`
+- PromptDefault: `slot`, `promptId`, `promptVersionId`, `createdAt`, `updatedAt`
 
 Rules:
-- At most one active PromptVersion per stage at a time (used only as the server/UI default). Stages not yet implemented (e.g. redact in v0.3) may have zero active versions.
-- `isActive` is a default selector only. It MUST NOT be used to choose prompt behavior by "mode" (e.g., stub vs real).
+- At most one active PromptVersion per Prompt family at a time.
+- `isActive` tracks the active version within a Prompt family only. It MUST NOT be used as a stage-wide default selector.
+- Implicit defaults are resolved through `PromptDefault.slot`, not through stage-wide `isActive`.
+- PromptDefault slots are:
+  - `CLASSIFY_STUB`
+  - `CLASSIFY_REAL`
+  - `SUMMARIZE`
+  - `REDACT`
+- Only canonical prompt families may own implicit default slots:
+  - `CLASSIFY` → `default-classifier`
+  - `SUMMARIZE` → `default-summarizer`
+  - `REDACT` → `default-redactor`
+- Custom prompt families may exist and may be selected explicitly by the user, but they MUST NOT become implicit defaults.
+- PromptVersions are immutable. Editing a prompt MUST create a new PromptVersion.
 - Any endpoint that executes an LLM call MUST use an explicit PromptVersionId appropriate to that stage.
 - Runs MUST record the exact PromptVersion IDs used.
 
@@ -435,9 +448,10 @@ POST `/api/distill/classify`
 - `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
 - `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
 - `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server records the caller-provided `promptVersionId` unchanged in labels; it need not be `classify_stub_v1`. No guardrails are applied to `promptVersionId` in stub mode.
-- When the UI or server resolves a **default** classify PromptVersion implicitly (rather than from a caller-supplied `promptVersionId`), it MUST use the seeded canonical classify prompt `Prompt.name="default-classifier"`:
-  - `mode="real"` default version = `classify_real_v1`
-  - `mode="stub"` default version = `classify_stub_v1`
+- When the UI or server resolves a **default** classify PromptVersion implicitly (rather than from a caller-supplied `promptVersionId`), it MUST resolve the `PromptDefault` slot owned by the canonical classify family `Prompt.name="default-classifier"`:
+  - `mode="real"` → `CLASSIFY_REAL`
+  - `mode="stub"` → `CLASSIFY_STUB`
+- Seeded initial defaults are `classify_real_v1` and `classify_stub_v1`, but later canonical defaults may point to newer versions within the same prompt family.
 - Default selection MUST NOT fall back to an arbitrary active CLASSIFY PromptVersion from another `Prompt.name`.
 
 Stub mode must be deterministic for tests.
@@ -456,6 +470,21 @@ Endpoints:
 - `POST /api/distill/classify-runs/:id/stop` requests that a running classify stop after the current atom.
 
 `ClassifyRun.status` is: `running|succeeded|failed`. **Terminal states:** `succeeded`, `failed`.
+
+### 7.2.2 Prompt management
+Prompt management is advanced/user-initiated only.
+
+Endpoints:
+- `GET /api/distill/prompts?stage=CLASSIFY|SUMMARIZE|REDACT` returns prompt-family summaries plus version metadata.
+- `GET /api/distill/prompts/:promptId` returns full version detail, including template text.
+- `POST /api/distill/prompts/:promptId/versions` creates a new immutable PromptVersion within an existing prompt family.
+- `POST /api/distill/prompts/:promptId/activate` sets the active version within that prompt family.
+- `POST /api/distill/prompt-defaults/:slot` reassigns an implicit default slot to a compatible version within the canonical family for that slot.
+
+Rules:
+- No endpoint may edit PromptVersion text in place.
+- A `CLASSIFY_REAL` default assignment MUST fail closed if the selected version is not compatible with the real-classify JSON contract.
+- `REDACT` may legitimately have no default slot assignment until redact execution exists.
 
 Status endpoint response (normative):
 ```json
@@ -528,7 +557,7 @@ UI: `/distill` dashboard
   3) Freeze `promptVersionIds` for summarize (and redact/classify when those stages are added).
 4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
      - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
-     - If `labelSpec` is omitted, the server MUST select the canonical default classify labelSpec using `Prompt.name="default-classifier"` and the default classifier model for the chosen mode (v0.3 default: `stub_v1` with `classify_stub_v1`).
+     - If `labelSpec` is omitted, the server MUST select the canonical default classify labelSpec using the `CLASSIFY_STUB` prompt-default slot and the default classifier model for the chosen mode (v0.3 default: `stub_v1`, initially pointing to `classify_stub_v1`).
      - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   5) Freeze `filterProfileSnapshot`
   6) Determine eligible days: days where at least one **role = user** MessageAtom matches

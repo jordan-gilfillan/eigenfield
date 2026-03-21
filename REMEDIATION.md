@@ -279,6 +279,9 @@ These are not necessarily code bugs, but they create recurring audit noise.
 
 - AUD-117 — Canonical default classify prompt selection → moved to REMEDIATION_ARCHIVE.md
 - AUD-118 — Durable classify bad-output diagnostics → moved to REMEDIATION_ARCHIVE.md
+- AUD-119 — Prompt defaults, compatibility, and write APIs → moved to REMEDIATION_ARCHIVE.md
+- AUD-120 — Advanced prompt manager for all stages → moved to REMEDIATION_ARCHIVE.md
+- AUD-121 — Inline classify prompt recovery in `/demo` and `/distill` → moved to REMEDIATION_ARCHIVE.md
 - AUD-116 — `/demo` classify feedback + stop control → moved to REMEDIATION_ARCHIVE.md
 - AUD-115 — `/demo` existing-import reuse path → moved to REMEDIATION_ARCHIVE.md
 ## Notes

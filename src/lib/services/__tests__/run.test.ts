@@ -14,6 +14,7 @@ describe('run service', () => {
   let testFilterProfileId: string
   let testClassifyPromptVersionId: string
   let defaultClassifyPromptVersionId: string
+  let defaultSummarizePromptVersionId: string
   let testSummarizePromptVersionId: string
   let testClassifyPromptId: string
   let testSummarizePromptId: string
@@ -100,6 +101,61 @@ describe('run service', () => {
       },
     })
     defaultClassifyPromptVersionId = defaultClassifyVersion.id
+
+    await prisma.promptDefault.upsert({
+      where: { slot: 'CLASSIFY_STUB' },
+      update: {
+        promptId: defaultClassifyPrompt.id,
+        promptVersionId: defaultClassifyVersion.id,
+      },
+      create: {
+        slot: 'CLASSIFY_STUB',
+        promptId: defaultClassifyPrompt.id,
+        promptVersionId: defaultClassifyVersion.id,
+      },
+    })
+
+    const defaultSummarizePrompt = await prisma.prompt.upsert({
+      where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
+      update: {},
+      create: {
+        stage: 'SUMMARIZE',
+        name: 'default-summarizer',
+      },
+    })
+
+    const defaultSummarizeVersion = await prisma.promptVersion.upsert({
+      where: {
+        promptId_versionLabel: {
+          promptId: defaultSummarizePrompt.id,
+          versionLabel: 'v1',
+        },
+      },
+      update: {
+        templateText: 'Default summarize prompt',
+        isActive: true,
+      },
+      create: {
+        promptId: defaultSummarizePrompt.id,
+        versionLabel: 'v1',
+        templateText: 'Default summarize prompt',
+        isActive: true,
+      },
+    })
+    defaultSummarizePromptVersionId = defaultSummarizeVersion.id
+
+    await prisma.promptDefault.upsert({
+      where: { slot: 'SUMMARIZE' },
+      update: {
+        promptId: defaultSummarizePrompt.id,
+        promptVersionId: defaultSummarizeVersion.id,
+      },
+      create: {
+        slot: 'SUMMARIZE',
+        promptId: defaultSummarizePrompt.id,
+        promptVersionId: defaultSummarizeVersion.id,
+      },
+    })
 
     const summarizePrompt = await prisma.prompt.create({
       data: {
@@ -397,6 +453,7 @@ describe('run service', () => {
         model: 'stub_v1',
         promptVersionId: defaultClassifyPromptVersionId,
       })
+      expect(result.config.promptVersionIds.summarize).toBe(defaultSummarizePromptVersionId)
     })
 
     it('ignores assistant-only days for eligibility (SPEC §7.3 step 6)', async () => {

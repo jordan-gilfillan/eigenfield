@@ -19,7 +19,10 @@ import {
   NoEligibleDaysError,
   ConflictError,
 } from '../errors'
-import { resolveDefaultClassifyPromptVersion } from './prompt-version-defaults'
+import {
+  resolveDefaultClassifyPromptVersion,
+  resolveDefaultSummarizePromptVersion,
+} from './prompt-version-defaults'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -170,12 +173,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
   }
 
   // 3. Get active summarize prompt version
-  const summarizePromptVersion = await prisma.promptVersion.findFirst({
-    where: {
-      isActive: true,
-      prompt: { stage: 'SUMMARIZE' },
-    },
-  })
+  const summarizePromptVersion = await resolveDefaultSummarizePromptVersion()
   if (!summarizePromptVersion) {
     throw new ConfigurationError('No active summarize prompt version configured')
   }

@@ -5,7 +5,7 @@
  *
  * Query params:
  * - stage: 'classify' | 'summarize' | 'redact' (optional)
- * - active: 'true' to get only active version (optional)
+ * - active: 'true' to filter to active versions (optional)
  * - versionLabel: exact match on versionLabel (optional)
  */
 
@@ -13,7 +13,35 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errorResponse, errors } from '@/lib/api-utils'
 import { ServiceError } from '@/lib/errors'
-import { resolveDefaultClassifyPromptVersion } from '@/lib/services/prompt-version-defaults'
+import {
+  classifyModeToPromptDefaultSlot,
+  resolveDefaultClassifyPromptVersion,
+} from '@/lib/services/prompt-version-defaults'
+import { getPromptCompatibilityMap } from '@/lib/prompt-metadata'
+
+function serializePromptVersion(
+  promptVersion: {
+    id: string
+    promptId: string
+    versionLabel: string
+    templateText: string
+    createdAt: Date
+    isActive: boolean
+    prompt: { id: string; stage: 'CLASSIFY' | 'SUMMARIZE' | 'REDACT'; name: string }
+    defaultAssignments?: Array<{ slot: 'CLASSIFY_STUB' | 'CLASSIFY_REAL' | 'SUMMARIZE' | 'REDACT' }>
+  },
+  forcedDefaultSlots?: Array<'CLASSIFY_STUB' | 'CLASSIFY_REAL' | 'SUMMARIZE' | 'REDACT'>,
+) {
+  return {
+    id: promptVersion.id,
+    versionLabel: promptVersion.versionLabel,
+    createdAt: promptVersion.createdAt.toISOString(),
+    isActive: promptVersion.isActive,
+    prompt: promptVersion.prompt,
+    defaultSlots: forcedDefaultSlots ?? (promptVersion.defaultAssignments ?? []).map((item) => item.slot),
+    compatibility: getPromptCompatibilityMap(promptVersion),
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,7 +67,9 @@ export async function GET(request: NextRequest) {
       }
 
       const promptVersion = await resolveDefaultClassifyPromptVersion(mode)
-      return NextResponse.json({ promptVersion })
+      return NextResponse.json({
+        promptVersion: serializePromptVersion(promptVersion, [classifyModeToPromptDefaultSlot(mode)]),
+      })
     }
 
     // Query by versionLabel: returns single promptVersion (like active+stage)
@@ -55,32 +85,17 @@ export async function GET(request: NextRequest) {
         },
         include: {
           prompt: {
-            select: { stage: true, name: true },
+            select: { id: true, stage: true, name: true },
+          },
+          defaultAssignments: {
+            select: { slot: true },
           },
         },
       })
 
-      return NextResponse.json({ promptVersion })
-    }
-
-    // Build query
-    if (activeOnly && stage) {
-      // Get single active version for a stage
-      const promptVersion = await prisma.promptVersion.findFirst({
-        where: {
-          isActive: true,
-          prompt: {
-            stage: stage as 'CLASSIFY' | 'SUMMARIZE' | 'REDACT',
-          },
-        },
-        include: {
-          prompt: {
-            select: { stage: true, name: true },
-          },
-        },
+      return NextResponse.json({
+        promptVersion: promptVersion ? serializePromptVersion(promptVersion) : null,
       })
-
-      return NextResponse.json({ promptVersion })
     }
 
     // Get list of versions
@@ -95,13 +110,18 @@ export async function GET(request: NextRequest) {
       },
       include: {
         prompt: {
-          select: { stage: true, name: true },
+          select: { id: true, stage: true, name: true },
+        },
+        defaultAssignments: {
+          select: { slot: true },
         },
       },
-      orderBy: [{ prompt: { stage: 'asc' } }, { createdAt: 'desc' }],
+      orderBy: [{ prompt: { stage: 'asc' } }, { prompt: { name: 'asc' } }, { createdAt: 'desc' }],
     })
 
-    return NextResponse.json({ promptVersions })
+    return NextResponse.json({
+      promptVersions: promptVersions.map((promptVersion) => serializePromptVersion(promptVersion)),
+    })
   } catch (error) {
     console.error('Prompt versions error:', error)
     if (error instanceof ServiceError) {

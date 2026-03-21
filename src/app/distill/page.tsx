@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense, useState, useEffect, useCallback, useMemo } from 'react'
+import { ClassifyPromptPicker } from '@/components/prompts/ClassifyPromptPicker'
+import type { ManagedPromptVersion } from '@/lib/types/prompt-management'
 import { getClassifyStatusColor, getStatusColor, formatProgressPercent } from './lib/ui-utils'
 import type { LastClassifyStats } from './lib/types'
 import { usePolling } from './hooks/usePolling'
@@ -54,12 +56,7 @@ const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> =
   },
 }
 
-interface PromptVersion {
-  id: string
-  versionLabel: string
-  isActive?: boolean
-  prompt: { stage: string; name: string }
-}
+type PromptVersion = ManagedPromptVersion
 
 interface ImportBatch {
   id: string
@@ -117,7 +114,11 @@ function DashboardContent() {
   // Per-batch classify status (for Create Run gating)
   const [perBatchClassified, setPerBatchClassified] = useState<Record<string, boolean>>({})
 
-  const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
+  const [defaultClassifyPromptVersions, setDefaultClassifyPromptVersions] = useState<{
+    stub: PromptVersion | null
+    real: PromptVersion | null
+  }>({ stub: null, real: null })
+  const [selectedClassifyPromptVersions, setSelectedClassifyPromptVersions] = useState<{
     stub: PromptVersion | null
     real: PromptVersion | null
   }>({ stub: null, real: null })
@@ -212,10 +213,14 @@ function DashboardContent() {
           loadCanonicalPromptVersion('real'),
         ])
 
-        setClassifyPromptVersions({
+        setDefaultClassifyPromptVersions({
           stub: stubPromptVersion,
           real: realPromptVersion,
         })
+        setSelectedClassifyPromptVersions((current) => ({
+          stub: current.stub ?? stubPromptVersion,
+          real: current.real ?? realPromptVersion,
+        }))
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : 'Failed to load prompt versions')
       } finally {
@@ -352,7 +357,14 @@ function DashboardContent() {
   }
 
   // Derive the prompt version for the selected mode
-  const activeClassifyPv = classifyPromptVersions[classifyMode]
+  const activeClassifyPv =
+    classifyMode === 'stub'
+      ? selectedClassifyPromptVersions.stub ?? defaultClassifyPromptVersions.stub
+      : selectedClassifyPromptVersions.real ?? defaultClassifyPromptVersions.real
+  const activeClassifyCompatibility = activeClassifyPv?.compatibility[
+    classifyMode === 'stub' ? 'CLASSIFY_STUB' : 'CLASSIFY_REAL'
+  ]
+  const classifyPromptInvalid = !!activeClassifyPv && !activeClassifyCompatibility?.valid
 
   // Last classify stats error (contextual, separate from initial load errors)
   const [lastClassifyStatsError, setLastClassifyStatsError] = useState<string | null>(null)
@@ -473,6 +485,12 @@ function DashboardContent() {
 
   async function handleClassify() {
     if (!classifyBatchId || !activeClassifyPv) return
+    if (classifyPromptInvalid) {
+      setClassifyError(
+        activeClassifyCompatibility?.reasons[0] || 'Selected prompt is incompatible with this classify mode',
+      )
+      return
+    }
 
     setClassifying(true)
     setClassifyError(null)
@@ -755,12 +773,26 @@ function DashboardContent() {
                 </div>
               )}
 
+              <div className="mb-3">
+                <ClassifyPromptPicker
+                  mode={classifyMode}
+                  value={activeClassifyPv}
+                  forceExpanded={!activeClassifyPv || classifyPromptInvalid}
+                  onSelect={(version) =>
+                    setSelectedClassifyPromptVersions((current) => ({
+                      ...current,
+                      [classifyMode]: version,
+                    }))
+                  }
+                />
+              </div>
+
               <div className="flex gap-2 items-center">
                 <button
                   onClick={handleClassify}
-                  disabled={classifying || !activeClassifyPv}
+                  disabled={classifying || !activeClassifyPv || classifyPromptInvalid}
                   className={`px-4 py-2 rounded text-white ${
-                    classifying || !activeClassifyPv
+                    classifying || !activeClassifyPv || classifyPromptInvalid
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-green-600 hover:bg-green-700'
                   }`}
@@ -773,7 +805,7 @@ function DashboardContent() {
                   <span className="text-sm text-gray-500">
                     {loadingPromptVersions
                       ? 'Loading prompt versions...'
-                      : classifyMode === 'real' && !classifyPromptVersions.real
+                      : classifyMode === 'real' && !defaultClassifyPromptVersions.real
                       ? 'No real classify prompt version found. Run: npx prisma db seed'
                       : 'No stub classify prompt version found. Run: npx prisma db seed'}
                   </span>
@@ -783,11 +815,6 @@ function DashboardContent() {
                     ? 'Assigns categories using deterministic stub algorithm'
                     : 'Assigns categories using LLM provider (costs apply)'}
                 </span>
-                {activeClassifyPv && (
-                  <span className="text-sm text-blue-700">
-                    Default prompt: {activeClassifyPv.prompt.name} / {activeClassifyPv.versionLabel}
-                  </span>
-                )}
               </div>
 
               {/* Live Classify Progress (foreground polling while classify is running) */}

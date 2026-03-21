@@ -47,7 +47,9 @@ Hard constraints (must remain true):
 - **Primary action:** leave mode at default and click `Classify now`
 - **Defaults:**
   - classification mode defaults to `Dry run (Recommended)` (maps to deterministic stub mode)
-  - selected canonical prompt/version is visible before submit
+  - current prompt family/version is visible before submit
+  - inline `Change prompt` flow is available without leaving `/demo`
+  - incompatible real classify prompts are blocked before submit with a clear reason and a link to `/distill/prompts`
 - **Success criteria (step completes):**
   - classify run reaches `succeeded`
   - UI shows totals (`messageAtoms`, `labeled`, `newlyLabeled`, `skippedAlreadyLabeled`)
