@@ -136,6 +136,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [x] Stage tabs exist for `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
 - [x] Prompt family list shows canonical/custom state, version count, and current default-slot badges.
 - [x] Prompt detail shows version history, template text, created time, compatibility state, and default-slot eligibility.
+- [x] Compatibility state surfaces both structural prompt failures and seeded-canonical drift/reseed guidance when applicable.
 - [x] Selected-version detail includes a clearly labeled read-only `Prompt text` preview area, visually separated from default controls and the create-version form.
 - [x] `Create version` creates a new immutable PromptVersion under the selected family; there is no in-place edit or delete action.
 - [x] `Activate version` changes only the active version within the selected family.

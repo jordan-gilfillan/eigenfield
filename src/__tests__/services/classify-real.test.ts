@@ -2,9 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../lib/db'
 import { classifyBatch, parseClassifyOutput } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import { LlmBadOutputError, BudgetExceededError } from '../../lib/llm'
 import * as llmModule from '../../lib/llm'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
 import { createTestExport } from '../fixtures/export-factories'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 /**
  * Integration tests for real-mode classification (dry-run LLM).
@@ -31,33 +34,14 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     delete process.env.LLM_MAX_USD_PER_DAY
     process.env.LLM_MIN_DELAY_MS = '0' // No delay in tests
 
-    // Get or create the classify prompt
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
+    const pv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-v1-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
-
-    // Create a real classify prompt version
-    const pv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_test',
-        },
-      },
-      update: {},
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_test',
-        templateText: 'Classify the message into a category. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = pv.id
+    createdPromptVersionIds.push(pv.promptVersion.id)
+    realPromptVersionId = pv.promptVersion.id
   })
 
   afterEach(async () => {
@@ -389,24 +373,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       createdBatchIds.push(importResult.importBatch.id)
 
       // Classify with stub mode (need stub prompt version)
-      const classifyPrompt = await prisma.prompt.findFirst({
-        where: { stage: 'CLASSIFY' },
-      })
-      const stubPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: classifyPrompt!.id,
-            versionLabel: 'classify_stub_v1',
-          },
-        },
-        update: { isActive: true },
-        create: {
-          promptId: classifyPrompt!.id,
-          versionLabel: 'classify_stub_v1',
-          templateText: 'STUB',
-          isActive: true,
-        },
-      })
+      const stubPv = await resolveDefaultClassifyPromptVersion('stub')
 
       await classifyBatch({
         importBatchId: importResult.importBatch.id,

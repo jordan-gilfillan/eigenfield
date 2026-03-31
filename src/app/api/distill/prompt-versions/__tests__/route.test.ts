@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import type { PromptDefaultSlot } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { CANONICAL_PROMPT_TEMPLATES } from '@/lib/canonical-prompts'
+import {
+  capturePromptDefaultSnapshot,
+  createCanonicalPromptVersionFixture,
+  restorePromptDefaultSnapshot,
+} from '@/__tests__/fixtures/prompt-fixtures'
 
 async function loadRoute() {
   return import('../route')
@@ -8,10 +15,27 @@ async function loadRoute() {
 
 describe('GET /api/distill/prompt-versions', () => {
   const createdPromptIds: string[] = []
+  const createdPromptVersionIds: string[] = []
+  const promptDefaultSnapshots = new Map<
+    PromptDefaultSlot,
+    Awaited<ReturnType<typeof capturePromptDefaultSnapshot>>
+  >()
 
   afterEach(async () => {
     vi.resetModules()
     vi.restoreAllMocks()
+
+    for (const [slot, snapshot] of promptDefaultSnapshots.entries()) {
+      await restorePromptDefaultSnapshot(snapshot, slot)
+    }
+    promptDefaultSnapshots.clear()
+
+    if (createdPromptVersionIds.length > 0) {
+      await prisma.promptVersion.deleteMany({
+        where: { id: { in: createdPromptVersionIds } },
+      })
+      createdPromptVersionIds.length = 0
+    }
 
     if (createdPromptIds.length > 0) {
       await prisma.promptVersion.deleteMany({
@@ -25,44 +49,28 @@ describe('GET /api/distill/prompt-versions', () => {
   })
 
   it('returns the canonical default classify prompt version for real mode', async () => {
-    const canonicalPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
+    const snapshot = await capturePromptDefaultSnapshot('CLASSIFY_REAL')
+    promptDefaultSnapshots.set('CLASSIFY_REAL', snapshot)
 
-    const canonicalVersion = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: canonicalPrompt.id,
-          versionLabel: 'classify_real_v1',
-        },
-      },
-      update: {
-        templateText: 'Return ONLY JSON with category and confidence.',
-        isActive: true,
-      },
-      create: {
-        promptId: canonicalPrompt.id,
-        versionLabel: 'classify_real_v1',
-        templateText: 'Return ONLY JSON with category and confidence.',
-        isActive: true,
-      },
+    const canonicalVersion = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-route-default',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
+      isActive: false,
     })
+    createdPromptVersionIds.push(canonicalVersion.promptVersion.id)
 
     await prisma.promptDefault.upsert({
       where: { slot: 'CLASSIFY_REAL' },
       update: {
-        promptId: canonicalPrompt.id,
-        promptVersionId: canonicalVersion.id,
+        promptId: canonicalVersion.prompt.id,
+        promptVersionId: canonicalVersion.promptVersion.id,
       },
       create: {
         slot: 'CLASSIFY_REAL',
-        promptId: canonicalPrompt.id,
-        promptVersionId: canonicalVersion.id,
+        promptId: canonicalVersion.prompt.id,
+        promptVersionId: canonicalVersion.promptVersion.id,
       },
     })
 
@@ -90,10 +98,12 @@ describe('GET /api/distill/prompt-versions', () => {
     expect(res.status).toBe(200)
 
     const body = await res.json()
-    expect(body.promptVersion.id).toBe(canonicalVersion.id)
-    expect(body.promptVersion.versionLabel).toBe('classify_real_v1')
+    expect(body.promptVersion.id).toBe(canonicalVersion.promptVersion.id)
+    expect(body.promptVersion.versionLabel).toBe(canonicalVersion.versionLabel)
     expect(body.promptVersion.prompt.name).toBe('default-classifier')
-    expect(body.promptVersion.templateText).toBe('Return ONLY JSON with category and confidence.')
+    expect(body.promptVersion.templateText).toBe(
+      CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
+    )
     expect(body.promptVersion.defaultSlots).toContain('CLASSIFY_REAL')
     expect(body.promptVersion.compatibility.CLASSIFY_REAL.valid).toBe(true)
   })

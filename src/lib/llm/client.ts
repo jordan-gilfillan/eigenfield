@@ -13,6 +13,7 @@ import { estimateCostUsd } from './pricing'
 import { callOpenAi } from './providers/openai'
 import { callAnthropic } from './providers/anthropic'
 import { createHash } from 'crypto'
+import { STUB_CLASSIFY_CATEGORIES } from '../canonical-prompts'
 
 /**
  * Computes cost using the pricing book.
@@ -28,9 +29,7 @@ function computeCost(provider: string, model: string, tokensIn: number, tokensOu
 }
 
 /** Core categories matching spec 7.2 stub_v1 order */
-const CORE_CATEGORIES = [
-  'WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER',
-] as const
+const CORE_CATEGORIES = STUB_CLASSIFY_CATEGORIES
 
 /**
  * Estimates input token count from text (chars / 4 heuristic).

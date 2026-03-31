@@ -4,10 +4,13 @@ import type { ClassifyWarningDetails } from '../../lib/classify-warning-details'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import * as llmModule from '../../lib/llm'
 import { GET as getClassifyRun } from '../../app/api/distill/classify-runs/[id]/route'
 import { POST as postStopClassify } from '../../app/api/distill/classify-runs/[id]/stop/route'
 import { POST as postClassify } from '../../app/api/distill/classify/route'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 /**
  * Integration tests for:
@@ -43,6 +46,7 @@ function deferred<T>() {
 
 describe('Classify progress + classify-runs endpoint', () => {
   const createdBatchIds: string[] = []
+  const createdPromptVersionIds: string[] = []
   let stubPromptVersionId: string
   let realPromptVersionId: string
   const originalEnv = { ...process.env }
@@ -54,53 +58,16 @@ describe('Classify progress + classify-runs endpoint', () => {
     delete process.env.ANTHROPIC_API_KEY
     process.env.LLM_MIN_DELAY_MS = '0'
 
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
+    stubPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
 
-    const stubPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: {
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
+    const realPv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-progress-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
-    stubPromptVersionId = stubPv.id
-
-    const realPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_progress_test',
-        },
-      },
-      update: {
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_progress_test',
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = realPv.id
+    createdPromptVersionIds.push(realPv.promptVersion.id)
+    realPromptVersionId = realPv.promptVersion.id
   })
 
   afterEach(async () => {
@@ -115,6 +82,13 @@ describe('Classify progress + classify-runs endpoint', () => {
       await prisma.importBatch.delete({ where: { id } }).catch(() => {})
     }
     createdBatchIds.length = 0
+
+    for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
+      await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
+      await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
+    }
+    createdPromptVersionIds.length = 0
   })
 
   describe('POST /classify returns classifyRunId', () => {

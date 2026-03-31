@@ -8,6 +8,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
 import { NotFoundError, NoEligibleDaysError } from '../../errors'
+import {
+  resolveDefaultClassifyPromptVersion,
+  resolveDefaultSummarizePromptVersion,
+} from '../prompt-version-defaults'
 
 describe('run service', () => {
   let testImportBatchId: string
@@ -74,88 +78,8 @@ describe('run service', () => {
     })
     testClassifyPromptVersionId = classifyVersion.id
 
-    const defaultClassifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
-
-    const defaultClassifyVersion = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: defaultClassifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: {
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-      },
-      create: {
-        promptId: defaultClassifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: false,
-      },
-    })
-    defaultClassifyPromptVersionId = defaultClassifyVersion.id
-
-    await prisma.promptDefault.upsert({
-      where: { slot: 'CLASSIFY_STUB' },
-      update: {
-        promptId: defaultClassifyPrompt.id,
-        promptVersionId: defaultClassifyVersion.id,
-      },
-      create: {
-        slot: 'CLASSIFY_STUB',
-        promptId: defaultClassifyPrompt.id,
-        promptVersionId: defaultClassifyVersion.id,
-      },
-    })
-
-    const defaultSummarizePrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
-      update: {},
-      create: {
-        stage: 'SUMMARIZE',
-        name: 'default-summarizer',
-      },
-    })
-
-    const defaultSummarizeVersion = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: defaultSummarizePrompt.id,
-          versionLabel: 'v1',
-        },
-      },
-      update: {
-        templateText: 'Default summarize prompt',
-        isActive: true,
-      },
-      create: {
-        promptId: defaultSummarizePrompt.id,
-        versionLabel: 'v1',
-        templateText: 'Default summarize prompt',
-        isActive: true,
-      },
-    })
-    defaultSummarizePromptVersionId = defaultSummarizeVersion.id
-
-    await prisma.promptDefault.upsert({
-      where: { slot: 'SUMMARIZE' },
-      update: {
-        promptId: defaultSummarizePrompt.id,
-        promptVersionId: defaultSummarizeVersion.id,
-      },
-      create: {
-        slot: 'SUMMARIZE',
-        promptId: defaultSummarizePrompt.id,
-        promptVersionId: defaultSummarizeVersion.id,
-      },
-    })
+    defaultClassifyPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
+    defaultSummarizePromptVersionId = (await resolveDefaultSummarizePromptVersion()).id
 
     const summarizePrompt = await prisma.prompt.create({
       data: {

@@ -32,6 +32,15 @@ import {
   type BadOutputReasonKey,
   type ClassifyWarningDetails,
 } from '../classify-warning-details'
+import {
+  ALL_CLASSIFY_CATEGORIES,
+  DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS,
+  STUB_CLASSIFY_CATEGORIES,
+} from '../canonical-prompts'
+import {
+  getPromptSlotCompatibility,
+  type PromptVersionWithPrompt,
+} from '../prompt-metadata'
 import { getCalendarDaySpendUsd } from './budget-queries'
 import { resolveDefaultClassifyPromptVersion, type DefaultClassifyPromptMode } from './prompt-version-defaults'
 
@@ -42,21 +51,10 @@ export { InvalidInputError }
 /**
  * Core categories in the exact order required by stub_v1 algorithm (spec 7.2)
  */
-const STUB_CATEGORIES: Category[] = [
-  'WORK',
-  'LEARNING',
-  'CREATIVE',
-  'MUNDANE',
-  'PERSONAL',
-  'OTHER',
-]
+const STUB_CATEGORIES: Category[] = [...STUB_CLASSIFY_CATEGORIES]
 
 /** All valid Category values from the Prisma enum (spec 6.4) */
-const ALL_CATEGORIES: ReadonlySet<string> = new Set([
-  'WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER',
-  'MEDICAL', 'MENTAL_HEALTH', 'ADDICTION_RECOVERY', 'INTIMACY',
-  'FINANCIAL', 'LEGAL', 'EMBARRASSING',
-])
+const ALL_CATEGORIES: ReadonlySet<string> = new Set(ALL_CLASSIFY_CATEGORIES)
 
 /**
  * Small explicit alias map for common near-miss categories emitted by models.
@@ -622,7 +620,15 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   // Verify prompt version exists (include parent Prompt for stage check)
   const promptVersion = await prisma.promptVersion.findUnique({
     where: { id: promptVersionId },
-    include: { prompt: { select: { stage: true } } },
+    include: {
+      prompt: {
+        select: {
+          id: true,
+          stage: true,
+          name: true,
+        },
+      },
+    },
   })
   if (!promptVersion) {
     throw new NotFoundError('PromptVersion', promptVersionId)
@@ -639,19 +645,25 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }
 
     // Must NOT be the seeded stub prompt version
-    if (promptVersion.versionLabel === 'classify_stub_v1') {
+    if (promptVersion.versionLabel === DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS.stub) {
       throw new InvalidInputError(
-        'mode="real" must not use classify_stub_v1 prompt version',
+        `mode="real" must not use ${DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS.stub} prompt version`,
         { promptVersionId, versionLabel: promptVersion.versionLabel }
       )
     }
 
-    // Template must be JSON-constraining (contains category+confidence markers)
-    const t = promptVersion.templateText
-    if (!t.includes('category') || !t.includes('confidence')) {
+    const compatibility = getPromptSlotCompatibility(
+      promptVersion as PromptVersionWithPrompt,
+      'CLASSIFY_REAL',
+    )
+    if (!compatibility.valid) {
       throw new InvalidInputError(
-        'mode="real" requires a JSON-constraining classify prompt (must reference "category" and "confidence")',
-        { promptVersionId, versionLabel: promptVersion.versionLabel }
+        'mode="real" requires a structurally valid classify prompt with JSON-only instructions and the full allowed category taxonomy',
+        {
+          promptVersionId,
+          versionLabel: promptVersion.versionLabel,
+          reasons: compatibility.reasons,
+        },
       )
     }
   }

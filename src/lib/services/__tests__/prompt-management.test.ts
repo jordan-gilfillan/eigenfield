@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { prisma } from '../../db'
 import { InvalidInputError } from '../../errors'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../canonical-prompts'
 import {
   assignManagedPromptDefault,
   createManagedPromptVersion,
@@ -57,6 +58,46 @@ describe('prompt management services', () => {
 
   it('resolvePromptDefault fails closed when a slot is unassigned', async () => {
     await expect(resolvePromptDefault('REDACT')).rejects.toThrow('Prompt default is not configured')
+  })
+
+  it('resolveDefaultSummarizePromptVersion fails closed when the seeded default template has drifted', async () => {
+    const prompt = await prisma.prompt.findUniqueOrThrow({
+      where: {
+        stage_name: {
+          stage: 'SUMMARIZE',
+          name: 'default-summarizer',
+        },
+      },
+      select: { id: true },
+    })
+
+    const version = await prisma.promptVersion.findUniqueOrThrow({
+      where: {
+        promptId_versionLabel: {
+          promptId: prompt.id,
+          versionLabel: 'v1',
+        },
+      },
+      select: { id: true },
+    })
+
+    await prisma.promptVersion.update({
+      where: { id: version.id },
+      data: { templateText: 'Default summarize prompt' },
+    })
+
+    try {
+      await expect(resolveDefaultSummarizePromptVersion()).rejects.toThrow(
+        'Prompt default points to an incompatible prompt version.',
+      )
+    } finally {
+      await prisma.promptVersion.update({
+        where: { id: version.id },
+        data: {
+          templateText: CANONICAL_PROMPT_TEMPLATES.SUMMARIZE['default-summarizer'].v1,
+        },
+      })
+    }
   })
 
   it('rejects assigning implicit defaults to custom prompt families', async () => {

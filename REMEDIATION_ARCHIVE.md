@@ -2042,3 +2042,29 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - `/demo` and advanced `/distill` keep the selected prompt text visible even when the classify picker is collapsed.
   - Classify prompt selection becomes preview-first: choosing a version updates the preview, and `Use this prompt` commits it for the current session.
 - **Resolution**: Extended singular `GET /api/distill/prompt-versions` responses to include `templateText`, which lets the current/default classify prompt render with its full body before any extra prompt-family fetch. Added a shared `PromptTextPreview` card plus picker state helpers, refactored the shared classify prompt picker into a preview-first flow with compact family/version lists and a dedicated preview/confirm pane, and kept the selected prompt text visible while the picker is collapsed. Updated `/distill/prompts` to surface the selected version’s prompt body in a clearly labeled standalone preview area, separate from default controls and version creation. Added targeted route, render, and picker-state tests, and synced `SPEC.md`, `UX_SPEC.md`, and `UX_DEMO_SPEC.md`. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`79` files, `1027` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-123 — All-stage canonical prompt recovery + shared-DB pollution prevention
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Restore all seeded canonical prompt families as the repo-owned source of truth and stop the shared test DB from being polluted by tests that overwrite seeded prompt rows or default-slot assignments.
+- **Touch set**: `prisma/seed.ts`, shared prompt constants/helpers, prompt-related tests and fixtures, `src/__tests__/global-setup.ts`, `REMEDIATION.md`, `SPEC.md`, `UX_SPEC.md`.
+- **Acceptance**:
+  - `npm run db:seed` restores seeded template text for canonical classify, summarize, and redact prompt versions.
+  - Prompt-related tests stop overwriting seeded canonical version labels and use unique fixture version labels instead.
+  - The test harness snapshots and restores canonical prompt defaults and seeded canonical prompt text at suite teardown.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Added a shared canonical prompt source in `src/lib/canonical-prompts.ts` and moved `prisma/seed.ts` to consume it, including update-time repair of canonical `templateText` for classify stub/real, summarize `v1`, summarize journal variants, and redact `v1`. Added prompt test fixtures for unique canonical-family versions, refactored prompt-related tests away from mutating seeded labels/defaults, and extended global test teardown to snapshot and restore seeded canonical prompt text plus canonical default-slot targets so the shared DB is left as it started. Verified with `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1035` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).
+
+### AUD-124 — All-stage default-slot integrity guards + classify contract hardening
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Fail closed when implicit defaults point at drifted seeded prompt text, and strengthen the real-classify prompt contract so weak placeholder prompts are rejected across runtime and prompt-management surfaces.
+- **Touch set**: prompt compatibility/default resolution services, classify runtime guardrails, prompt-management APIs, targeted tests, `SPEC.md`, `UX_SPEC.md`, `REMEDIATION.md`.
+- **Acceptance**:
+  - Seeded canonical versions are incompatible for implicit default use if their `templateText` drifts from the repo seed.
+  - `CLASSIFY_REAL` compatibility requires JSON-only instructions, explicit `category`/`confidence` output constraints, and the full allowed category taxonomy.
+  - Weak placeholder real-classify prompts are rejected by prompt-default assignment and classify runtime validation with clear reasons.
+  - `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Hardened `getPromptSlotCompatibility()` to enforce seeded-template integrity for canonical seeded versions across `CLASSIFY_STUB`, `CLASSIFY_REAL`, `SUMMARIZE`, and `REDACT`, and updated `validateClassifyRealTemplate()` plus `classifyBatch()` to share the stricter real-classify contract: JSON-only output instructions, explicit `category`/`confidence` constraints, and the full allowed taxonomy. Prompt manager/read surfaces now expose seeded-drift and structural compatibility reasons consistently, `POST /api/distill/prompt-defaults/:slot` rejects weak or drifted defaults, and the repaired seed path plus full repo validation are green. Verified with `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1035` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).

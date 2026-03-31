@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 
 import { createTestExport } from '../fixtures/export-factories'
 
@@ -21,30 +22,7 @@ describe('ClassifyRun stats persistence', () => {
   let defaultPromptVersionId: string
 
   beforeEach(async () => {
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
-
-    const pv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: { isActive: true },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-    })
+    const pv = await resolveDefaultClassifyPromptVersion('stub')
     defaultPromptVersionId = pv.id
   })
 

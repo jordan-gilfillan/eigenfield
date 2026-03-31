@@ -333,6 +333,7 @@ Rules:
   - `REDACT` → `default-redactor`
 - Custom prompt families may exist and may be selected explicitly by the user, but they MUST NOT become implicit defaults.
 - PromptVersions are immutable. Editing a prompt MUST create a new PromptVersion.
+- Seeded canonical PromptVersions are repo-owned integrity baselines. If an implicit default slot points at a seeded canonical version label, that version’s `templateText` MUST exactly match the repo seed text; otherwise the version is incompatible until the operator runs `npm run db:seed` or assigns a different compatible version.
 - Any endpoint that executes an LLM call MUST use an explicit PromptVersionId appropriate to that stage.
 - Runs MUST record the exact PromptVersion IDs used.
 
@@ -445,7 +446,10 @@ POST `/api/distill/classify`
 - Output: classifyRunId + counts (and optional progress when available; see 7.2.1).
 
 **PromptVersion selection (normative):**
-- `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
+- `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText:
+  - instructs the model to return JSON-only output,
+  - explicitly constrains the output object to include `category` and `confidence`,
+  - includes the full allowed classify category taxonomy from §6.4.
 - `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
 - `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server records the caller-provided `promptVersionId` unchanged in labels; it need not be `classify_stub_v1`. No guardrails are applied to `promptVersionId` in stub mode.
 - When the UI or server resolves a **default** classify PromptVersion implicitly (rather than from a caller-supplied `promptVersionId`), it MUST resolve the `PromptDefault` slot owned by the canonical classify family `Prompt.name="default-classifier"`:
@@ -485,6 +489,7 @@ Endpoints:
 Rules:
 - No endpoint may edit PromptVersion text in place.
 - A `CLASSIFY_REAL` default assignment MUST fail closed if the selected version is not compatible with the real-classify JSON contract.
+- Any default assignment targeting a drifted seeded canonical PromptVersion MUST fail closed with a repair/configuration reason instead of silently accepting the drifted text.
 - `REDACT` may legitimately have no default slot assignment until redact execution exists.
 
 Status endpoint response (normative):

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { NextRequest } from 'next/server'
 import { POST } from '../route'
 import { prisma } from '@/lib/db'
+import { createCanonicalPromptVersionFixture } from '@/__tests__/fixtures/prompt-fixtures'
 
 function makeRequest(slot: string, body: Record<string, unknown>) {
   return POST(
@@ -16,6 +17,7 @@ function makeRequest(slot: string, body: Record<string, unknown>) {
 
 describe('POST /api/distill/prompt-defaults/:slot', () => {
   let promptId: string
+  const createdPromptVersionIds: string[] = []
 
   beforeEach(async () => {
     const prompt = await prisma.prompt.create({
@@ -28,6 +30,10 @@ describe('POST /api/distill/prompt-defaults/:slot', () => {
   })
 
   afterEach(async () => {
+    for (const id of createdPromptVersionIds) {
+      await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
+    }
+    createdPromptVersionIds.length = 0
     await prisma.promptVersion.deleteMany({ where: { promptId } })
     await prisma.prompt.deleteMany({ where: { id: promptId } })
   })
@@ -48,5 +54,23 @@ describe('POST /api/distill/prompt-defaults/:slot', () => {
     const json = await res.json()
     expect(json.error.code).toBe('INVALID_INPUT')
     expect(json.error.message).toContain('canonical')
+  })
+
+  it('rejects weak real classify prompts even within the canonical family', async () => {
+    const weakCanonicalVersion = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'weak-real-default',
+      templateText: 'Return ONLY JSON with category and confidence.',
+    })
+    createdPromptVersionIds.push(weakCanonicalVersion.promptVersion.id)
+
+    const res = await makeRequest('CLASSIFY_REAL', {
+      promptVersionId: weakCanonicalVersion.promptVersion.id,
+    })
+    expect(res.status).toBe(400)
+
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.details.reasons).toContain('Missing allowed classify category taxonomy')
   })
 })

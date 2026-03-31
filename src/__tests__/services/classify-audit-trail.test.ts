@@ -4,9 +4,12 @@ import type { ClassifyWarningDetails } from '../../lib/classify-warning-details'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import * as llmModule from '../../lib/llm'
 import { GET as getLastClassify } from '../../app/api/distill/import-batches/[id]/last-classify/route'
 import { POST as postClassify } from '../../app/api/distill/classify/route'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 interface LastClassifyResponse {
   hasStats: boolean
@@ -50,6 +53,7 @@ async function fetchLastClassify(
 
 describe('ClassifyRun audit trail', () => {
   const createdBatchIds: string[] = []
+  const createdPromptVersionIds: string[] = []
   let realPromptVersionId: string
   let stubPromptVersionId: string
   const originalEnv = { ...process.env }
@@ -61,52 +65,16 @@ describe('ClassifyRun audit trail', () => {
     delete process.env.ANTHROPIC_API_KEY
     process.env.LLM_MIN_DELAY_MS = '0'
 
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
+    const realPv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-audit-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
+    createdPromptVersionIds.push(realPv.promptVersion.id)
+    realPromptVersionId = realPv.promptVersion.id
 
-    const realPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_audit_test',
-        },
-      },
-      update: {
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_audit_test',
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = realPv.id
-
-    const stubPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: {
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-    })
-    stubPromptVersionId = stubPv.id
+    stubPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
   })
 
   afterEach(async () => {
@@ -121,6 +89,13 @@ describe('ClassifyRun audit trail', () => {
       await prisma.importBatch.delete({ where: { id } }).catch(() => {})
     }
     createdBatchIds.length = 0
+
+    for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
+      await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
+      await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
+    }
+    createdPromptVersionIds.length = 0
   })
 
   it('persists failed status + partial counters + errorJson when callLlm throws mid-run', async () => {
@@ -210,7 +185,7 @@ describe('ClassifyRun audit trail', () => {
     expect(last.stats).toBeDefined()
     expect(last.stats!.status).toBe('succeeded')
     expect(last.stats!.processedAtoms).toBe(last.stats!.totalAtoms)
-    expect(last.stats!.promptVersionLabel).toBe('classify_real_v1_audit_test')
+    expect(last.stats!.promptVersionLabel).toContain('classify-real-audit-test')
     expect(last.stats!.promptName).toBe('default-classifier')
     expect(last.stats!.warningDetails).toBeUndefined()
     expect(last.stats!.errorJson).toBeNull()

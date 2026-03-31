@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { NextRequest } from 'next/server'
 import { GET } from '../route'
 import { prisma } from '@/lib/db'
+import { CANONICAL_PROMPT_TEMPLATES } from '@/lib/canonical-prompts'
 
 describe('GET /api/distill/prompts', () => {
   const createdPromptIds: string[] = []
@@ -34,7 +35,8 @@ describe('GET /api/distill/prompts', () => {
       data: {
         promptId: prompt.id,
         versionLabel: 'v1',
-        templateText: 'Return JSON with category and confidence.',
+        templateText:
+          CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
         isActive: true,
       },
     })
