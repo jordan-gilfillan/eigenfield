@@ -526,7 +526,7 @@ export async function getImportBatchDayAtoms(options: {
   })
 
   return atoms.map((atom) => {
-    const label = atom.messageLabels[0] ?? null
+    const label = atom.role === 'USER' ? (atom.messageLabels[0] ?? null) : null
     return {
       atomStableId: atom.atomStableId,
       source: sourceToApi(atom.source as Parameters<typeof sourceToApi>[0]),

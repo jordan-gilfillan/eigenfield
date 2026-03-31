@@ -194,7 +194,7 @@ async function searchRaw(params: SearchParams): Promise<SearchResponse> {
   let labelJoin = ''
   let labelSelect = 'NULL::text AS label_category, NULL::float AS label_confidence'
   if (labelCtx) {
-    labelJoin = `LEFT JOIN "message_labels" ml ON ml."messageAtomId" = ma."id" AND ml."model" = $${paramIndex} AND ml."promptVersionId" = $${paramIndex + 1}`
+    labelJoin = `LEFT JOIN "message_labels" ml ON ml."messageAtomId" = ma."id" AND ml."model" = $${paramIndex} AND ml."promptVersionId" = $${paramIndex + 1} AND ma."role" = 'USER'::"Role"`
     labelSelect = 'ml."category" AS label_category, ml."confidence" AS label_confidence'
     values.push(labelCtx.model, labelCtx.promptVersionId)
     paramIndex += 2
@@ -371,4 +371,3 @@ export async function search(params: SearchParams): Promise<SearchResponse> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-

@@ -100,18 +100,53 @@ describe('ClassifyRun stats persistence', () => {
       mode: 'stub',
     })
 
-    expect(result.totals.messageAtoms).toBe(3)
-    expect(result.totals.newlyLabeled).toBe(3)
+    expect(result.totals.messageAtoms).toBe(2)
+    expect(result.totals.newlyLabeled).toBe(2)
 
     const cr = await prisma.classifyRun.findFirst({
       where: { importBatchId: importResult.importBatch.id },
     })
 
     expect(cr).not.toBeNull()
-    expect(cr!.totalAtoms).toBe(3)
-    expect(cr!.newlyLabeled).toBe(3)
+    expect(cr!.totalAtoms).toBe(2)
+    expect(cr!.newlyLabeled).toBe(2)
     expect(cr!.skippedAlreadyLabeled).toBe(0)
-    expect(cr!.labeledTotal).toBe(3)
+    expect(cr!.labeledTotal).toBe(2)
+  })
+
+  it('assistant-only batch persists a zero-total ClassifyRun', async () => {
+    const content = createTestExport([
+      { id: 'msg-assistant-stats-1', role: 'assistant', text: 'Assistant stats 1', timestamp: 1705316400, conversationId: 'conv-assistant-stats' },
+      { id: 'msg-assistant-stats-2', role: 'assistant', text: 'Assistant stats 2', timestamp: 1705316401, conversationId: 'conv-assistant-stats' },
+    ])
+
+    const importResult = await importExport({
+      content,
+      filename: 'assistant-stats.json',
+      fileSizeBytes: content.length,
+    })
+    createdBatchIds.push(importResult.importBatch.id)
+
+    const result = await classifyBatch({
+      importBatchId: importResult.importBatch.id,
+      model: 'stub_v1',
+      promptVersionId: defaultPromptVersionId,
+      mode: 'stub',
+    })
+
+    expect(result.totals.messageAtoms).toBe(0)
+    expect(result.totals.labeled).toBe(0)
+    expect(result.totals.newlyLabeled).toBe(0)
+    expect(result.totals.skippedAlreadyLabeled).toBe(0)
+
+    const cr = await prisma.classifyRun.findFirst({
+      where: { importBatchId: importResult.importBatch.id },
+    })
+
+    expect(cr).not.toBeNull()
+    expect(cr!.totalAtoms).toBe(0)
+    expect(cr!.newlyLabeled).toBe(0)
+    expect(cr!.labeledTotal).toBe(0)
   })
 
   it('second classify creates a new ClassifyRun row (idempotent labels, new stats row)', async () => {

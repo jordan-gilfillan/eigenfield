@@ -1333,7 +1333,7 @@ export default function DemoClient() {
                       <div className="mt-3">
                         <div className="mb-1 flex justify-between text-xs text-gray-500">
                           <span>
-                            {classifyStatus.progress.processedAtoms} / {classifyStatus.progress.totalAtoms} processed
+                            {classifyStatus.progress.processedAtoms} / {classifyStatus.progress.totalAtoms} user atoms processed
                           </span>
                           <span>
                             {formatProgressPercent(
@@ -1367,7 +1367,7 @@ export default function DemoClient() {
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-gray-500">Remaining</dt>
+                          <dt className="text-gray-500">Remaining user atoms</dt>
                           <dd className="font-medium text-gray-900">
                             {Math.max(classifyStatus.progress.totalAtoms - classifyStatus.progress.processedAtoms, 0)}
                           </dd>

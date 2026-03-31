@@ -99,7 +99,7 @@ describe('ClassifyRun audit trail', () => {
   })
 
   it('persists failed status + partial counters + errorJson when callLlm throws mid-run', async () => {
-    const messages = Array.from({ length: 130 }, (_, i) => ({
+    const messages = Array.from({ length: 211 }, (_, i) => ({
       id: `msg-audit-fail-${i + 1}`,
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       text: `message ${i + 1}`,
@@ -194,7 +194,7 @@ describe('ClassifyRun audit trail', () => {
   it('persists safe warningDetails on last-classify responses', async () => {
     const content = createTestExport([
       { id: 'msg-audit-warn-1', role: 'user', text: 'invalid category path', timestamp: 1705316510, conversationId: 'conv-audit-warn' },
-      { id: 'msg-audit-warn-2', role: 'assistant', text: 'alias path', timestamp: 1705316511, conversationId: 'conv-audit-warn' },
+      { id: 'msg-audit-warn-2', role: 'user', text: 'alias path', timestamp: 1705316511, conversationId: 'conv-audit-warn' },
     ])
 
     const importResult = await importExport({
@@ -376,7 +376,7 @@ describe('ClassifyRun audit trail', () => {
     // Query batch A with correct label spec → gets stats
     const lastA = await fetchLastClassify(importA.importBatch.id, 'stub_v1', stubPromptVersionId)
     expect(lastA.hasStats).toBe(true)
-    expect(lastA.stats!.totalAtoms).toBe(2)
+    expect(lastA.stats!.totalAtoms).toBe(1)
 
     // Query batch B with same label spec → no stats (not classified)
     const lastB = await fetchLastClassify(importB.importBatch.id, 'stub_v1', stubPromptVersionId)

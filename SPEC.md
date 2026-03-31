@@ -443,7 +443,12 @@ UI must include a **“Use this import”** CTA that routes to `/distill` with t
 ### 7.2 Classify (if not auto-run)
 POST `/api/distill/classify`
 - Input: `{ importBatchId, model, promptVersionId, mode: real|stub }`
-- Output: classifyRunId + counts (and optional progress when available; see 7.2.1).
+- Output: classifyRunId + USER-atom counts (and optional progress when available; see 7.2.1).
+
+Classification scope is `role=user` only.
+- `MessageAtom`s with `role=assistant` remain stored for audit/debug.
+- Existing assistant `MessageLabel` rows MAY remain in storage from earlier runs, but classify MUST ignore assistant atoms for fetches, counts, skip math, progress, and provider payloads.
+- A batch containing no USER atoms MUST still create a succeeded `ClassifyRun` with zero totals and zero newly labeled atoms.
 
 **PromptVersion selection (normative):**
 - `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText:
@@ -534,6 +539,7 @@ Status endpoint response (normative):
 }
 ```
 Notes:
+- `totals.messageAtoms`, `totals.labeled`, `totals.newlyLabeled`, `totals.skippedAlreadyLabeled`, `progress.processedAtoms`, and `progress.totalAtoms` all refer to USER atoms in scope for this classify run.
 - `progress`, `usage`, and `warnings` MAY be partial while `status="running"`.
 - `warnings` contains classification-quality counters separate from progress tracking.
 - `warnings.details` is optional and, when present, MUST contain only safe aggregates/samples; raw model output and raw message text MUST NOT be persisted there.
@@ -543,7 +549,7 @@ Notes:
 - The status endpoint MUST be read-only and MUST NOT trigger classification work.
 
 **Deterministic stub algorithm (stub_v1):**
-- For each MessageAtom, compute `h = sha256(atomStableId)`.
+- For each USER MessageAtom in scope, compute `h = sha256(atomStableId)`.
 - Map to a category via `index = uint32(h[0..3]) % N`, where `N` is the number of **core** categories: `[WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER]`.
 - Set `confidence = 0.5`.
 - Record `model = "stub_v1"` and the caller-provided `promptVersionId`.
@@ -635,7 +641,7 @@ Must show:
 - per-day output viewer (rendered markdown)
 - input inspector (see 10)
 - `aggregate tokens + aggregate cost (sum over jobs processed so far)`
-- `last classify run stats for the selected labelSpec (totals/newlyLabeled/skippedAlreadyLabeled) when available`
+- `last classify run stats for the selected labelSpec (USER-atom totals/newlyLabeled/skippedAlreadyLabeled) when available`
 
 ### 7.5.1 Phase 5 UI Shell (minimum operability slice)
 
@@ -768,6 +774,9 @@ Returns:
 }
 ```
 
+Notes:
+- `totals.messageAtoms`, `totals.labeled`, `totals.newlyLabeled`, and `totals.skippedAlreadyLabeled` count only USER atoms in scope.
+
 #### POST /api/distill/runs
 Returns:
 
@@ -870,9 +879,11 @@ Returns:
 
 Rules:
 - `nextCursor` MAY be omitted if there are no more results.
-- `category`/`confidence` for atom results MUST be derived from labels matching the active `labelSpec` context:
+- `category`/`confidence` for USER atom results MUST be derived from labels matching the active `labelSpec` context:
   - If `runId` is provided, use that Run's `config.labelSpec`.
   - If `runId` is not provided and the caller requests category filtering, the request MUST include `labelModel` and `labelPromptVersionId`.
+- Assistant atom results MUST remain searchable by raw text, but `category` and `confidence` MUST be `null` even if legacy assistant labels exist in storage.
+- If a raw search request includes `categories`, assistant atom results MUST be excluded.
 
 ---
 
@@ -969,7 +980,8 @@ Import inspector (after import):
 - day list (coverage)
 - per-day view showing messages with:
   - timestamp, role, source
-  - category + confidence
+  - category + confidence for USER atoms
+  - assistant atoms remain visible but MUST surface as unlabeled (`category=null`, `confidence=null`), even if legacy assistant labels exist in storage
   - ability to filter by category/role/source
 
 Run inspector (per day):
@@ -1007,10 +1019,12 @@ List/search endpoints MUST support pagination:
 - For a processed day, UI can display output markdown and the input bundle hashes (bundleHash + bundleContextHash).
 - `Run detail page shows aggregate tokensIn/tokensOut and total costUsd summed over jobs (including partial segment success where recorded).`
 - `If classification has been run for the selected ImportBatch, the dashboard or run detail page can display the last classify totals (newlyLabeled, skippedAlreadyLabeled, labeled).`
+- `Displayed classify totals and progress counters refer to USER atoms only.`
 
 ### 11.5 Search + Inspector
 - Search returns results for known strings in MessageAtoms and Outputs.
 - Inspector renders output as markdown and shows pre/post views.
+- Import inspector keeps assistant atoms visible but unlabeled.
 
 ---
 

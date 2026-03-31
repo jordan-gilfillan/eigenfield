@@ -69,7 +69,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
   })
 
   describe('classifyBatch mode=real', () => {
-    it('writes labels for unlabeled atoms via dry-run LLM', async () => {
+    it('writes labels for unlabeled user atoms only via dry-run LLM', async () => {
       const content = createTestExport([
         { id: 'msg-real-1', role: 'user', text: 'Help me with work', timestamp: 1705316400, conversationId: 'conv-real-1' },
         { id: 'msg-real-2', role: 'assistant', text: 'Sure, I can help', timestamp: 1705316401, conversationId: 'conv-real-1' },
@@ -82,6 +82,8 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       })
       createdBatchIds.push(importResult.importBatch.id)
 
+      const callLlmSpy = vi.spyOn(llmModule, 'callLlm')
+
       const result = await classifyBatch({
         importBatchId: importResult.importBatch.id,
         model: 'gpt-4o',
@@ -90,12 +92,13 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       })
 
       expect(result.mode).toBe('real')
-      expect(result.totals.messageAtoms).toBe(2)
-      expect(result.totals.newlyLabeled).toBe(2)
+      expect(result.totals.messageAtoms).toBe(1)
+      expect(result.totals.newlyLabeled).toBe(1)
       expect(result.totals.skippedAlreadyLabeled).toBe(0)
-      expect(result.totals.labeled).toBe(2)
+      expect(result.totals.labeled).toBe(1)
       expect(result.labelSpec.model).toBe('gpt-4o')
       expect(result.labelSpec.promptVersionId).toBe(realPromptVersionId)
+      expect(callLlmSpy).toHaveBeenCalledTimes(1)
 
       // Verify labels in DB
       const labels = await prisma.messageLabel.findMany({
@@ -105,7 +108,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
           promptVersionId: realPromptVersionId,
         },
       })
-      expect(labels).toHaveLength(2)
+      expect(labels).toHaveLength(1)
 
       // Verify each label has valid category and confidence
       const validCategories = [
@@ -141,7 +144,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
         promptVersionId: realPromptVersionId,
         mode: 'real',
       })
-      expect(result1.totals.newlyLabeled).toBe(2)
+      expect(result1.totals.newlyLabeled).toBe(1)
 
       // Second classification with same labelSpec
       const result2 = await classifyBatch({
@@ -151,8 +154,8 @@ describe('Classification Service — Real Mode (dry-run)', () => {
         mode: 'real',
       })
       expect(result2.totals.newlyLabeled).toBe(0)
-      expect(result2.totals.skippedAlreadyLabeled).toBe(2)
-      expect(result2.totals.labeled).toBe(2)
+      expect(result2.totals.skippedAlreadyLabeled).toBe(1)
+      expect(result2.totals.labeled).toBe(1)
     })
 
     it('deterministic categories stable across runs', async () => {
@@ -438,7 +441,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     it('continues when one atom has bad output category and reports warning stats', async () => {
       const content = createTestExport([
         { id: 'msg-badcat-1', role: 'user', text: 'First atom', timestamp: 1705316400, conversationId: 'conv-badcat' },
-        { id: 'msg-badcat-2', role: 'assistant', text: 'Second atom', timestamp: 1705316401, conversationId: 'conv-badcat' },
+        { id: 'msg-badcat-2', role: 'user', text: 'Second atom', timestamp: 1705316401, conversationId: 'conv-badcat' },
       ])
 
       const importResult = await importExport({
@@ -494,7 +497,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     it('logs compact safe warning summaries without raw output', async () => {
       const content = createTestExport([
         { id: 'msg-logwarn-1', role: 'user', text: 'logging test 1', timestamp: 1705316405, conversationId: 'conv-logwarn' },
-        { id: 'msg-logwarn-2', role: 'assistant', text: 'logging test 2', timestamp: 1705316406, conversationId: 'conv-logwarn' },
+        { id: 'msg-logwarn-2', role: 'user', text: 'logging test 2', timestamp: 1705316406, conversationId: 'conv-logwarn' },
       ])
 
       const importResult = await importExport({
