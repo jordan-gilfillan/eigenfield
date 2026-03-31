@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'node',
     env: loadEnv('test', process.cwd(), ''),
     globalSetup: ['./src/__tests__/global-setup.ts'],
+    fileParallelism: false,
   },
   resolve: {
     alias: {
