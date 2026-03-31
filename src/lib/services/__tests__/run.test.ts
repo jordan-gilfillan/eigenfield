@@ -8,11 +8,17 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../db'
 import { createRun } from '../run'
 import { NotFoundError, NoEligibleDaysError } from '../../errors'
+import {
+  resolveDefaultClassifyPromptVersion,
+  resolveDefaultSummarizePromptVersion,
+} from '../prompt-version-defaults'
 
 describe('run service', () => {
   let testImportBatchId: string
   let testFilterProfileId: string
   let testClassifyPromptVersionId: string
+  let defaultClassifyPromptVersionId: string
+  let defaultSummarizePromptVersionId: string
   let testSummarizePromptVersionId: string
   let testClassifyPromptId: string
   let testSummarizePromptId: string
@@ -72,6 +78,9 @@ describe('run service', () => {
     })
     testClassifyPromptVersionId = classifyVersion.id
 
+    defaultClassifyPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
+    defaultSummarizePromptVersionId = (await resolveDefaultSummarizePromptVersion()).id
+
     const summarizePrompt = await prisma.prompt.create({
       data: {
         stage: 'SUMMARIZE',
@@ -128,6 +137,16 @@ describe('run service', () => {
             model: 'stub_v1',
             promptVersionId: testClassifyPromptVersionId,
             category: 'PERSONAL', confidence: 1.0, // Will pass EXCLUDE 'coding' filter
+          },
+        })
+
+        await prisma.messageLabel.create({
+          data: {
+            messageAtomId: atom.id,
+            model: 'stub_v1',
+            promptVersionId: defaultClassifyPromptVersionId,
+            category: 'PERSONAL',
+            confidence: 1.0,
           },
         })
       }
@@ -247,6 +266,42 @@ describe('run service', () => {
       expect(result.config.maxInputTokens).toBe(50000)
     })
 
+    it('freezes budgetPolicy into the response and persisted config', async () => {
+      const result = await createRun({
+        importBatchId: testImportBatchId,
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: testFilterProfileId,
+        model: 'gpt-4o',
+        labelSpec: {
+          model: 'stub_v1',
+          promptVersionId: testClassifyPromptVersionId,
+        },
+        budgetPolicy: {
+          maxUsdPerRun: 5,
+          maxUsdPerDay: 20,
+        },
+      })
+
+      expect(result.config.budgetPolicy).toEqual({
+        maxUsdPerRun: 5,
+        maxUsdPerDay: 20,
+      })
+
+      const run = await prisma.run.findUnique({
+        where: { id: result.id },
+        select: { configJson: true },
+      })
+      const config = run!.configJson as {
+        budgetPolicy?: { maxUsdPerRun: number; maxUsdPerDay: number }
+      }
+      expect(config.budgetPolicy).toEqual({
+        maxUsdPerRun: 5,
+        maxUsdPerDay: 20,
+      })
+    })
+
     it('throws error if import batch not found', async () => {
       await expect(
         createRun({
@@ -299,10 +354,8 @@ describe('run service', () => {
     })
 
     it('selects default labelSpec when omitted (SPEC §7.3)', async () => {
-      // The test's CLASSIFY PromptVersion has createdAt=2099, ensuring it
-      // always wins createRun's default selection (findFirst orderBy
-      // createdAt desc) even when parallel tests create their own active
-      // CLASSIFY versions. Labels already point at testClassifyPromptVersionId.
+      // The service must ignore stray active classify prompts and pin to the
+      // canonical seeded default-classifier / classify_stub_v1 pair.
 
       // Call createRun without labelSpec — server should pick default
       const result = await createRun({
@@ -322,8 +375,9 @@ describe('run service', () => {
       // Verify server-selected default labelSpec uses this test's version
       expect(result.config.labelSpec).toEqual({
         model: 'stub_v1',
-        promptVersionId: testClassifyPromptVersionId,
+        promptVersionId: defaultClassifyPromptVersionId,
       })
+      expect(result.config.promptVersionIds.summarize).toBe(defaultSummarizePromptVersionId)
     })
 
     it('ignores assistant-only days for eligibility (SPEC §7.3 step 6)', async () => {

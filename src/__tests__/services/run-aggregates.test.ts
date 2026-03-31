@@ -3,6 +3,10 @@ import { prisma } from '../../lib/db'
 import { createRun } from '../../lib/services/run'
 import { importExport } from '../../lib/services/import'
 import { classifyBatch } from '../../lib/services/classify'
+import {
+  resolveDefaultClassifyPromptVersion,
+  resolveDefaultSummarizePromptVersion,
+} from '../../lib/services/prompt-version-defaults'
 
 /**
  * Integration tests for run aggregate computations (tokensIn, tokensOut, costUsd).
@@ -13,8 +17,6 @@ import { classifyBatch } from '../../lib/services/classify'
  * - Failed jobs with partial usage ARE included in aggregates
  * - Mixed job states produce correct totals
  */
-
-const testUniqueId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 // Minimal valid ChatGPT export producing atoms on two different days
 function createMultiDayExport() {
@@ -61,7 +63,6 @@ describe('Run aggregate computations', () => {
   let importBatchId: string
   let classifyPvId: string
   let filterProfileId: string
-  let summarizePvId: string
 
   beforeEach(async () => {
     // 1. Import a multi-day export
@@ -73,27 +74,8 @@ describe('Run aggregate computations', () => {
     })
     importBatchId = importResult.importBatch.id
 
-    // 2. Set up classify prompt version
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: { stage: 'CLASSIFY', name: 'default-classifier' },
-    })
-    const classifyPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: { isActive: true },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification.',
-        isActive: true,
-      },
-    })
+    // 2. Resolve canonical default prompt versions
+    const classifyPv = await resolveDefaultClassifyPromptVersion('stub')
     classifyPvId = classifyPv.id
 
     // 3. Classify the batch
@@ -104,28 +86,7 @@ describe('Run aggregate computations', () => {
       mode: 'stub',
     })
 
-    // 4. Set up summarize prompt version
-    const summarizePrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
-      update: {},
-      create: { stage: 'SUMMARIZE', name: 'default-summarizer' },
-    })
-    const sumPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: summarizePrompt.id,
-          versionLabel: 'v1',
-        },
-      },
-      update: { isActive: true },
-      create: {
-        promptId: summarizePrompt.id,
-        versionLabel: 'v1',
-        templateText: 'Summarize the messages for {{date}}.',
-        isActive: true,
-      },
-    })
-    summarizePvId = sumPv.id
+    await resolveDefaultSummarizePromptVersion()
 
     // 5. Create a filter profile
     const fp = await prisma.filterProfile.upsert({

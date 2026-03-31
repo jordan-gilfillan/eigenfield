@@ -1801,3 +1801,270 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
 ---
 
 
+## Moved on 2026-03-19
+
+### AUD-101 — EPIC-104 ledger canonicalization + stale volatile doc cleanup
+- **Source**: EPIC-104 resume planning
+- **Severity**: MEDIUM
+- **Type**: Doc drift
+- **Decision**: Fix docs
+- **Acceptance**:
+  - `REMEDIATION.md` remains the single open-item ledger and contains open entries for the EPIC-104 demo wave.
+  - `AUD-102` is recorded as completed history in the archive and stubbed in the open ledger.
+  - `AUD-103` through `AUD-109` are seeded as open work; `AUD-110` and `AUD-111` are blocked pending a fresh auth/tenant checkpoint; `AUD-112` through `AUD-114` are tracked as deferred non-demo fixes.
+  - `Current top priorities` reflects the active demo-wave sequence and blocked follow-ons.
+  - `CONTEXT_PACK.md` no longer carries stale branch-naming guidance or the old 710-test claim.
+- **Status**: Done
+- **Resolution**: Canonicalized the open ledger for EPIC-104. `REMEDIATION.md` now tracks the guided demo wave (`AUD-103` through `AUD-109`), blocked auth/tenant follow-ons (`AUD-110`, `AUD-111`), and deferred non-demo audit items (`AUD-112`, `AUD-113`, `AUD-114`) while keeping `AUD-100` visible as the known upstream blocker. Refreshed `Current top priorities`, added the required archive stubs, updated `CONTEXT_PACK.md` to the `fix/AUD-###-short-slug` branch convention, and refreshed the stale test-count note with a current 2026-03-19 baseline.
+
+
+### AUD-102 — Demo wizard spec lock (docs-only)
+- **Source**: UX demo spec planning
+- **Severity**: MEDIUM
+- **Type**: UX roadmap
+- **Decision**: Fix docs
+- **Acceptance**:
+  - Demo flow, IA, multi-tenant readiness, and AUD slices are documented and cross-referenced.
+  - No conflicts with `SPEC.md` invariants are introduced.
+- **Status**: Done
+- **Resolution**: Locked the docs-only EPIC-104 demo specification in `SPEC.md`, `UX_SPEC.md`, and `UX_DEMO_SPEC.md`. The guided `/demo` flow, advanced-tool split, future auth/tenant readiness, and the `AUD-102` through `AUD-111` slice plan are documented without introducing code changes or weakening determinism/spend-safety rules.
+
+
+### AUD-103 — `/demo` route shell and stepper scaffold
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Add a single-page wizard shell at `/demo` with 4 visible steps and status chips, without triggering any write or read API calls on initial load.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`; do not change backend contracts in this AUD.
+- **Acceptance**:
+  - `/demo` renders all four step labels in order.
+  - No API calls are triggered on initial page load.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not add hidden timers, background loops, route removals, or auto-triggered write actions.
+- **Resolution**: Added the guided `/demo` wizard shell with all four steps visible at once and status-driven progression. Initial page render is static: prompt versions, filter profiles, run detail, and output reads are deferred until the user explicitly advances into those parts of the flow. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-104 — Import step wiring
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 1 of `/demo` with explicit upload/import and success-state handoff into the rest of the wizard.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`, targeted tests; only touch `src/app/api/distill/import/route.ts` if a contract gap is uncovered.
+- **Acceptance**:
+  - Clicking `Import file` maps 1:1 to one `POST /api/distill/import`.
+  - Import success state shows summary fields and enables Step 2.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not auto-classify after import and do not surface raw imported message text in errors.
+- **Resolution**: Wired Step 1 to issue exactly one `POST /api/distill/import` per user action, persist the returned `importBatchId` and import summary in wizard state, and unlock the classify step only after an explicit success response. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-105 — Classify step wiring with dry-run default
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 2 classify action and progress UX using the returned `classifyRunId`, with dry-run/stub as the recommended default.
+- **Touch set**: `src/app/demo/page.tsx`, optional `src/app/demo/components/*`, classify progress hooks/utilities, targeted tests.
+- **Acceptance**:
+  - Default mode is dry-run/stub and clearly labeled as recommended.
+  - Classify runs only after explicit button click.
+  - Progress polling reads only `GET /api/distill/classify-runs/:id` while the step is visible and non-terminal.
+  - Success state captures terminal `succeeded` and enables Step 3.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not use the “last classify” endpoint in the demo flow, and do not trigger writes from status polling.
+- **Resolution**: Implemented explicit classify in Step 2 with stub mode as the recommended default. The client now supplies a `classifyRunId` to `POST /api/distill/classify`, and the wizard polls only `GET /api/distill/classify-runs/:id` while the step is active so progress remains tied to the specific launched run. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-106 — Summarize configuration defaults + safe caps UX
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 3 configuration defaults with explicit, validated spend caps for real mode, and freeze those caps into run config.
+- **Touch set**: `src/app/demo/page.tsx`, `src/app/api/distill/runs/route.ts`, `src/lib/services/run.ts`, `src/lib/types/run-config.ts`, `src/lib/llm/config.ts`, `src/lib/services/tick.ts`, targeted tests.
+- **Acceptance**:
+  - Defaults are dry-run path, `professional-only`, union sources, and `maxInputTokens=12000`.
+  - Real mode reveals editable prefilled spend caps of `$5.00/run` and `$20.00/day` before submit.
+  - Blocking validation prevents run creation on invalid cap inputs.
+  - `POST /api/distill/runs` request/response and frozen `Run.configJson` carry `budgetPolicy.maxUsdPerRun` and `budgetPolicy.maxUsdPerDay`.
+  - Tick/runtime budget enforcement uses frozen run config when present, with env caps as fallback.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: No DB schema changes in this AUD, and real mode must not become the default.
+- **Resolution**: Added Step 3 defaults for the demo flow and extended run creation to accept and freeze `budgetPolicy.maxUsdPerRun` and `budgetPolicy.maxUsdPerDay` into `Run.configJson`. Tick/runtime enforcement now prefers the frozen per-run policy when present and falls back to env caps otherwise; real mode exposes validated `$5.00/run` and `$20.00/day` defaults without changing the stub default path. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-107 — Foreground summarize execution loop
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement explicit start/stop summarize execution in `/demo` using sequential foreground tick calls and visible completion/error state.
+- **Touch set**: `src/app/demo/page.tsx`, optional shared tick-loop hook(s), targeted tests.
+- **Acceptance**:
+  - `Start summarizing` is user-initiated and sends sequential `POST /api/distill/runs/:runId/tick` calls with `maxJobs=1`.
+  - The loop stops on terminal state, first error, unmount, or explicit user stop.
+  - Step 3 completion is visible and unlocks Step 4.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: No overlapping ticks, no auto-retry, and no background processing.
+- **Resolution**: Added an explicit start/stop summarize loop for the wizard using sequential foreground `POST /api/distill/runs/:runId/tick` requests with `maxJobs=1`. The loop stops on terminal state, first error, unmount, or user stop, and Step 4 unlocks only after visible completion. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-108 — Use step output and export handoff
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Implement Step 4 output browsing and explicit export handoff in the wizard context.
+- **Touch set**: `src/app/demo/page.tsx`, optional output-viewer helpers/components, targeted tests.
+- **Acceptance**:
+  - The user can open at least one rendered day output from within the wizard.
+  - Export CTA is explicit and maps 1:1 to the current export endpoint.
+  - Advanced tool links are visible and preserve selected run context.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not auto-trigger export and do not require leaving the flow for basic success.
+- **Resolution**: Implemented Step 4 output browsing inside the wizard by fetching rendered day output for succeeded jobs and added an explicit export action that maps directly to the existing export endpoint. The step also preserves run context in links back to advanced tools without forcing the user to leave the flow for the basic happy path. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-109 — Advanced IA split and navigation polish
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make `/demo` the guided entry while preserving `/distill/*` as advanced tooling with stable deep links.
+- **Touch set**: demo/distill nav surfaces, route labels/copy, `UX_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/demo` is discoverable from the home page and/or navigation.
+  - Advanced tooling is explicitly grouped and keeps current `/distill/*` routes reachable.
+  - No existing route is removed or behaviorally regressed.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Avoid route churn that breaks deep links or introduces hidden write side effects.
+- **Resolution**: Reworked the home page and distill navigation so `/demo` is presented as the guided entry while `/distill/*` remains available as explicitly labeled advanced tooling. Existing advanced routes and deep links remain intact, and `UX_SPEC.md` now reflects the guided-vs-advanced split as current behavior rather than future-only roadmap text. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`68` files, `1001` tests).
+
+
+### AUD-115 — `/demo` existing-import reuse path
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Let `/demo` continue from previously imported data without treating duplicate re-import audit batches as usable workflow inputs.
+- **Touch set**: `src/app/demo/*`, import-batch read routes/services, targeted tests, `UX_SPEC.md`.
+- **Acceptance**:
+  - `GET /api/distill/import-batches` and `GET /api/distill/import-batches/:id` include `storedCounts.messageAtoms` and `storedCounts.rawEntries`.
+  - `/demo` Step 1 supports explicit `Import new file` and `Use existing import batch` paths without fetching batches on initial load.
+  - Duplicate uploads (`created.messageAtoms === 0`) show recovery UI, do not bind the empty batch, and guide the user to a reusable existing batch.
+  - Required gates pass (`npm run lint`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`).
+- **Resolution**: Added persisted `storedCounts` to import-batch reads so empty duplicate audit batches are distinguishable from reusable batches. `/demo` Step 1 now binds the flow to an explicit selected batch, supports on-demand existing-batch selection, and routes duplicate uploads into an amber recovery state instead of unlocking the rest of the wizard on an empty batch. Added route coverage for the new read shape and targeted demo batch-selection utility tests.
+
+### AUD-116 — `/demo` classify feedback + stop control
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make `/demo` real classify runs easier to understand in-flight and let the user stop safely without relying on silent client aborts.
+- **Touch set**: `src/app/demo/*`, classify status/control routes, `src/lib/services/classify.ts`, targeted tests, `SPEC.md`, `UX_SPEC.md`.
+- **Acceptance**:
+  - `/demo` classify status explains what skipped bad outputs mean, shows clearer live checkpoint detail, and surfaces a user-stop affordance while classify is running.
+  - Stopping classify is explicit and foreground-only: the current atom may finish, no background retry is introduced, and already-written labels remain durable.
+  - A stopped classify run lands in a user-visible terminal state with safe explanatory copy; rerunning classify later remains possible and skips already-labeled atoms.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Do not widen this slice into full pause/resume semantics or schema changes.
+- **Resolution**: Added live classify control/status improvements without changing the `ClassifyRun.status` model. `GET /api/distill/classify-runs/:id` now exposes `checkpoint` and `control` metadata, `POST /api/distill/classify-runs/:id/stop` requests a foreground stop, and the classify loop honors that request after the current atom by persisting a terminal `USER_STOPPED` error while preserving partial labels. `/demo` Step 2 now explains skipped invalid model outputs, shows richer checkpoint feedback, offers an explicit stop button, and treats persisted classify status as the source of truth. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`71` files, `1008` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-117 — Canonical default classify prompt selection
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Pin default classify flows to the seeded `default-classifier` prompt instead of selecting whichever active classify prompt happens to sort first.
+- **Touch set**: classify prompt resolution service/route, `/demo`, advanced `/distill` classify defaults/status surfaces, run creation default `labelSpec`, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`.
+- **Acceptance**:
+  - Default classify resolution uses `default-classifier / classify_real_v1` for real mode and `default-classifier / classify_stub_v1` for stub mode.
+  - `/demo`, advanced `/distill`, and server-side omitted-`labelSpec` run creation all use the canonical default resolver.
+  - `GET /api/distill/prompt-versions?stage=classify&default=true&mode=real|stub` fails closed when the canonical prompt/version is missing.
+  - Classify status responses surface `promptName` and `promptVersionLabel`.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Added a shared canonical classify prompt resolver keyed to `Prompt.stage=CLASSIFY`, `Prompt.name=default-classifier`, and the seeded `classify_real_v1` / `classify_stub_v1` version labels. `/demo`, advanced `/distill`, and `createRun()` now use that resolver for implicit classify defaults, while the prompt-versions route exposes an explicit `default=true&mode=...` contract and fails closed with a configuration error instead of silently falling back to unrelated active prompts. Classify status/read surfaces now include prompt name/version metadata so the UI makes the active classifier explicit, and the affected tests were hardened against local env leakage so the dry-run validation path is stable on machines configured for real LLM usage. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1011` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-118 — Durable classify bad-output diagnostics
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Persist safe classify bad-output diagnostics so the UI and CLI can explain skipped outputs without storing raw model output or raw message text.
+- **Touch set**: `prisma/schema.prisma`, classify migration SQL, `src/lib/services/classify.ts`, classify status/read routes, `/demo` Step 2 status UI, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`, seed invariant follow-up required for `db:seed`.
+- **Acceptance**:
+  - `ClassifyRun` persists durable warning details with fixed bad-output reason keys and capped sample arrays.
+  - `GET /api/distill/classify-runs/:id` includes optional `warnings.details` and `GET /api/distill/import-batches/:id/last-classify` exposes the same persisted diagnostics for the selected run.
+  - `/demo` Step 2 shows prompt metadata plus safe reason/sample diagnostics when present.
+  - Classify checkpoint/final CLI logs include compact safe warning summaries.
+  - Database verification passes with committed migration SQL applied plus reseed, and standard quality gates pass.
+- **Resolution**: Added `ClassifyRun.warningDetailsJson`, a committed migration, and shared warning-detail normalization so classify checkpoints/finalization persist only safe aggregates: fixed reason counters plus capped invalid-category and aliased-category samples. The classify status route now exposes `warnings.details`, the last-classify read exposes matching `warningDetails`, `/demo` Step 2 renders the reason breakdown and sample chips, and classify checkpoint/final logs now print compact safe summaries without raw output. As a prerequisite to keep DB validation green, the seed invariant was narrowed to the seeded default prompts it owns instead of arbitrary custom prompts already present in the dev DB. Verified with `npx prisma migrate deploy`, `npx prisma generate`, `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`72` files, `1014` tests; build still includes the known `AUD-100` SWC warning). `npm run db:migrate` was not used because this repo’s `prisma migrate dev` flow is interactive and attempts unrelated destructive reconciliation against unmanaged FTS columns.
+
+### AUD-119 — Prompt defaults, compatibility, and write APIs
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Replace stage-wide prompt default assumptions with explicit prompt-default slots, compatibility metadata, and immutable prompt-management APIs.
+- **Touch set**: `prisma/schema.prisma`, prompt-default migration SQL, `prisma/seed.ts`, prompt default/compatibility services, prompt-management APIs, `SPEC.md`, targeted tests.
+- **Acceptance**:
+  - Prompt defaults resolve through explicit slots (`CLASSIFY_STUB`, `CLASSIFY_REAL`, `SUMMARIZE`, `REDACT`) instead of stage-wide `isActive`.
+  - Only canonical prompt families can own implicit default slots; custom prompt families remain explicit-only.
+  - Prompt management APIs support list/detail/version creation/family activation/default assignment with immutable PromptVersions.
+  - `createRun()` and classify default resolution stop using stage-wide active prompt selection.
+- **Resolution**: Added `PromptDefaultSlot` and `PromptDefault` to the schema with a committed migration, seeded canonical default assignments for classify stub/real and summarize, and replaced runtime default resolution with slot-based resolvers. Added shared prompt compatibility metadata, prompt-management services, `GET /api/distill/prompts`, `GET /api/distill/prompts/:promptId`, `POST /api/distill/prompts/:promptId/versions`, `POST /api/distill/prompts/:promptId/activate`, and `POST /api/distill/prompt-defaults/:slot`. Updated `GET /api/distill/prompt-versions` to surface compatibility/default-slot metadata and to resolve classify defaults through prompt-default slots. Added targeted service/route tests plus `createRun()` regression coverage for summarize default resolution.
+
+### AUD-120 — Advanced prompt manager for all stages
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Add an advanced prompt-management surface for browsing prompt families, inspecting versions, creating immutable versions, activating versions, and managing canonical defaults.
+- **Touch set**: `/distill` nav shell, new `/distill/prompts` page/client, prompt-management API consumers, `UX_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/distill/prompts` exists and is reachable from advanced nav.
+  - Stage tabs cover `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
+  - Prompt detail shows version history, template text, compatibility, active state, and default-slot badges.
+  - Users can create a new immutable version, activate a family version, and reassign canonical defaults from the UI.
+- **Resolution**: Added `/distill/prompts` with stage tabs, prompt-family list, version inspection, immutable version creation, family activation, and canonical default-slot assignment. The page surfaces compatibility notes/reasons directly from the new prompt APIs and supports redaction’s “no default assigned” state without treating it as an error.
+
+### AUD-121 — Inline classify prompt recovery in `/demo` and `/distill`
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Let users inspect and change classify prompts inline in `/demo` and `/distill`, and block incompatible real classify prompts before submit.
+- **Touch set**: shared classify prompt picker UI, `/demo`, `/distill`, prompt metadata contracts, `UX_SPEC.md`, `UX_DEMO_SPEC.md`, targeted tests.
+- **Acceptance**:
+  - `/demo` Step 2 and the advanced dashboard classify card always show the current prompt family/version.
+  - Both surfaces include an inline `Change prompt` flow backed by prompt-management APIs.
+  - Incompatible real classify prompts are blocked before submit with a clear reason and link to `/distill/prompts`.
+  - Inline selection is session-local and does not change global defaults.
+- **Resolution**: Added a shared classify prompt picker used by `/demo` and `/distill`, backed by the new prompt-management APIs. Both classify surfaces now show the current prompt family/version, allow an on-demand prompt switch, disable classify when the selected prompt is incompatible with the current mode, and route users to `/distill/prompts` for version/default management instead of failing late at submit time.
+
+### AUD-122 — Make selected prompt text obvious in prompt manager and classify selectors
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make the selected prompt body obvious anywhere a user is inspecting or selecting prompt versions, without adding new prompt-management behavior.
+- **Touch set**: `GET /api/distill/prompt-versions`, shared prompt preview/picker UI, `/distill/prompts`, targeted tests, `SPEC.md`, `UX_SPEC.md`, `UX_DEMO_SPEC.md`.
+- **Acceptance**:
+  - Singular `GET /api/distill/prompt-versions` responses used by selection UIs include `templateText`.
+  - `/distill/prompts` shows a clearly labeled read-only `Prompt text` preview for the selected version.
+  - `/demo` and advanced `/distill` keep the selected prompt text visible even when the classify picker is collapsed.
+  - Classify prompt selection becomes preview-first: choosing a version updates the preview, and `Use this prompt` commits it for the current session.
+- **Resolution**: Extended singular `GET /api/distill/prompt-versions` responses to include `templateText`, which lets the current/default classify prompt render with its full body before any extra prompt-family fetch. Added a shared `PromptTextPreview` card plus picker state helpers, refactored the shared classify prompt picker into a preview-first flow with compact family/version lists and a dedicated preview/confirm pane, and kept the selected prompt text visible while the picker is collapsed. Updated `/distill/prompts` to surface the selected version’s prompt body in a clearly labeled standalone preview area, separate from default controls and version creation. Added targeted route, render, and picker-state tests, and synced `SPEC.md`, `UX_SPEC.md`, and `UX_DEMO_SPEC.md`. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`79` files, `1027` tests; build still includes the known `AUD-100` SWC warning).
+
+### AUD-123 — All-stage canonical prompt recovery + shared-DB pollution prevention
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Restore all seeded canonical prompt families as the repo-owned source of truth and stop the shared test DB from being polluted by tests that overwrite seeded prompt rows or default-slot assignments.
+- **Touch set**: `prisma/seed.ts`, shared prompt constants/helpers, prompt-related tests and fixtures, `src/__tests__/global-setup.ts`, `REMEDIATION.md`, `SPEC.md`, `UX_SPEC.md`.
+- **Acceptance**:
+  - `npm run db:seed` restores seeded template text for canonical classify, summarize, and redact prompt versions.
+  - Prompt-related tests stop overwriting seeded canonical version labels and use unique fixture version labels instead.
+  - The test harness snapshots and restores canonical prompt defaults and seeded canonical prompt text at suite teardown.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Added a shared canonical prompt source in `src/lib/canonical-prompts.ts` and moved `prisma/seed.ts` to consume it, including update-time repair of canonical `templateText` for classify stub/real, summarize `v1`, summarize journal variants, and redact `v1`. Added prompt test fixtures for unique canonical-family versions, refactored prompt-related tests away from mutating seeded labels/defaults, and extended global test teardown to snapshot and restore seeded canonical prompt text plus canonical default-slot targets so the shared DB is left as it started. Verified with `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1035` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).
+
+### AUD-124 — All-stage default-slot integrity guards + classify contract hardening
+- **Type**: Contract break
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Fail closed when implicit defaults point at drifted seeded prompt text, and strengthen the real-classify prompt contract so weak placeholder prompts are rejected across runtime and prompt-management surfaces.
+- **Touch set**: prompt compatibility/default resolution services, classify runtime guardrails, prompt-management APIs, targeted tests, `SPEC.md`, `UX_SPEC.md`, `REMEDIATION.md`.
+- **Acceptance**:
+  - Seeded canonical versions are incompatible for implicit default use if their `templateText` drifts from the repo seed.
+  - `CLASSIFY_REAL` compatibility requires JSON-only instructions, explicit `category`/`confidence` output constraints, and the full allowed category taxonomy.
+  - Weak placeholder real-classify prompts are rejected by prompt-default assignment and classify runtime validation with clear reasons.
+  - `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: Hardened `getPromptSlotCompatibility()` to enforce seeded-template integrity for canonical seeded versions across `CLASSIFY_STUB`, `CLASSIFY_REAL`, `SUMMARIZE`, and `REDACT`, and updated `validateClassifyRealTemplate()` plus `classifyBatch()` to share the stricter real-classify contract: JSON-only output instructions, explicit `category`/`confidence` constraints, and the full allowed taxonomy. Prompt manager/read surfaces now expose seeded-drift and structural compatibility reasons consistently, `POST /api/distill/prompt-defaults/:slot` rejects weak or drifted defaults, and the repaired seed path plus full repo validation are green. Verified with `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1035` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).

@@ -244,7 +244,14 @@ describe('tick budget enforcement', () => {
     })
   })
 
-  async function createTestRun(model: string, opts?: { maxInputTokens?: number; days?: string }) {
+  async function createTestRun(
+    model: string,
+    opts?: {
+      maxInputTokens?: number
+      days?: string
+      budgetPolicy?: { maxUsdPerRun: number; maxUsdPerDay: number }
+    }
+  ) {
     const endDate = opts?.days === '1' ? '2024-06-15' : '2024-06-16'
     return createRun({
       importBatchId: testImportBatchId,
@@ -258,6 +265,7 @@ describe('tick budget enforcement', () => {
         promptVersionId: testClassifyPromptVersionId,
       },
       maxInputTokens: opts?.maxInputTokens,
+      budgetPolicy: opts?.budgetPolicy,
     })
   }
 
@@ -494,6 +502,37 @@ describe('tick budget enforcement', () => {
 
       expect(result.processed).toBe(1)
       expect(result.jobs[0].status).toBe('succeeded')
+    })
+  })
+
+  describe('frozen budget policy overrides env fallback', () => {
+    it('prefers run.configJson budgetPolicy over env caps', async () => {
+      setSpendCap('LLM_MAX_USD_PER_RUN', '10.00')
+
+      mockRealSummarizeResolved({
+        text: 'Summary constrained by frozen run config.',
+        tokensIn: 500,
+        tokensOut: 100,
+        costUsd: 0.01,
+      })
+
+      const run = await createTestRun('gpt-4o', {
+        days: '1',
+        budgetPolicy: {
+          maxUsdPerRun: 0.001,
+          maxUsdPerDay: 0.001,
+        },
+      })
+
+      const result = await processTick({ runId: run.id })
+      expect(result.processed).toBe(1)
+      expect(result.jobs[0].status).toBe('failed')
+
+      const failedJob = await prisma.job.findFirst({
+        where: { runId: run.id, status: 'FAILED' },
+      })
+      const errorObj = JSON.parse(failedJob!.error as string)
+      expect(errorObj.code).toBe('BUDGET_EXCEEDED')
     })
   })
 })

@@ -111,6 +111,7 @@ export async function GET(
         filterProfile: config.filterProfileSnapshot,
         timezone: config.timezone,
         maxInputTokens: config.maxInputTokens,
+        budgetPolicy: config.budgetPolicy,
       },
       progress,
       totals: {

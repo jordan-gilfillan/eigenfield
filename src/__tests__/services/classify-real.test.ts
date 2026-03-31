@@ -2,9 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '../../lib/db'
 import { classifyBatch, parseClassifyOutput } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import { LlmBadOutputError, BudgetExceededError } from '../../lib/llm'
 import * as llmModule from '../../lib/llm'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
 import { createTestExport } from '../fixtures/export-factories'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 /**
  * Integration tests for real-mode classification (dry-run LLM).
@@ -31,33 +34,14 @@ describe('Classification Service — Real Mode (dry-run)', () => {
     delete process.env.LLM_MAX_USD_PER_DAY
     process.env.LLM_MIN_DELAY_MS = '0' // No delay in tests
 
-    // Get or create the classify prompt
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
+    const pv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-v1-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
-
-    // Create a real classify prompt version
-    const pv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_test',
-        },
-      },
-      update: {},
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_test',
-        templateText: 'Classify the message into a category. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = pv.id
+    createdPromptVersionIds.push(pv.promptVersion.id)
+    realPromptVersionId = pv.promptVersion.id
   })
 
   afterEach(async () => {
@@ -389,24 +373,7 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       createdBatchIds.push(importResult.importBatch.id)
 
       // Classify with stub mode (need stub prompt version)
-      const classifyPrompt = await prisma.prompt.findFirst({
-        where: { stage: 'CLASSIFY' },
-      })
-      const stubPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: classifyPrompt!.id,
-            versionLabel: 'classify_stub_v1',
-          },
-        },
-        update: { isActive: true },
-        create: {
-          promptId: classifyPrompt!.id,
-          versionLabel: 'classify_stub_v1',
-          templateText: 'STUB',
-          isActive: true,
-        },
-      })
+      const stubPv = await resolveDefaultClassifyPromptVersion('stub')
 
       await classifyBatch({
         importBatchId: importResult.importBatch.id,
@@ -522,6 +489,56 @@ describe('Classification Service — Real Mode (dry-run)', () => {
       })
       expect(labels).toHaveLength(1)
       expect(labels[0].category).toBe('WORK')
+    })
+
+    it('logs compact safe warning summaries without raw output', async () => {
+      const content = createTestExport([
+        { id: 'msg-logwarn-1', role: 'user', text: 'logging test 1', timestamp: 1705316405, conversationId: 'conv-logwarn' },
+        { id: 'msg-logwarn-2', role: 'assistant', text: 'logging test 2', timestamp: 1705316406, conversationId: 'conv-logwarn' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'logwarn.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      let callCount = 0
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount === 1) {
+          return {
+            text: '{"category":"GALACTIC","confidence":0.61}',
+            tokensIn: 10,
+            tokensOut: 10,
+            costUsd: 0.001,
+            dryRun: false,
+          }
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+      await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      const joinedLogs = consoleInfoSpy.mock.calls.map((call) => call.join(' ')).join('\n')
+      expect(joinedLogs).toContain('[classify] finished')
+      expect(joinedLogs).toContain('reasons=invalid_category_value=1')
+      expect(joinedLogs).toContain('invalidCategories=GALACTIC')
+      expect(joinedLogs).not.toContain('rawOutput')
+      expect(joinedLogs).not.toContain('logging test 1')
     })
   })
 

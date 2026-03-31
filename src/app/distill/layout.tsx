@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/distill/import', label: 'Import' },
   { href: '/distill/import/inspect', label: 'Inspector' },
   { href: '/distill/search', label: 'Search' },
+  { href: '/distill/prompts', label: 'Prompts' },
 ]
 
 function getActiveHref(pathname: string): string {
@@ -16,6 +17,7 @@ function getActiveHref(pathname: string): string {
   if (pathname.startsWith('/distill/studio')) return '/distill/studio'
   if (pathname.startsWith('/distill/import/inspect')) return '/distill/import/inspect'
   if (pathname.startsWith('/distill/import')) return '/distill/import'
+  if (pathname.startsWith('/distill/prompts')) return '/distill/prompts'
   if (pathname.startsWith('/distill/search')) return '/distill/search'
   // Dashboard is default (covers /distill and /distill/runs/...)
   return '/distill'
@@ -39,6 +41,15 @@ export default function DistillLayout({
           >
             Home
           </Link>
+          <Link
+            href="/demo"
+            className="text-sm font-medium text-blue-700 hover:text-blue-800 mr-6"
+          >
+            Guided Demo
+          </Link>
+          <span className="mr-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+            Advanced
+          </span>
           <div className="flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
               const isActive = activeHref === item.href

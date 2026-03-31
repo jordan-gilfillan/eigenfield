@@ -35,6 +35,10 @@ interface CreateRunRequest {
     promptVersionId: string
   }
   maxInputTokens?: number
+  budgetPolicy?: {
+    maxUsdPerRun?: number
+    maxUsdPerDay?: number
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -63,6 +67,26 @@ export async function POST(request: NextRequest) {
       return errors.invalidInput('labelSpec must include both model and promptVersionId')
     }
 
+    if (body.budgetPolicy !== undefined) {
+      if (!body.budgetPolicy || typeof body.budgetPolicy !== 'object') {
+        return errors.invalidInput('budgetPolicy must be an object')
+      }
+      if (
+        typeof body.budgetPolicy.maxUsdPerRun !== 'number' ||
+        !Number.isFinite(body.budgetPolicy.maxUsdPerRun) ||
+        body.budgetPolicy.maxUsdPerRun <= 0
+      ) {
+        return errors.invalidInput('budgetPolicy.maxUsdPerRun must be a positive number')
+      }
+      if (
+        typeof body.budgetPolicy.maxUsdPerDay !== 'number' ||
+        !Number.isFinite(body.budgetPolicy.maxUsdPerDay) ||
+        body.budgetPolicy.maxUsdPerDay <= 0
+      ) {
+        return errors.invalidInput('budgetPolicy.maxUsdPerDay must be a positive number')
+      }
+    }
+
     // Validate date format
     const dateFail =
       requireDateFormat(body.startDate!, 'startDate') ??
@@ -88,6 +112,14 @@ export async function POST(request: NextRequest) {
       model: body.model!,
       ...(body.labelSpec ? { labelSpec: body.labelSpec } : {}),
       maxInputTokens: body.maxInputTokens,
+      ...(body.budgetPolicy
+        ? {
+            budgetPolicy: {
+              maxUsdPerRun: body.budgetPolicy.maxUsdPerRun!,
+              maxUsdPerDay: body.budgetPolicy.maxUsdPerDay!,
+            },
+          }
+        : {}),
     })
 
     return NextResponse.json(result)

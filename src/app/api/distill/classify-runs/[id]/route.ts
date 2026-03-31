@@ -11,6 +11,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { errors } from '@/lib/api-utils'
+import { parseClassifyWarningDetailsJson } from '@/lib/classify-warning-details'
+import { isClassifyStopRequested } from '@/lib/services/classify'
 
 export async function GET(
   _request: NextRequest,
@@ -21,11 +23,27 @@ export async function GET(
 
     const classifyRun = await prisma.classifyRun.findUnique({
       where: { id },
+      include: {
+        promptVersion: {
+          select: {
+            versionLabel: true,
+            prompt: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     })
 
     if (!classifyRun) {
       return errors.notFound('ClassifyRun')
     }
+
+    const stopRequested = classifyRun.status === 'running' && isClassifyStopRequested(classifyRun.errorJson)
+    const lastError = stopRequested ? null : classifyRun.errorJson
+    const warningDetails = parseClassifyWarningDetailsJson(classifyRun.warningDetailsJson)
 
     return NextResponse.json({
       id: classifyRun.id,
@@ -33,6 +51,8 @@ export async function GET(
       labelSpec: {
         model: classifyRun.model,
         promptVersionId: classifyRun.promptVersionId,
+        promptVersionLabel: classifyRun.promptVersion.versionLabel,
+        promptName: classifyRun.promptVersion.prompt.name,
       },
       mode: classifyRun.mode,
       status: classifyRun.status,
@@ -54,8 +74,16 @@ export async function GET(
       warnings: {
         skippedBadOutput: classifyRun.skippedBadOutput,
         aliasedCount: classifyRun.aliasedCount,
+        ...(warningDetails ? { details: warningDetails } : {}),
       },
-      lastError: classifyRun.errorJson,
+      checkpoint: {
+        lastAtomStableIdProcessed: classifyRun.lastAtomStableIdProcessed,
+      },
+      control: {
+        canStop: classifyRun.status === 'running',
+        stopRequested,
+      },
+      lastError,
       createdAt: classifyRun.createdAt.toISOString(),
       updatedAt: classifyRun.updatedAt.toISOString(),
       startedAt: classifyRun.startedAt.toISOString(),

@@ -4,7 +4,9 @@
 
 ### In scope (this doc)
 - UX behavior, information architecture, interaction rules, and visual consistency for:
+  - `/demo`
   - `/distill` (dashboard)
+  - `/distill/prompts`
   - `/distill/search`
   - `/distill/import/inspect`
   - `/distill/runs/:runId`
@@ -114,9 +116,32 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
   - processed/total progress and percent when running
   - last run timestamp
   - explicit `Refresh` button.
+- [x] Classification card shows the current classify prompt family/version and includes an inline `Change prompt` flow.
+- [x] Classification card keeps the selected prompt text visible even when the inline selector is collapsed.
+- [x] Inline classify prompt selection uses a preview-first flow: choosing a version updates the preview, and `Use this prompt` commits it for the current session.
+- [x] Incompatible real classify prompts are blocked before submit with a clear reason and a link to `/distill/prompts`.
 - [ ] Create-run card shows frozen inputs with clear dependency states:
   - disabled reason text when blocked
   - next required action with direct link/button.
+
+## 4.1a `/distill/prompts`
+
+### Goals
+- Inspect all prompt families by stage.
+- Create immutable prompt versions without editing history in place.
+- Reassign canonical default slots explicitly.
+
+### Requirements
+- [x] Page is reachable from shared distill nav as `Prompts`.
+- [x] Stage tabs exist for `CLASSIFY`, `SUMMARIZE`, and `REDACT`.
+- [x] Prompt family list shows canonical/custom state, version count, and current default-slot badges.
+- [x] Prompt detail shows version history, template text, created time, compatibility state, and default-slot eligibility.
+- [x] Compatibility state surfaces both structural prompt failures and seeded-canonical drift/reseed guidance when applicable.
+- [x] Selected-version detail includes a clearly labeled read-only `Prompt text` preview area, visually separated from default controls and the create-version form.
+- [x] `Create version` creates a new immutable PromptVersion under the selected family; there is no in-place edit or delete action.
+- [x] `Activate version` changes only the active version within the selected family.
+- [x] `Make default` is available only for canonical families and only when the selected version is compatible with the requested slot.
+- [x] `REDACT` can show “No default assigned” without error.
 - [x] Latest/last run summary card shows run status, progress bar, and "View Run" CTA.
 - [x] Empty states include explicit next action links.
 - [ ] No auto updates unless user enabled foreground polling for visible progress.
@@ -214,6 +239,10 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [x] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error).
 - [x] Show processed/total and percent whenever `status=running`.
 - [x] Show latest checkpoint timestamp (`updatedAt` or equivalent) when available.
+- [x] Show the prompt name/version used by the current classify run wherever classify status is displayed.
+- [x] Explain that skipped bad outputs are invalid model responses (JSON/category/confidence validation failures), not silent data loss.
+- [x] When persisted diagnostics exist, show a safe reason breakdown and sample invalid/aliased categories without exposing raw model output.
+- [x] Expose a foreground stop control while classify is running; stopping may finish the current atom but must not introduce background retry/resume work.
 - [x] Expose manual `Refresh` everywhere progress is shown.
 
 ### Run progress
@@ -312,3 +341,48 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - Add reusable foreground polling hook (read-only status endpoints, abort-safe lifecycle).
 - Wire only where explicitly enabled in UI.
 - **Status**: Done (AUD-039, AUD-040)
+
+---
+
+## 9) Demo Wizard (EPIC-104)
+
+This section defines the current guided single-page wizard shipped at `/demo`. It preserves current `/distill/*` behavior as advanced tooling. Detailed design and AUD slicing live in `UX_DEMO_SPEC.md`.
+
+## 9.1 Demo flow summary
+
+Current route:
+- `/demo` (single page with 4 steps)
+
+Current step labels:
+- `1. Import Conversations`
+- `2. Classify Messages`
+- `3. Summarize Days`
+- `4. Use Distilled Output`
+
+Step completion expectations:
+- Import completes after the wizard binds to one reusable batch, either from a fresh import with stored atoms or from explicit existing-batch selection.
+- Classify completes at terminal classify status `succeeded`.
+- Summarize completes when run reaches terminal success path and outputs are available.
+- Use completes when a rendered output is opened and export/advanced actions are available.
+
+Step 1 reuse behavior:
+- Step 1 offers `Import new file` and `Use existing import batch` as explicit entry modes.
+- Existing-batch selection is loaded on demand and stays single-batch for the guided flow.
+- Duplicate re-imports may still create audit-only empty batches, but the wizard does not treat those as completed Step 1 selections.
+
+## 9.2 Defaults and safety requirements
+- Dry-run mode is the default for classify/summarize.
+- Safe spend caps are visible and explicit before real-mode calls.
+- Error messages must be actionable and must not include raw imported journal content.
+- No hidden retries, no hidden writes, and no background jobs.
+
+## 9.3 Information architecture direction
+- `/demo` becomes the default guided entry for invited demo users.
+- Home page and distill shell surface a Guided Demo entry while preserving existing deep links.
+- Existing `/distill/*` pages remain available as advanced tooling.
+- Advanced includes dashboard controls, inspector, search, studio, and run diagnostics routes.
+
+## 9.4 Implementation status
+- Delivered: `AUD-102` through `AUD-109`
+- Blocked follow-ons: `AUD-110`, `AUD-111`
+- Each slice includes goal, touch set, acceptance checks, and explicit stop rules in `UX_DEMO_SPEC.md`.

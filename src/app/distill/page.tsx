@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense, useState, useEffect, useCallback, useMemo } from 'react'
+import { ClassifyPromptPicker } from '@/components/prompts/ClassifyPromptPicker'
+import type { ManagedPromptVersion } from '@/lib/types/prompt-management'
 import { getClassifyStatusColor, getStatusColor, formatProgressPercent } from './lib/ui-utils'
 import type { LastClassifyStats } from './lib/types'
 import { usePolling } from './hooks/usePolling'
@@ -54,12 +56,7 @@ const PROVIDER_MODELS: Record<ProviderId, { label: string; models: string[] }> =
   },
 }
 
-interface PromptVersion {
-  id: string
-  versionLabel: string
-  isActive?: boolean
-  prompt: { stage: string }
-}
+type PromptVersion = ManagedPromptVersion
 
 interface ImportBatch {
   id: string
@@ -117,7 +114,11 @@ function DashboardContent() {
   // Per-batch classify status (for Create Run gating)
   const [perBatchClassified, setPerBatchClassified] = useState<Record<string, boolean>>({})
 
-  const [classifyPromptVersions, setClassifyPromptVersions] = useState<{
+  const [defaultClassifyPromptVersions, setDefaultClassifyPromptVersions] = useState<{
+    stub: PromptVersion | null
+    real: PromptVersion | null
+  }>({ stub: null, real: null })
+  const [selectedClassifyPromptVersions, setSelectedClassifyPromptVersions] = useState<{
     stub: PromptVersion | null
     real: PromptVersion | null
   }>({ stub: null, real: null })
@@ -198,31 +199,28 @@ function DashboardContent() {
     async function fetchPromptVersions() {
       setLoadingPromptVersions(true)
       try {
-        const res = await fetch('/api/distill/prompt-versions?stage=classify')
-        if (!res.ok) {
+        const loadCanonicalPromptVersion = async (mode: 'stub' | 'real') => {
+          const res = await fetch(`/api/distill/prompt-versions?stage=classify&default=true&mode=${mode}`)
           const data = await res.json().catch(() => ({}))
-          setLoadError(data.error?.message || `Failed to load prompt versions (${res.status})`)
-          return
+          if (!res.ok) {
+            throw new Error(data.error?.message || `Failed to load ${mode} classify prompt (${res.status})`)
+          }
+          return ((data as { promptVersion?: PromptVersion }).promptVersion ?? null) as PromptVersion | null
         }
-        const data: { promptVersions?: PromptVersion[] } = await res.json()
-        const promptVersions = data.promptVersions ?? []
 
-        const stubPromptVersion = (
-          promptVersions.find((pv) => pv.versionLabel === 'classify_stub_v1') ??
-          promptVersions.find((pv) => pv.versionLabel.toLowerCase().includes('stub')) ??
-          null
-        )
+        const [stubPromptVersion, realPromptVersion] = await Promise.all([
+          loadCanonicalPromptVersion('stub'),
+          loadCanonicalPromptVersion('real'),
+        ])
 
-        const realPromptVersion = (
-          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub') && pv.isActive) ??
-          promptVersions.find((pv) => !pv.versionLabel.toLowerCase().includes('stub')) ??
-          null
-        )
-
-        setClassifyPromptVersions({
+        setDefaultClassifyPromptVersions({
           stub: stubPromptVersion,
           real: realPromptVersion,
         })
+        setSelectedClassifyPromptVersions((current) => ({
+          stub: current.stub ?? stubPromptVersion,
+          real: current.real ?? realPromptVersion,
+        }))
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : 'Failed to load prompt versions')
       } finally {
@@ -359,7 +357,14 @@ function DashboardContent() {
   }
 
   // Derive the prompt version for the selected mode
-  const activeClassifyPv = classifyPromptVersions[classifyMode]
+  const activeClassifyPv =
+    classifyMode === 'stub'
+      ? selectedClassifyPromptVersions.stub ?? defaultClassifyPromptVersions.stub
+      : selectedClassifyPromptVersions.real ?? defaultClassifyPromptVersions.real
+  const activeClassifyCompatibility = activeClassifyPv?.compatibility[
+    classifyMode === 'stub' ? 'CLASSIFY_STUB' : 'CLASSIFY_REAL'
+  ]
+  const classifyPromptInvalid = !!activeClassifyPv && !activeClassifyCompatibility?.valid
 
   // Last classify stats error (contextual, separate from initial load errors)
   const [lastClassifyStatsError, setLastClassifyStatsError] = useState<string | null>(null)
@@ -480,6 +485,12 @@ function DashboardContent() {
 
   async function handleClassify() {
     if (!classifyBatchId || !activeClassifyPv) return
+    if (classifyPromptInvalid) {
+      setClassifyError(
+        activeClassifyCompatibility?.reasons[0] || 'Selected prompt is incompatible with this classify mode',
+      )
+      return
+    }
 
     setClassifying(true)
     setClassifyError(null)
@@ -762,12 +773,26 @@ function DashboardContent() {
                 </div>
               )}
 
+              <div className="mb-3">
+                <ClassifyPromptPicker
+                  mode={classifyMode}
+                  value={activeClassifyPv}
+                  forceExpanded={!activeClassifyPv || classifyPromptInvalid}
+                  onSelect={(version) =>
+                    setSelectedClassifyPromptVersions((current) => ({
+                      ...current,
+                      [classifyMode]: version,
+                    }))
+                  }
+                />
+              </div>
+
               <div className="flex gap-2 items-center">
                 <button
                   onClick={handleClassify}
-                  disabled={classifying || !activeClassifyPv}
+                  disabled={classifying || !activeClassifyPv || classifyPromptInvalid}
                   className={`px-4 py-2 rounded text-white ${
-                    classifying || !activeClassifyPv
+                    classifying || !activeClassifyPv || classifyPromptInvalid
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-green-600 hover:bg-green-700'
                   }`}
@@ -780,7 +805,7 @@ function DashboardContent() {
                   <span className="text-sm text-gray-500">
                     {loadingPromptVersions
                       ? 'Loading prompt versions...'
-                      : classifyMode === 'real' && !classifyPromptVersions.real
+                      : classifyMode === 'real' && !defaultClassifyPromptVersions.real
                       ? 'No real classify prompt version found. Run: npx prisma db seed'
                       : 'No stub classify prompt version found. Run: npx prisma db seed'}
                   </span>
@@ -820,6 +845,9 @@ function DashboardContent() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-indigo-700">
+                    <div className="col-span-2">
+                      Prompt: {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
+                    </div>
                     <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
                     <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
                     {lastClassifyStats.stats.skippedBadOutput > 0 && (
@@ -866,6 +894,9 @@ function DashboardContent() {
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
+                    <div className="col-span-2">
+                      Prompt: {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
+                    </div>
                     <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
                     <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
                     <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>

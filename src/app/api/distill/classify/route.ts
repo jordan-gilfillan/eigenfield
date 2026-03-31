@@ -8,13 +8,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { classifyBatch, InvalidInputError } from '@/lib/services/classify'
-import { NotFoundError } from '@/lib/errors'
+import { classifyBatch } from '@/lib/services/classify'
+import { NotFoundError, ServiceError } from '@/lib/errors'
 import { errors, errorResponse } from '@/lib/api-utils'
 import { LlmError, BudgetExceededError, LlmBadOutputError } from '@/lib/llm'
 import { requireField } from '@/lib/route-validate'
 
 interface ClassifyRequest {
+  classifyRunId?: string
   importBatchId: string
   model: string
   promptVersionId: string
@@ -37,8 +38,15 @@ export async function POST(request: NextRequest) {
       return errors.invalidInput('mode must be "stub" or "real"')
     }
 
+    if (body.classifyRunId !== undefined) {
+      if (typeof body.classifyRunId !== 'string' || body.classifyRunId.trim().length === 0) {
+        return errors.invalidInput('classifyRunId must be a non-empty string')
+      }
+    }
+
     // Classify the batch
     const result = await classifyBatch({
+      ...(body.classifyRunId ? { classifyRunId: body.classifyRunId.trim() } : {}),
       importBatchId: body.importBatchId!,
       model: body.model!,
       promptVersionId: body.promptVersionId!,
@@ -50,8 +58,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Classify error:', error)
 
-    if (error instanceof InvalidInputError) {
-      return errorResponse(400, error.code, error.message, error.details)
+    if (error instanceof NotFoundError) {
+      return errors.notFound(error.resource)
+    }
+
+    if (error instanceof ServiceError) {
+      return errorResponse(error.httpStatus, error.code, error.message, error.details)
     }
 
     if (error instanceof BudgetExceededError) {
@@ -64,10 +76,6 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof LlmError) {
       return errorResponse(500, error.code, error.message, error.details)
-    }
-
-    if (error instanceof NotFoundError) {
-      return errors.notFound(error.resource)
     }
 
     return errors.internal()

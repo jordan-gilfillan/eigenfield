@@ -11,6 +11,7 @@ import { prisma } from '../db'
 import { estimateTokens } from './bundle'
 import { callLlm, inferProvider } from '../llm'
 import type { LlmRequest } from '../llm'
+import { resolveDefaultSummarizePromptVersion } from './prompt-version-defaults'
 
 export interface SummarizeOptions {
   bundleText: string
@@ -109,13 +110,5 @@ The bundle contains ${messageLines} messages from ${sourceHeaders} source(s).
  * Gets the active summarize prompt version.
  */
 export async function getActiveSummarizePromptVersion() {
-  return prisma.promptVersion.findFirst({
-    where: {
-      isActive: true,
-      prompt: { stage: 'SUMMARIZE' },
-    },
-    include: {
-      prompt: true,
-    },
-  })
+  return resolveDefaultSummarizePromptVersion()
 }

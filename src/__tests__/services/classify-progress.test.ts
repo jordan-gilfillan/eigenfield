@@ -1,16 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import type { ClassifyWarningDetails } from '../../lib/classify-warning-details'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import * as llmModule from '../../lib/llm'
 import { GET as getClassifyRun } from '../../app/api/distill/classify-runs/[id]/route'
+import { POST as postStopClassify } from '../../app/api/distill/classify-runs/[id]/stop/route'
 import { POST as postClassify } from '../../app/api/distill/classify/route'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 /**
  * Integration tests for:
  * - POST /classify returns classifyRunId
  * - GET /classify-runs/:id returns correct shapes
+ * - POST /classify-runs/:id/stop requests a foreground stop
  * - GET /classify-runs/:id is read-only (no side effects)
  * - Progress updates persist during execution
  */
@@ -22,63 +28,46 @@ async function callGetClassifyRun(id: string) {
   return getClassifyRun(req, { params: Promise.resolve({ id }) })
 }
 
+async function callStopClassifyRun(id: string) {
+  const req = new NextRequest(`http://localhost/api/distill/classify-runs/${id}/stop`, {
+    method: 'POST',
+  })
+  return postStopClassify(req, { params: Promise.resolve({ id }) })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    void rej
+  })
+  return { promise, resolve }
+}
+
 describe('Classify progress + classify-runs endpoint', () => {
   const createdBatchIds: string[] = []
+  const createdPromptVersionIds: string[] = []
   let stubPromptVersionId: string
   let realPromptVersionId: string
   const originalEnv = { ...process.env }
 
   beforeEach(async () => {
     process.env = { ...originalEnv }
+    delete process.env.LLM_MODE
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
     process.env.LLM_MIN_DELAY_MS = '0'
 
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
+    stubPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
 
-    const stubPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: {
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
+    const realPv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-progress-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
-    stubPromptVersionId = stubPv.id
-
-    const realPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_progress_test',
-        },
-      },
-      update: {
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_progress_test',
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = realPv.id
+    createdPromptVersionIds.push(realPv.promptVersion.id)
+    realPromptVersionId = realPv.promptVersion.id
   })
 
   afterEach(async () => {
@@ -93,6 +82,13 @@ describe('Classify progress + classify-runs endpoint', () => {
       await prisma.importBatch.delete({ where: { id } }).catch(() => {})
     }
     createdBatchIds.length = 0
+
+    for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
+      await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
+      await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
+    }
+    createdPromptVersionIds.length = 0
   })
 
   describe('POST /classify returns classifyRunId', () => {
@@ -182,6 +178,44 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(typeof body.classifyRunId).toBe('string')
       expect(body.importBatchId).toBe(importResult.importBatch.id)
     })
+
+    it('POST /classify route honors a client-supplied classifyRunId', async () => {
+      const content = createTestExport([
+        { id: 'msg-prog-route-client-id-1', role: 'user', text: 'route test with client id', timestamp: 1705316605, conversationId: 'conv-prog-route-client-id' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'progress-route-client-id.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `client-run-${Date.now()}`
+      const req = new NextRequest('http://localhost/api/distill/classify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          classifyRunId,
+          importBatchId: importResult.importBatch.id,
+          model: 'stub_v1',
+          promptVersionId: stubPromptVersionId,
+          mode: 'stub',
+        }),
+      })
+
+      const res = await postClassify(req)
+      expect(res.status).toBe(200)
+
+      const body = await res.json()
+      expect(body.classifyRunId).toBe(classifyRunId)
+
+      const classifyRun = await prisma.classifyRun.findUnique({
+        where: { id: classifyRunId },
+      })
+      expect(classifyRun).not.toBeNull()
+      expect(classifyRun!.importBatchId).toBe(importResult.importBatch.id)
+    })
   })
 
   describe('GET /classify-runs/:id', () => {
@@ -213,7 +247,12 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Verify shape
       expect(body.id).toBe(classifyResult.classifyRunId)
       expect(body.importBatchId).toBe(importResult.importBatch.id)
-      expect(body.labelSpec).toEqual({ model: 'stub_v1', promptVersionId: stubPromptVersionId })
+      expect(body.labelSpec).toEqual({
+        model: 'stub_v1',
+        promptVersionId: stubPromptVersionId,
+        promptVersionLabel: 'classify_stub_v1',
+        promptName: 'default-classifier',
+      })
       expect(body.mode).toBe('stub')
       expect(body.status).toBe('succeeded')
 
@@ -235,6 +274,9 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Warnings
       expect(body.warnings).toBeDefined()
       expect(body.warnings.skippedBadOutput).toBe(0)
+      expect(body.warnings.details).toBeUndefined()
+      expect(body.control).toEqual({ canStop: false, stopRequested: false })
+      expect(typeof body.checkpoint.lastAtomStableIdProcessed).toBe('string')
 
       // Timestamps
       expect(body.createdAt).toBeDefined()
@@ -274,6 +316,8 @@ describe('Classify progress + classify-runs endpoint', () => {
 
       // SPEC §7.2.1: warnings is a separate top-level key with quality counters
       expect(Object.keys(body.warnings).sort()).toEqual(['aliasedCount', 'skippedBadOutput'])
+      expect(Object.keys(body.checkpoint).sort()).toEqual(['lastAtomStableIdProcessed'])
+      expect(Object.keys(body.control).sort()).toEqual(['canStop', 'stopRequested'])
 
       // Ensure skippedBadOutput/aliasedCount are NOT in progress
       expect(body.progress).not.toHaveProperty('skippedBadOutput')
@@ -282,7 +326,7 @@ describe('Classify progress + classify-runs endpoint', () => {
       // Top-level response keys match normative schema
       const expectedKeys = [
         'id', 'importBatchId', 'labelSpec', 'mode', 'status',
-        'totals', 'progress', 'usage', 'warnings', 'lastError',
+        'totals', 'progress', 'usage', 'warnings', 'checkpoint', 'control', 'lastError',
         'createdAt', 'updatedAt', 'startedAt', 'finishedAt',
       ].sort()
       expect(Object.keys(body).sort()).toEqual(expectedKeys)
@@ -351,6 +395,200 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(body.lastError).toBeTruthy()
       expect(body.lastError.code).toBe('TEST_FAIL')
       expect(body.finishedAt).toBeTruthy()
+    })
+
+    it('returns persisted warning details while running and after completion', async () => {
+      const messages = Array.from({ length: 105 }, (_, i) => ({
+        id: `msg-cr-warn-${i + 1}`,
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        text: `warning message ${i + 1}`,
+        timestamp: 1705316810 + i,
+        conversationId: 'conv-cr-warn',
+      }))
+      const content = createTestExport(messages)
+
+      const importResult = await importExport({
+        content,
+        filename: 'cr-warn.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `warn-run-${Date.now()}`
+      const deferredSuccess = deferred<{
+        text: string
+        tokensIn: number
+        tokensOut: number
+        costUsd: number
+        dryRun: boolean
+      }>()
+      let callCount = 0
+      let holdPointSeen!: () => void
+      const holdPointStarted = new Promise<void>((resolve) => {
+        holdPointSeen = resolve
+      })
+
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount <= 100) {
+          return {
+            text: '{"category":"GALACTIC","confidence":0.61}',
+            tokensIn: 10,
+            tokensOut: 10,
+            costUsd: 0.001,
+            dryRun: false,
+          }
+        }
+        if (callCount === 101) {
+          holdPointSeen()
+          return deferredSuccess.promise
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+
+      const classifyPromise = classifyBatch({
+        classifyRunId,
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      await holdPointStarted
+
+      const midRes = await callGetClassifyRun(classifyRunId)
+      expect(midRes.status).toBe(200)
+      const midBody = await midRes.json()
+      const midDetails = midBody.warnings.details as ClassifyWarningDetails | undefined
+
+      expect(midBody.status).toBe('running')
+      expect(midBody.warnings.skippedBadOutput).toBe(100)
+      expect(midDetails).toBeDefined()
+      expect(midDetails?.badOutputReasons.invalid_category_value).toBe(100)
+      expect(midDetails?.badCategorySamples).toEqual(['GALACTIC'])
+
+      deferredSuccess.resolve({
+        text: '{"category":"WORK","confidence":0.8}',
+        tokensIn: 10,
+        tokensOut: 10,
+        costUsd: 0.001,
+        dryRun: false,
+      })
+
+      const result = await classifyPromise
+      expect(result.totals.newlyLabeled).toBe(5)
+
+      const finalRes = await callGetClassifyRun(classifyRunId)
+      expect(finalRes.status).toBe(200)
+      const finalBody = await finalRes.json()
+      const finalDetails = finalBody.warnings.details as ClassifyWarningDetails | undefined
+
+      expect(finalBody.status).toBe('succeeded')
+      expect(finalBody.warnings.skippedBadOutput).toBe(100)
+      expect(finalDetails?.badOutputReasons.invalid_category_value).toBe(100)
+      expect(finalDetails?.badCategorySamples).toEqual(['GALACTIC'])
+      expect(finalDetails?.aliasedCategorySamples).toEqual([])
+    })
+  })
+
+  describe('POST /classify-runs/:id/stop', () => {
+    it('requests stop for a running classify and persists a stopped-by-user terminal result', async () => {
+      const content = createTestExport([
+        { id: 'msg-stop-1', role: 'user', text: 'stop test 1', timestamp: 1705317200, conversationId: 'conv-stop' },
+        { id: 'msg-stop-2', role: 'assistant', text: 'stop test 2', timestamp: 1705317201, conversationId: 'conv-stop' },
+        { id: 'msg-stop-3', role: 'user', text: 'stop test 3', timestamp: 1705317202, conversationId: 'conv-stop' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'stop.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const classifyRunId = `stop-run-${Date.now()}`
+      const firstResponse = deferred<{
+        text: string
+        tokensIn: number
+        tokensOut: number
+        costUsd: number
+        dryRun: boolean
+      }>()
+      let callCount = 0
+      let firstCallSeen!: () => void
+      const firstCallStarted = new Promise<void>((resolve) => {
+        firstCallSeen = resolve
+      })
+
+      vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+        callCount += 1
+        if (callCount === 1) {
+          firstCallSeen()
+          return firstResponse.promise
+        }
+        return {
+          text: '{"category":"WORK","confidence":0.8}',
+          tokensIn: 10,
+          tokensOut: 8,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      })
+
+      const classifyPromise = classifyBatch({
+        classifyRunId,
+        importBatchId: importResult.importBatch.id,
+        model: 'gpt-4o',
+        promptVersionId: realPromptVersionId,
+        mode: 'real',
+      })
+
+      await firstCallStarted
+
+      const stopRes = await callStopClassifyRun(classifyRunId)
+      expect(stopRes.status).toBe(200)
+      const stopBody = await stopRes.json()
+      expect(stopBody).toEqual({
+        id: classifyRunId,
+        status: 'running',
+        stopRequested: true,
+      })
+
+      const midRes = await callGetClassifyRun(classifyRunId)
+      const midBody = await midRes.json()
+      expect(midBody.control).toEqual({ canStop: true, stopRequested: true })
+      expect(midBody.lastError).toBeNull()
+
+      firstResponse.resolve({
+        text: '{"category":"WORK","confidence":0.8}',
+        tokensIn: 10,
+        tokensOut: 8,
+        costUsd: 0.001,
+        dryRun: false,
+      })
+
+      await expect(classifyPromise).rejects.toMatchObject({
+        code: 'USER_STOPPED',
+      })
+      expect(callCount).toBe(1)
+
+      const finalRes = await callGetClassifyRun(classifyRunId)
+      expect(finalRes.status).toBe(200)
+      const finalBody = await finalRes.json()
+      expect(finalBody.status).toBe('failed')
+      expect(finalBody.progress.processedAtoms).toBe(1)
+      expect(finalBody.totals.newlyLabeled).toBe(1)
+      expect(finalBody.control).toEqual({ canStop: false, stopRequested: false })
+      expect(finalBody.lastError).toMatchObject({
+        code: 'USER_STOPPED',
+      })
+      expect(finalBody.finishedAt).toBeTruthy()
     })
   })
 

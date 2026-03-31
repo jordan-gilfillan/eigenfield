@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '../../lib/db'
 import { classifyBatch, computeStubCategory, InvalidInputError } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
 import { createTestExport } from '../fixtures/export-factories'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 /**
  * Integration tests for the classification service.
@@ -17,39 +20,26 @@ import { createTestExport } from '../fixtures/export-factories'
 describe('Classification Service', () => {
   // Track created resources for cleanup
   const createdBatchIds: string[] = []
+  const createdPromptIds: string[] = []
   const createdPromptVersionIds: string[] = []
   let defaultPromptVersionId: string
+  const originalEnv = { ...process.env }
 
   beforeEach(async () => {
-    // Get or create the default classify prompt version
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
-    })
+    delete process.env.LLM_MODE
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.LLM_MAX_USD_PER_RUN
+    delete process.env.LLM_MAX_USD_PER_DAY
+    process.env.LLM_MIN_DELAY_MS = '0'
 
-    const pv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: { isActive: true },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-    })
+    const pv = await resolveDefaultClassifyPromptVersion('stub')
     defaultPromptVersionId = pv.id
   })
 
   afterEach(async () => {
+    process.env = { ...originalEnv }
+
     // Clean up test data in correct order
     for (const id of createdBatchIds) {
       await prisma.classifyRun.deleteMany({ where: { importBatchId: id } })
@@ -69,6 +59,16 @@ describe('Classification Service', () => {
       await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
     }
     createdPromptVersionIds.length = 0
+
+    if (createdPromptIds.length > 0) {
+      await prisma.promptVersion.deleteMany({
+        where: { promptId: { in: createdPromptIds } },
+      })
+      await prisma.prompt.deleteMany({
+        where: { id: { in: createdPromptIds } },
+      })
+      createdPromptIds.length = 0
+    }
   })
 
   describe('computeStubCategory', () => {
@@ -426,25 +426,13 @@ describe('Classification Service', () => {
     })
 
     it('mode=real classifies via LLM pipeline (dry-run)', async () => {
-      // Use a real classify prompt version (not stub)
-      const classifyPrompt = await prisma.prompt.findFirst({
-        where: { stage: 'CLASSIFY' },
+      const realPv = await createCanonicalPromptVersionFixture({
+        stage: 'CLASSIFY',
+        versionLabelBase: 'classify-real-service',
+        templateText:
+          CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
       })
-      const realPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: classifyPrompt!.id,
-            versionLabel: 'classify_real_v1',
-          },
-        },
-        update: {},
-        create: {
-          promptId: classifyPrompt!.id,
-          versionLabel: 'classify_real_v1',
-          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-          isActive: true,
-        },
-      })
+      createdPromptVersionIds.push(realPv.promptVersion.id)
 
       const content = createTestExport([
         { id: 'msg-real-1', role: 'user', text: 'Real mode test', timestamp: 1705316400, conversationId: 'conv-real-mode' },
@@ -460,7 +448,7 @@ describe('Classification Service', () => {
       const result = await classifyBatch({
         importBatchId: importResult.importBatch.id,
         model: 'gpt-4o',
-        promptVersionId: realPv.id,
+        promptVersionId: realPv.promptVersion.id,
         mode: 'real',
       })
 
@@ -620,44 +608,16 @@ describe('Classification Service', () => {
     let realPromptVersionId: string
 
     beforeEach(async () => {
-      // Ensure both stub and real classify prompt versions exist
-      const classifyPrompt = await prisma.prompt.findFirst({
-        where: { stage: 'CLASSIFY' },
-      })
+      stubPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
 
-      const stubPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: classifyPrompt!.id,
-            versionLabel: 'classify_stub_v1',
-          },
-        },
-        update: { isActive: true },
-        create: {
-          promptId: classifyPrompt!.id,
-          versionLabel: 'classify_stub_v1',
-          templateText: 'STUB: Deterministic classification.',
-          isActive: true,
-        },
+      const realPv = await createCanonicalPromptVersionFixture({
+        stage: 'CLASSIFY',
+        versionLabelBase: 'classify-real-guardrail',
+        templateText:
+          CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
       })
-      stubPromptVersionId = stubPv.id
-
-      const realPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: classifyPrompt!.id,
-            versionLabel: 'classify_real_v1',
-          },
-        },
-        update: {},
-        create: {
-          promptId: classifyPrompt!.id,
-          versionLabel: 'classify_real_v1',
-          templateText: 'Classify message. Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-          isActive: true,
-        },
-      })
-      realPromptVersionId = realPv.id
+      createdPromptVersionIds.push(realPv.promptVersion.id)
+      realPromptVersionId = realPv.promptVersion.id
     })
 
     it('mode=real + classify_stub_v1 → InvalidInputError', async () => {
@@ -780,25 +740,20 @@ describe('Classification Service', () => {
           promptVersionId: badPv.id,
           mode: 'real',
         })
-      ).rejects.toThrow('JSON-constraining')
+      ).rejects.toThrow('structurally valid classify prompt')
     })
 
     it('mode=real rejects wrong-stage prompt version', async () => {
-      // Create or find the summarize prompt and use its version
-      const summarizePrompt = await prisma.prompt.upsert({
-        where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
-        update: {},
-        create: { stage: 'SUMMARIZE', name: 'default-summarizer' },
-      })
-      const sumPv = await prisma.promptVersion.upsert({
-        where: {
-          promptId_versionLabel: {
-            promptId: summarizePrompt.id,
-            versionLabel: 'v1',
-          },
+      const summarizePrompt = await prisma.prompt.create({
+        data: {
+          stage: 'SUMMARIZE',
+          name: `wrong-stage-summarizer-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         },
-        update: {},
-        create: {
+      })
+      createdPromptIds.push(summarizePrompt.id)
+
+      const sumPv = await prisma.promptVersion.create({
+        data: {
           promptId: summarizePrompt.id,
           versionLabel: 'v1',
           templateText: 'Summarize with category and confidence fields.',

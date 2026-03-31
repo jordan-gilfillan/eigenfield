@@ -10,11 +10,15 @@
  * - PromptVersions: classify_stub_v1 (inactive), classify_real_v1 (active), summarize_v1 (active),
  *   journal_v1/v2/v3 (inactive), redact_v1 (inactive)
  *
- * Invariant: at most one active PromptVersion per stage (SPEC §6.7).
+ * Invariant: at most one active PromptVersion per Prompt family (SPEC §6.7).
  * v0.3: redact has 0 active (stage not yet implemented).
  */
 
 import { PrismaClient } from '@prisma/client'
+import {
+  CANONICAL_PROMPT_NAMES,
+  CANONICAL_PROMPT_TEMPLATES,
+} from '../src/lib/canonical-prompts'
 
 const prisma = new PrismaClient()
 
@@ -73,11 +77,13 @@ async function main() {
 
   // Classify prompt with stub version
   const classifyPrompt = await prisma.prompt.upsert({
-    where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
+    where: {
+      stage_name: { stage: 'CLASSIFY', name: CANONICAL_PROMPT_NAMES.CLASSIFY },
+    },
     update: {},
     create: {
       stage: 'CLASSIFY',
-      name: 'default-classifier',
+      name: CANONICAL_PROMPT_NAMES.CLASSIFY,
     },
   })
   console.log(`  Prompt: ${classifyPrompt.name} (${classifyPrompt.stage})`)
@@ -89,29 +95,23 @@ async function main() {
         versionLabel: 'classify_stub_v1',
       },
     },
-    update: { isActive: false },
+    update: {
+      isActive: false,
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY[CANONICAL_PROMPT_NAMES.CLASSIFY].classify_stub_v1,
+    },
     create: {
       promptId: classifyPrompt.id,
       versionLabel: 'classify_stub_v1',
-      templateText: 'STUB: Deterministic classification based on atomStableId hash. See spec 7.2.',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY[CANONICAL_PROMPT_NAMES.CLASSIFY].classify_stub_v1,
       isActive: false,
     },
   })
   console.log(`    PromptVersion: classify_stub_v1 (inactive)`)
 
-  const classifyRealTemplate = `You are a message classifier. Classify the following AI conversation message into exactly one category.
-
-Categories: WORK, LEARNING, CREATIVE, MUNDANE, PERSONAL, OTHER, MEDICAL, MENTAL_HEALTH, ADDICTION_RECOVERY, INTIMACY, FINANCIAL, LEGAL, EMBARRASSING
-
-Return ONLY a JSON object. No prose. No code fences.
-Example output:
-{"category":"WORK","confidence":0.72}
-
-Rules:
-- category MUST be one of the listed categories (uppercase, exact match)
-- confidence MUST be a number between 0.0 and 1.0
-- Never invent new categories. If uncertain, choose the closest category from the allowed list.
-- Do NOT include any explanation or text outside the JSON object`
+  const classifyRealTemplate =
+    CANONICAL_PROMPT_TEMPLATES.CLASSIFY[CANONICAL_PROMPT_NAMES.CLASSIFY].classify_real_v1
 
   await prisma.promptVersion.upsert({
     where: {
@@ -133,13 +133,33 @@ Rules:
   })
   console.log(`    PromptVersion: classify_real_v1 (active)`)
 
+  const classifyStubVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_stub_v1',
+      },
+    },
+  })
+
+  const classifyRealVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: classifyPrompt.id,
+        versionLabel: 'classify_real_v1',
+      },
+    },
+  })
+
   // Summarize prompt with placeholder version
   const summarizePrompt = await prisma.prompt.upsert({
-    where: { stage_name: { stage: 'SUMMARIZE', name: 'default-summarizer' } },
+    where: {
+      stage_name: { stage: 'SUMMARIZE', name: CANONICAL_PROMPT_NAMES.SUMMARIZE },
+    },
     update: {},
     create: {
       stage: 'SUMMARIZE',
-      name: 'default-summarizer',
+      name: CANONICAL_PROMPT_NAMES.SUMMARIZE,
     },
   })
   console.log(`  Prompt: ${summarizePrompt.name} (${summarizePrompt.stage})`)
@@ -151,91 +171,44 @@ Rules:
         versionLabel: 'v1',
       },
     },
-    update: { isActive: true },
+    update: {
+      isActive: true,
+      templateText: CANONICAL_PROMPT_TEMPLATES.SUMMARIZE[CANONICAL_PROMPT_NAMES.SUMMARIZE].v1,
+    },
     create: {
       promptId: summarizePrompt.id,
       versionLabel: 'v1',
-      templateText: `You are summarizing a day's worth of AI conversation messages.
-
-Input format:
-# SOURCE: <source>
-[<timestamp>] <role>: <message>
-
-Produce a concise summary capturing:
-1. Key topics discussed
-2. Decisions made or conclusions reached
-3. Action items or follow-ups mentioned
-
-Output as markdown with clear headings.`,
+      templateText: CANONICAL_PROMPT_TEMPLATES.SUMMARIZE[CANONICAL_PROMPT_NAMES.SUMMARIZE].v1,
       isActive: true,
     },
   })
   console.log(`    PromptVersion: v1 (active)`)
 
+  const summarizeDefaultVersion = await prisma.promptVersion.findUniqueOrThrow({
+    where: {
+      promptId_versionLabel: {
+        promptId: summarizePrompt.id,
+        versionLabel: 'v1',
+      },
+    },
+  })
+
   // Journal-friendly summarize prompt versions (all inactive)
   const journalVersions = [
     {
       versionLabel: 'journal_v1',
-      templateText: `You are writing a personal journal entry summarizing a day of AI conversations.
-
-Write in first person, past tense. Be warm and reflective — like someone writing in their own journal at the end of the day.
-
-Structure your entry as:
-
-1. A narrative opening (2–3 sentences) capturing what the day was about
-2. **Key moments** — 3–5 bullet points of notable topics, decisions, or realizations
-3. **Reflections** — 1–2 sentences on patterns, themes, or lingering questions
-
-Guidelines:
-- Write as if the person is reading their own journal months later
-- Focus on what mattered, not what was trivial
-- Keep it under 300 words
-- Use markdown formatting
-
-Do NOT use any of the following:
-- Report-style headings like "Summary", "Overview", "Key Topics Discussed", "Conclusions", "Action Items", "Executive Summary"
-- Corporate/formal tone ("deliverables", "stakeholders", "action items", "follow-ups", "next steps")
-- Third-person voice or passive constructions ("It was discussed that...", "The user explored...")
-- Meta-commentary about the summarization process ("This summary covers...", "The conversations included...")`,
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.SUMMARIZE[CANONICAL_PROMPT_NAMES.SUMMARIZE].journal_v1,
     },
     {
       versionLabel: 'journal_v2',
-      templateText: `You are distilling a day of AI conversations into a concise journal entry.
-
-Write for someone reviewing their own day. Be direct, warm, and honest.
-
-Structure:
-
-**Today** — 3–5 bullet points: what was explored, decided, or created
-**Open threads** — Anything unfinished or worth revisiting (1–3 bullets, or "None" if nothing stood out)
-**Closing** — One sentence capturing the day's energy or direction
-
-Guidelines:
-- Skip pleasantries and meta-commentary
-- Under 200 words
-- Markdown formatting
-
-Do NOT use any of the following:
-- Report-style headings like "Summary", "Overview", "Key Topics", "Conclusions", "Action Items"
-- Corporate/formal tone ("deliverables", "stakeholders", "action items", "follow-ups", "next steps")
-- Third-person voice ("The user discussed...", "Topics covered include...")
-- Filler phrases ("In this conversation...", "Throughout the day...", "Various topics were explored...")`,
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.SUMMARIZE[CANONICAL_PROMPT_NAMES.SUMMARIZE].journal_v2,
     },
     {
       versionLabel: 'journal_v3',
-      templateText: `You are writing a reflective journal entry from a day of AI conversations.
-
-Write a single flowing paragraph (150–250 words) in first person, past tense.
-Capture what was on the person's mind, what they explored, and where their thinking landed by end of day.
-
-No bullet points. No headings. No structure beyond the paragraph itself. Just honest, readable prose — like a diary entry someone would actually want to re-read.
-
-Do NOT use any of the following:
-- Report-style language ("Summary", "Overview", "Key Topics", "Action Items")
-- Corporate/formal tone ("deliverables", "stakeholders", "next steps", "follow-ups")
-- Third-person voice or passive constructions
-- Opening with "Today, I..." — vary the opening
-- Meta-commentary about summarization ("This entry covers...", "The conversations touched on...")`,
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.SUMMARIZE[CANONICAL_PROMPT_NAMES.SUMMARIZE].journal_v3,
     },
   ]
 
@@ -260,11 +233,13 @@ Do NOT use any of the following:
 
   // Redact prompt with placeholder version (not active in v0.3)
   const redactPrompt = await prisma.prompt.upsert({
-    where: { stage_name: { stage: 'REDACT', name: 'default-redactor' } },
+    where: {
+      stage_name: { stage: 'REDACT', name: CANONICAL_PROMPT_NAMES.REDACT },
+    },
     update: {},
     create: {
       stage: 'REDACT',
-      name: 'default-redactor',
+      name: CANONICAL_PROMPT_NAMES.REDACT,
     },
   })
   console.log(`  Prompt: ${redactPrompt.name} (${redactPrompt.stage})`)
@@ -276,34 +251,105 @@ Do NOT use any of the following:
         versionLabel: 'v1',
       },
     },
-    update: { isActive: false },
+    update: {
+      isActive: false,
+      templateText: CANONICAL_PROMPT_TEMPLATES.REDACT[CANONICAL_PROMPT_NAMES.REDACT].v1,
+    },
     create: {
       promptId: redactPrompt.id,
       versionLabel: 'v1',
-      templateText: 'PLACEHOLDER: Redaction prompt for future use.',
+      templateText: CANONICAL_PROMPT_TEMPLATES.REDACT[CANONICAL_PROMPT_NAMES.REDACT].v1,
       isActive: false,
     },
   })
   console.log(`    PromptVersion: v1 (inactive)`)
 
+  await prisma.promptDefault.upsert({
+    where: { slot: 'CLASSIFY_STUB' },
+    update: {
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyStubVersion.id,
+    },
+    create: {
+      slot: 'CLASSIFY_STUB',
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyStubVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: CLASSIFY_STUB -> classify_stub_v1`)
+
+  await prisma.promptDefault.upsert({
+    where: { slot: 'CLASSIFY_REAL' },
+    update: {
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyRealVersion.id,
+    },
+    create: {
+      slot: 'CLASSIFY_REAL',
+      promptId: classifyPrompt.id,
+      promptVersionId: classifyRealVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: CLASSIFY_REAL -> classify_real_v1`)
+
+  await prisma.promptDefault.upsert({
+    where: { slot: 'SUMMARIZE' },
+    update: {
+      promptId: summarizePrompt.id,
+      promptVersionId: summarizeDefaultVersion.id,
+    },
+    create: {
+      slot: 'SUMMARIZE',
+      promptId: summarizePrompt.id,
+      promptVersionId: summarizeDefaultVersion.id,
+    },
+  })
+  console.log(`    PromptDefault: SUMMARIZE -> v1`)
+
   // ==========================================================================
-  // Invariant check: exactly one active PromptVersion per stage (SPEC §6.7)
+  // Invariant checks: at most one active PromptVersion per Prompt family,
+  // and canonical prompt defaults point to their owning family.
   // ==========================================================================
 
-  const stages = ['CLASSIFY', 'SUMMARIZE', 'REDACT'] as const
-  for (const stage of stages) {
+  const seededPrompts = [classifyPrompt, summarizePrompt, redactPrompt]
+  for (const prompt of seededPrompts) {
     const activeCount = await prisma.promptVersion.count({
       where: {
+        promptId: prompt.id,
         isActive: true,
-        prompt: { stage },
       },
     })
+
+    const label = `${prompt.stage}/${prompt.name}`
     if (activeCount > 1) {
       throw new Error(
-        `Invariant violated: stage ${stage} has ${activeCount} active PromptVersions (expected at most 1)`
+        `Invariant violated: prompt ${label} has ${activeCount} active PromptVersions (expected at most 1)`
       )
     }
-    console.log(`  Invariant OK: ${stage} has ${activeCount} active PromptVersion(s)`)
+    console.log(`  Invariant OK: ${label} has ${activeCount} active PromptVersion(s)`)
+  }
+
+  const promptDefaults = await prisma.promptDefault.findMany({
+    include: {
+      prompt: {
+        select: { id: true, stage: true, name: true },
+      },
+      promptVersion: {
+        select: { id: true, promptId: true, versionLabel: true },
+      },
+    },
+    orderBy: { slot: 'asc' },
+  })
+
+  for (const promptDefault of promptDefaults) {
+    if (promptDefault.promptId !== promptDefault.promptVersion.promptId) {
+      throw new Error(
+        `Invariant violated: prompt default ${promptDefault.slot} points to mismatched prompt version ${promptDefault.promptVersion.id}`
+      )
+    }
+    console.log(
+      `  Invariant OK: ${promptDefault.slot} -> ${promptDefault.prompt.name}/${promptDefault.promptVersion.versionLabel}`
+    )
   }
 
   console.log('Seed complete.')

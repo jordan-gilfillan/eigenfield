@@ -9,7 +9,8 @@
 
 import { prisma } from '../db'
 import { sha256, hashToUint32 } from '../hash'
-import type { Category, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Category } from '@prisma/client'
 import {
   callLlm,
   inferProvider,
@@ -19,33 +20,41 @@ import {
   assertWithinBudget,
   RateLimiter,
   LlmBadOutputError,
-  BudgetExceededError,
 } from '../llm'
 import type { LlmCallContext } from '../llm'
+import {
+  cloneClassifyWarningDetails,
+  createEmptyClassifyWarningDetails,
+  formatClassifyWarningDetailsForLog,
+  hasClassifyWarningDetails,
+  recordAliasedCategory,
+  recordBadOutputReason,
+  type BadOutputReasonKey,
+  type ClassifyWarningDetails,
+} from '../classify-warning-details'
+import {
+  ALL_CLASSIFY_CATEGORIES,
+  DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS,
+  STUB_CLASSIFY_CATEGORIES,
+} from '../canonical-prompts'
+import {
+  getPromptSlotCompatibility,
+  type PromptVersionWithPrompt,
+} from '../prompt-metadata'
 import { getCalendarDaySpendUsd } from './budget-queries'
+import { resolveDefaultClassifyPromptVersion, type DefaultClassifyPromptMode } from './prompt-version-defaults'
 
 // Import from shared errors + re-export for backward compatibility
-import { InvalidInputError, NotFoundError } from '../errors'
+import { InvalidInputError, NotFoundError, ServiceError } from '../errors'
 export { InvalidInputError }
 
 /**
  * Core categories in the exact order required by stub_v1 algorithm (spec 7.2)
  */
-const STUB_CATEGORIES: Category[] = [
-  'WORK',
-  'LEARNING',
-  'CREATIVE',
-  'MUNDANE',
-  'PERSONAL',
-  'OTHER',
-]
+const STUB_CATEGORIES: Category[] = [...STUB_CLASSIFY_CATEGORIES]
 
 /** All valid Category values from the Prisma enum (spec 6.4) */
-const ALL_CATEGORIES: ReadonlySet<string> = new Set([
-  'WORK', 'LEARNING', 'CREATIVE', 'MUNDANE', 'PERSONAL', 'OTHER',
-  'MEDICAL', 'MENTAL_HEALTH', 'ADDICTION_RECOVERY', 'INTIMACY',
-  'FINANCIAL', 'LEGAL', 'EMBARRASSING',
-])
+const ALL_CATEGORIES: ReadonlySet<string> = new Set(ALL_CLASSIFY_CATEGORIES)
 
 /**
  * Small explicit alias map for common near-miss categories emitted by models.
@@ -60,11 +69,15 @@ const CATEGORY_ALIASES: Readonly<Record<string, Category>> = {
 
 /** Batch size for processing to avoid Postgres bind variable limits */
 const BATCH_SIZE = 10000
-const SAMPLE_CAP = 5
 const CHECKPOINT_ATOM_INTERVAL = 100
 const CHECKPOINT_MS_INTERVAL = 5000
 
+export const CLASSIFY_STOP_REQUESTED_CODE = 'USER_STOP_REQUESTED'
+export const CLASSIFY_STOPPED_CODE = 'USER_STOPPED'
+
 export interface ClassifyOptions {
+  /** Optional client-supplied classify run ID for foreground polling. */
+  classifyRunId?: string
   /** The import batch to classify */
   importBatchId: string
   /** Model string (for stub, must be "stub_v1") */
@@ -95,6 +108,12 @@ export interface ClassifyResult {
     badCategorySamples: string[]
     aliasedCategorySamples: string[]
   }
+}
+
+export interface RequestClassifyStopResult {
+  id: string
+  status: string
+  stopRequested: boolean
 }
 
 /**
@@ -208,6 +227,7 @@ export function parseClassifyOutput(text: string): { category: Category; confide
 
   if (parsed === undefined) {
     throw new LlmBadOutputError('LLM output is not valid JSON', {
+      reason: 'invalid_json',
       rawOutput: text,
       candidatesTried: parseErrors.length,
       parseErrors: parseErrors.slice(0, 3),
@@ -215,32 +235,50 @@ export function parseClassifyOutput(text: string): { category: Category; confide
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new LlmBadOutputError('LLM output is not a JSON object', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output is not a JSON object', {
+      reason: 'non_object',
+      rawOutput: text,
+    })
   }
 
   const obj = parsed as Record<string, unknown>
 
   // Validate category
   if (typeof obj.category !== 'string') {
-    throw new LlmBadOutputError('LLM output missing or invalid "category" field', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output missing or invalid "category" field', {
+      reason: 'bad_category_field',
+      rawOutput: text,
+    })
   }
   const normalized = normalizeCategory(obj.category)
   const categoryUpper = normalized.category
   if (!ALL_CATEGORIES.has(categoryUpper)) {
     throw new LlmBadOutputError(
       `LLM output has invalid category: "${obj.category}"`,
-      { rawOutput: text, category: obj.category, validCategories: [...ALL_CATEGORIES] }
+      {
+        reason: 'invalid_category_value',
+        rawOutput: text,
+        category: obj.category,
+        validCategories: [...ALL_CATEGORIES],
+      }
     )
   }
 
   // Validate confidence
   if (typeof obj.confidence !== 'number') {
-    throw new LlmBadOutputError('LLM output missing or invalid "confidence" field', { rawOutput: text })
+    throw new LlmBadOutputError('LLM output missing or invalid "confidence" field', {
+      reason: 'bad_confidence_field',
+      rawOutput: text,
+    })
   }
   if (obj.confidence < 0 || obj.confidence > 1) {
     throw new LlmBadOutputError(
       `LLM output has confidence out of range [0, 1]: ${obj.confidence}`,
-      { rawOutput: text, confidence: obj.confidence }
+      {
+        reason: 'confidence_out_of_range',
+        rawOutput: text,
+        confidence: obj.confidence,
+      }
     )
   }
 
@@ -260,6 +298,7 @@ interface ClassifyProgress {
   tokensOut: number
   costUsd: number
   lastAtomStableIdProcessed: string | null
+  warningDetails: ClassifyWarningDetails
 }
 
 interface CheckpointState {
@@ -325,6 +364,98 @@ function toPersistedClassifyError(error: unknown): Prisma.InputJsonObject {
   }
 }
 
+function getPersistedErrorCode(errorJson: unknown): string | null {
+  if (!errorJson || typeof errorJson !== 'object' || Array.isArray(errorJson)) {
+    return null
+  }
+
+  const code = (errorJson as { code?: unknown }).code
+  return typeof code === 'string' ? code : null
+}
+
+export function isClassifyStopRequested(errorJson: unknown): boolean {
+  return getPersistedErrorCode(errorJson) === CLASSIFY_STOP_REQUESTED_CODE
+}
+
+export function isClassifyStoppedError(errorJson: unknown): boolean {
+  return getPersistedErrorCode(errorJson) === CLASSIFY_STOPPED_CODE
+}
+
+function buildStopRequestedPayload(): Prisma.InputJsonObject {
+  return {
+    code: CLASSIFY_STOP_REQUESTED_CODE,
+    message: 'Stop requested by user. Classification will stop after the current atom.',
+    requestedAt: new Date().toISOString(),
+  }
+}
+
+export class ClassifyStoppedError extends ServiceError {
+  constructor(message = 'Classification stopped by user') {
+    super(message, { code: CLASSIFY_STOPPED_CODE, httpStatus: 409 })
+  }
+}
+
+export async function requestClassifyStop(classifyRunId: string): Promise<RequestClassifyStopResult> {
+  const classifyRun = await prisma.classifyRun.findUnique({
+    where: { id: classifyRunId },
+    select: { id: true, status: true, errorJson: true },
+  })
+
+  if (!classifyRun) {
+    throw new NotFoundError('ClassifyRun', classifyRunId)
+  }
+
+  if (classifyRun.status !== 'running') {
+    return {
+      id: classifyRun.id,
+      status: classifyRun.status,
+      stopRequested: false,
+    }
+  }
+
+  if (isClassifyStopRequested(classifyRun.errorJson)) {
+    return {
+      id: classifyRun.id,
+      status: classifyRun.status,
+      stopRequested: true,
+    }
+  }
+
+  await prisma.classifyRun.update({
+    where: { id: classifyRun.id },
+    data: {
+      errorJson: buildStopRequestedPayload(),
+    },
+  })
+
+  console.info(`[classify] stop requested ${classifyRun.id}`)
+
+  return {
+    id: classifyRun.id,
+    status: classifyRun.status,
+    stopRequested: true,
+  }
+}
+
+async function assertClassifyRunContinuing(classifyRunId: string): Promise<void> {
+  const classifyRun = await prisma.classifyRun.findUnique({
+    where: { id: classifyRunId },
+    select: { status: true, errorJson: true },
+  })
+
+  if (!classifyRun) {
+    throw new NotFoundError('ClassifyRun', classifyRunId)
+  }
+
+  if (isClassifyStopRequested(classifyRun.errorJson)) {
+    throw new ClassifyStoppedError()
+  }
+
+  if (classifyRun.status !== 'running') {
+    throw new ClassifyStoppedError('Classification is no longer running')
+  }
+}
+
 async function countLabelsForSpec(
   importBatchId: string,
   promptVersionId: string,
@@ -368,6 +499,46 @@ function buildProgressSnapshot(
   }
 }
 
+function getBadOutputReason(error: LlmBadOutputError): BadOutputReasonKey {
+  const reason = error.details?.reason
+  switch (reason) {
+    case 'invalid_json':
+    case 'non_object':
+    case 'bad_category_field':
+    case 'invalid_category_value':
+    case 'bad_confidence_field':
+    case 'confidence_out_of_range':
+      return reason
+    default:
+      return 'invalid_json'
+  }
+}
+
+function buildPersistedWarningDetails(progress: ClassifyProgress): ClassifyWarningDetails | null {
+  return hasClassifyWarningDetails(progress.warningDetails)
+    ? cloneClassifyWarningDetails(progress.warningDetails)
+    : null
+}
+
+function toPersistedWarningDetailsJson(details: ClassifyWarningDetails | null): Prisma.InputJsonObject | null {
+  if (!details) return null
+  return JSON.parse(JSON.stringify(details)) as Prisma.InputJsonObject
+}
+
+function buildClassifyWarnings(progress: ClassifyProgress): ClassifyResult['warnings'] | undefined {
+  const details = buildPersistedWarningDetails(progress)
+  if (!details && progress.skippedBadOutput === 0 && progress.aliasedCount === 0) {
+    return undefined
+  }
+
+  return {
+    skippedBadOutput: progress.skippedBadOutput,
+    aliasedCount: progress.aliasedCount,
+    badCategorySamples: details?.badCategorySamples ?? [],
+    aliasedCategorySamples: details?.aliasedCategorySamples ?? [],
+  }
+}
+
 async function maybeCheckpointClassifyRun(
   classifyRunId: string,
   mode: 'stub' | 'real',
@@ -386,6 +557,8 @@ async function maybeCheckpointClassifyRun(
   }
 
   const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
+  const warningDetails = buildPersistedWarningDetails(progress)
+  const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
 
   await prisma.classifyRun.update({
     where: { id: classifyRunId },
@@ -404,8 +577,17 @@ async function maybeCheckpointClassifyRun(
             costUsd: progress.costUsd,
           }
         : {}),
+      ...(warningDetailsJson ? { warningDetailsJson } : {}),
     },
   })
+
+  const usageSuffix = mode === 'real'
+    ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+    : ''
+  const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
+  console.info(
+    `[classify] checkpoint ${classifyRunId} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+  )
 
   checkpointState.lastWriteMs = now
   checkpointState.lastWrittenProcessedAtoms = progress.processedAtoms
@@ -425,7 +607,7 @@ async function maybeCheckpointClassifyRun(
  * @throws LlmBadOutputError if LLM returns unparseable output
  */
 export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyResult> {
-  const { importBatchId, model, promptVersionId, mode } = options
+  const { classifyRunId, importBatchId, model, promptVersionId, mode } = options
 
   // Verify import batch exists
   const importBatch = await prisma.importBatch.findUnique({
@@ -438,7 +620,15 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   // Verify prompt version exists (include parent Prompt for stage check)
   const promptVersion = await prisma.promptVersion.findUnique({
     where: { id: promptVersionId },
-    include: { prompt: { select: { stage: true } } },
+    include: {
+      prompt: {
+        select: {
+          id: true,
+          stage: true,
+          name: true,
+        },
+      },
+    },
   })
   if (!promptVersion) {
     throw new NotFoundError('PromptVersion', promptVersionId)
@@ -455,19 +645,25 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     }
 
     // Must NOT be the seeded stub prompt version
-    if (promptVersion.versionLabel === 'classify_stub_v1') {
+    if (promptVersion.versionLabel === DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS.stub) {
       throw new InvalidInputError(
-        'mode="real" must not use classify_stub_v1 prompt version',
+        `mode="real" must not use ${DEFAULT_CLASSIFY_PROMPT_VERSION_LABELS.stub} prompt version`,
         { promptVersionId, versionLabel: promptVersion.versionLabel }
       )
     }
 
-    // Template must be JSON-constraining (contains category+confidence markers)
-    const t = promptVersion.templateText
-    if (!t.includes('category') || !t.includes('confidence')) {
+    const compatibility = getPromptSlotCompatibility(
+      promptVersion as PromptVersionWithPrompt,
+      'CLASSIFY_REAL',
+    )
+    if (!compatibility.valid) {
       throw new InvalidInputError(
-        'mode="real" requires a JSON-constraining classify prompt (must reference "category" and "confidence")',
-        { promptVersionId, versionLabel: promptVersion.versionLabel }
+        'mode="real" requires a structurally valid classify prompt with JSON-only instructions and the full allowed category taxonomy',
+        {
+          promptVersionId,
+          versionLabel: promptVersion.versionLabel,
+          reasons: compatibility.reasons,
+        },
       )
     }
   }
@@ -485,6 +681,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
     tokensOut: 0,
     costUsd: 0,
     lastAtomStableIdProcessed: null,
+    warningDetails: createEmptyClassifyWarningDetails(),
   }
   const checkpointState: CheckpointState = {
     lastWriteMs: Date.now(),
@@ -493,6 +690,7 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
 
   const classifyRun = await prisma.classifyRun.create({
     data: {
+      ...(classifyRunId ? { id: classifyRunId } : {}),
       importBatchId,
       model,
       promptVersionId,
@@ -537,6 +735,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
+          errorJson: Prisma.DbNull,
+          warningDetailsJson: Prisma.DbNull,
         },
       })
 
@@ -570,6 +770,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
           aliasedCount: 0,
           labeledTotal: existingLabelCount,
           lastAtomStableIdProcessed: null,
+          errorJson: Prisma.DbNull,
+          warningDetailsJson: Prisma.DbNull,
         },
       })
 
@@ -603,6 +805,8 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
       )
     }
 
+    const warningDetails = buildPersistedWarningDetails(progress)
+    const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
     await prisma.classifyRun.update({
       where: { id: classifyRun.id },
       data: {
@@ -623,13 +827,25 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
               costUsd: progress.costUsd,
             }
           : {}),
+        errorJson: Prisma.DbNull,
+        warningDetailsJson: warningDetailsJson ?? Prisma.DbNull,
       },
     })
+
+    const usageSuffix = mode === 'real'
+      ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+      : ''
+    const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
+    console.info(
+      `[classify] finished ${classifyRun.id} processed=${result.totals.messageAtoms}/${totalAtoms} newlyLabeled=${result.totals.newlyLabeled} skippedBadOutput=${progress.skippedBadOutput} aliased=${progress.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+    )
 
     return result
   } catch (error) {
     try {
       const snapshot = buildProgressSnapshot(totalAtoms, existingLabelCount, progress)
+      const warningDetails = buildPersistedWarningDetails(progress)
+      const warningDetailsJson = toPersistedWarningDetailsJson(warningDetails)
 
       await prisma.classifyRun.update({
         where: { id: classifyRun.id },
@@ -651,8 +867,23 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
               }
             : {}),
           errorJson: toPersistedClassifyError(error),
+          warningDetailsJson: warningDetailsJson ?? Prisma.DbNull,
         },
       })
+
+      const usageSuffix = mode === 'real'
+        ? ` tokensIn=${progress.tokensIn} tokensOut=${progress.tokensOut} costUsd=${progress.costUsd.toFixed(4)}`
+        : ''
+      const diagnosticsSuffix = formatClassifyWarningDetailsForLog(warningDetails)
+      if (error instanceof ClassifyStoppedError) {
+        console.info(
+          `[classify] stopped ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+        )
+      } else {
+        console.info(
+          `[classify] failed ${classifyRun.id} processed=${snapshot.processedAtoms}/${totalAtoms} newlyLabeled=${snapshot.newlyLabeled} skippedBadOutput=${snapshot.skippedBadOutput} aliased=${snapshot.aliasedCount}${usageSuffix}${diagnosticsSuffix}`,
+        )
+      }
     } catch (persistError) {
       console.error('Failed to persist classify failure audit trail:', persistError)
     }
@@ -677,6 +908,8 @@ async function classifyBatchStub(
   let cursor: string | undefined
 
   while (true) {
+    await assertClassifyRunContinuing(classifyRunId)
+
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
@@ -718,6 +951,8 @@ async function classifyBatchStub(
       progress,
       checkpointState,
     )
+
+    await assertClassifyRunContinuing(classifyRunId)
 
     if (atomsBatch.length < BATCH_SIZE) break
   }
@@ -774,16 +1009,11 @@ async function classifyBatchReal(
   const budgetPolicy = getSpendCaps()
   const daySpendAtStart = await getCalendarDaySpendUsd()
   let sessionSpentUsd = progress.costUsd
-  const badCategorySamples: string[] = []
-  const aliasedCategorySamples: string[] = []
   let cursor: string | undefined
 
-  const addSample = (samples: string[], value: string) => {
-    if (samples.length >= SAMPLE_CAP || samples.includes(value)) return
-    samples.push(value)
-  }
-
   while (true) {
+    await assertClassifyRunContinuing(classifyRunId)
+
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
@@ -800,6 +1030,8 @@ async function classifyBatchReal(
     if (atomsBatch.length === 0) break
 
     for (const atom of atomsBatch) {
+      await assertClassifyRunContinuing(classifyRunId)
+
       // Rate limit
       await rateLimiter.acquire()
 
@@ -855,12 +1087,15 @@ async function classifyBatchReal(
         parsed = parseClassifyOutput(response.text)
       } catch (error) {
         if (error instanceof LlmBadOutputError) {
+          const reason = getBadOutputReason(error)
           progress.skippedBadOutput += 1
           progress.processedAtoms += 1
           progress.lastAtomStableIdProcessed = atom.atomStableId
-          if (typeof error.details?.category === 'string') {
-            addSample(badCategorySamples, error.details.category)
-          }
+          recordBadOutputReason(
+            progress.warningDetails,
+            reason,
+            typeof error.details?.category === 'string' ? error.details.category : undefined,
+          )
           await maybeCheckpointClassifyRun(
             classifyRunId,
             'real',
@@ -869,6 +1104,7 @@ async function classifyBatchReal(
             progress,
             checkpointState,
           )
+          await assertClassifyRunContinuing(classifyRunId)
           continue
         }
         throw error
@@ -876,7 +1112,7 @@ async function classifyBatchReal(
 
       if (parsed.aliasedFrom) {
         progress.aliasedCount += 1
-        addSample(aliasedCategorySamples, parsed.aliasedFrom)
+        recordAliasedCategory(progress.warningDetails, parsed.aliasedFrom)
       }
 
       // Write label (skipDuplicates for concurrency safety)
@@ -902,6 +1138,7 @@ async function classifyBatchReal(
         progress,
         checkpointState,
       )
+      await assertClassifyRunContinuing(classifyRunId)
     }
 
     cursor = atomsBatch[atomsBatch.length - 1].id
@@ -909,6 +1146,8 @@ async function classifyBatchReal(
   }
 
   const totalLabeled = await countLabelsForSpec(importBatchId, promptVersionId, model)
+
+  const warnings = buildClassifyWarnings(progress)
 
   return {
     classifyRunId,
@@ -921,29 +1160,13 @@ async function classifyBatchReal(
       newlyLabeled: progress.newlyLabeled,
       skippedAlreadyLabeled: Math.max(totalLabeled - progress.newlyLabeled, 0),
     },
-    warnings: {
-      skippedBadOutput: progress.skippedBadOutput,
-      aliasedCount: progress.aliasedCount,
-      badCategorySamples,
-      aliasedCategorySamples,
-    },
+    warnings,
   }
 }
 
 /**
- * Gets the active PromptVersion for the classify stage.
- * Returns null if none is active.
+ * Gets the default PromptVersion for classify.
  */
-export async function getActiveClassifyPromptVersion() {
-  return prisma.promptVersion.findFirst({
-    where: {
-      isActive: true,
-      prompt: {
-        stage: 'CLASSIFY',
-      },
-    },
-    include: {
-      prompt: true,
-    },
-  })
+export async function getActiveClassifyPromptVersion(mode: DefaultClassifyPromptMode = 'real') {
+  return resolveDefaultClassifyPromptVersion(mode)
 }

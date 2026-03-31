@@ -65,6 +65,22 @@ export interface ImportStats {
   per_source_counts: Record<string, number>
 }
 
+export interface ImportBatchStoredCounts {
+  messageAtoms: number
+  rawEntries: number
+}
+
+export interface ImportBatchSummary {
+  id: string
+  createdAt: Date
+  source: string
+  originalFilename: string
+  fileSizeBytes: number
+  timezone: string
+  stats: ImportStats
+  storedCounts: ImportBatchStoredCounts
+}
+
 export interface ImportResult {
   importBatch: {
     id: string
@@ -297,16 +313,19 @@ export async function importExport(options: ImportOptions): Promise<ImportResult
   }
 }
 
-/**
- * Gets an ImportBatch by ID with its stats.
- */
-export async function getImportBatch(id: string) {
-  const batch = await prisma.importBatch.findUnique({
-    where: { id },
-  })
-
-  if (!batch) return null
-
+function mapImportBatchSummary(batch: {
+  id: string
+  createdAt: Date
+  source: Source
+  originalFilename: string
+  fileSizeBytes: number
+  timezone: string
+  statsJson: unknown
+  _count: {
+    messageAtoms: number
+    rawEntries: number
+  }
+}): ImportBatchSummary {
   return {
     id: batch.id,
     createdAt: batch.createdAt,
@@ -314,8 +333,40 @@ export async function getImportBatch(id: string) {
     originalFilename: batch.originalFilename,
     fileSizeBytes: batch.fileSizeBytes,
     timezone: batch.timezone,
-    stats: batch.statsJson as unknown as ImportStats,
+    stats: batch.statsJson as ImportStats,
+    storedCounts: {
+      messageAtoms: batch._count.messageAtoms,
+      rawEntries: batch._count.rawEntries,
+    },
   }
+}
+
+/**
+ * Gets an ImportBatch by ID with its stats.
+ */
+export async function getImportBatch(id: string) {
+  const batch = await prisma.importBatch.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      createdAt: true,
+      source: true,
+      originalFilename: true,
+      fileSizeBytes: true,
+      timezone: true,
+      statsJson: true,
+      _count: {
+        select: {
+          messageAtoms: true,
+          rawEntries: true,
+        },
+      },
+    },
+  })
+
+  if (!batch) return null
+
+  return mapImportBatchSummary(batch)
 }
 
 /**
@@ -332,6 +383,21 @@ export async function listImportBatches(options: {
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0, // Skip the cursor itself
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: {
+      id: true,
+      createdAt: true,
+      source: true,
+      originalFilename: true,
+      fileSizeBytes: true,
+      timezone: true,
+      statsJson: true,
+      _count: {
+        select: {
+          messageAtoms: true,
+          rawEntries: true,
+        },
+      },
+    },
   })
 
   const hasMore = batches.length > limit
@@ -339,15 +405,7 @@ export async function listImportBatches(options: {
   const nextCursor = hasMore ? items[items.length - 1].id : undefined
 
   return {
-    items: items.map((batch) => ({
-      id: batch.id,
-      createdAt: batch.createdAt,
-      source: batch.source.toLowerCase(),
-      originalFilename: batch.originalFilename,
-      fileSizeBytes: batch.fileSizeBytes,
-      timezone: batch.timezone,
-      stats: batch.statsJson as unknown as ImportStats,
-    })),
+    items: items.map((batch) => mapImportBatchSummary(batch)),
     nextCursor,
   }
 }
@@ -480,4 +538,3 @@ export async function getImportBatchDayAtoms(options: {
     }
   })
 }
-

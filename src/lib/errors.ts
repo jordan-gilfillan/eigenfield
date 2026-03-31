@@ -52,6 +52,12 @@ export class ConflictError extends ServiceError {
   }
 }
 
+export class ConfigurationError extends ServiceError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, { code: 'CONFIGURATION_ERROR', httpStatus: 500, details })
+  }
+}
+
 export class TickInProgressError extends ServiceError {
   constructor(message = 'Tick already in progress') {
     super(message, { code: 'TICK_IN_PROGRESS', httpStatus: 409 })

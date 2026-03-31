@@ -93,7 +93,7 @@ export async function processTick(options: TickOptions): Promise<TickResult> {
     const rateLimiter = new RateLimiter({ minDelayMs: getMinDelayMs() })
 
     // Load budget policy and existing spend for budget enforcement
-    const budgetPolicy = getSpendCaps()
+    const budgetPolicy = config.budgetPolicy ?? getSpendCaps()
     const [existingSpendAgg, daySpendAtStart] = await Promise.all([
       prisma.job.aggregate({
         where: { runId },
@@ -455,4 +455,3 @@ function buildTickResult(
     runStatus,
   }
 }
-

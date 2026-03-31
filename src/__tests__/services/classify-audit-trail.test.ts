@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import type { ClassifyWarningDetails } from '../../lib/classify-warning-details'
 import { prisma } from '../../lib/db'
 import { classifyBatch } from '../../lib/services/classify'
 import { importExport } from '../../lib/services/import'
+import { resolveDefaultClassifyPromptVersion } from '../../lib/services/prompt-version-defaults'
 import * as llmModule from '../../lib/llm'
 import { GET as getLastClassify } from '../../app/api/distill/import-batches/[id]/last-classify/route'
 import { POST as postClassify } from '../../app/api/distill/classify/route'
+import { CANONICAL_PROMPT_TEMPLATES } from '../../lib/canonical-prompts'
+import { createCanonicalPromptVersionFixture } from '../fixtures/prompt-fixtures'
 
 interface LastClassifyResponse {
   hasStats: boolean
@@ -19,6 +23,9 @@ interface LastClassifyResponse {
     aliasedCount: number
     labeledTotal: number
     mode: string
+    promptVersionLabel: string
+    promptName: string
+    warningDetails?: ClassifyWarningDetails
     errorJson: {
       code: string
       message: string
@@ -46,60 +53,28 @@ async function fetchLastClassify(
 
 describe('ClassifyRun audit trail', () => {
   const createdBatchIds: string[] = []
+  const createdPromptVersionIds: string[] = []
   let realPromptVersionId: string
   let stubPromptVersionId: string
   const originalEnv = { ...process.env }
 
   beforeEach(async () => {
     process.env = { ...originalEnv }
+    delete process.env.LLM_MODE
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
     process.env.LLM_MIN_DELAY_MS = '0'
 
-    const classifyPrompt = await prisma.prompt.upsert({
-      where: { stage_name: { stage: 'CLASSIFY', name: 'default-classifier' } },
-      update: {},
-      create: {
-        stage: 'CLASSIFY',
-        name: 'default-classifier',
-      },
+    const realPv = await createCanonicalPromptVersionFixture({
+      stage: 'CLASSIFY',
+      versionLabelBase: 'classify-real-audit-test',
+      templateText:
+        CANONICAL_PROMPT_TEMPLATES.CLASSIFY['default-classifier'].classify_real_v1,
     })
+    createdPromptVersionIds.push(realPv.promptVersion.id)
+    realPromptVersionId = realPv.promptVersion.id
 
-    const realPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_real_v1_audit_test',
-        },
-      },
-      update: {
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_real_v1_audit_test',
-        templateText: 'Respond with JSON: {"category":"<CAT>","confidence":<0-1>}',
-        isActive: false,
-      },
-    })
-    realPromptVersionId = realPv.id
-
-    const stubPv = await prisma.promptVersion.upsert({
-      where: {
-        promptId_versionLabel: {
-          promptId: classifyPrompt.id,
-          versionLabel: 'classify_stub_v1',
-        },
-      },
-      update: {
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-      },
-      create: {
-        promptId: classifyPrompt.id,
-        versionLabel: 'classify_stub_v1',
-        templateText: 'STUB: Deterministic classification based on atomStableId hash.',
-        isActive: true,
-      },
-    })
-    stubPromptVersionId = stubPv.id
+    stubPromptVersionId = (await resolveDefaultClassifyPromptVersion('stub')).id
   })
 
   afterEach(async () => {
@@ -114,6 +89,13 @@ describe('ClassifyRun audit trail', () => {
       await prisma.importBatch.delete({ where: { id } }).catch(() => {})
     }
     createdBatchIds.length = 0
+
+    for (const id of createdPromptVersionIds) {
+      await prisma.classifyRun.deleteMany({ where: { promptVersionId: id } })
+      await prisma.messageLabel.deleteMany({ where: { promptVersionId: id } })
+      await prisma.promptVersion.delete({ where: { id } }).catch(() => {})
+    }
+    createdPromptVersionIds.length = 0
   })
 
   it('persists failed status + partial counters + errorJson when callLlm throws mid-run', async () => {
@@ -203,7 +185,74 @@ describe('ClassifyRun audit trail', () => {
     expect(last.stats).toBeDefined()
     expect(last.stats!.status).toBe('succeeded')
     expect(last.stats!.processedAtoms).toBe(last.stats!.totalAtoms)
+    expect(last.stats!.promptVersionLabel).toContain('classify-real-audit-test')
+    expect(last.stats!.promptName).toBe('default-classifier')
+    expect(last.stats!.warningDetails).toBeUndefined()
     expect(last.stats!.errorJson).toBeNull()
+  })
+
+  it('persists safe warningDetails on last-classify responses', async () => {
+    const content = createTestExport([
+      { id: 'msg-audit-warn-1', role: 'user', text: 'invalid category path', timestamp: 1705316510, conversationId: 'conv-audit-warn' },
+      { id: 'msg-audit-warn-2', role: 'assistant', text: 'alias path', timestamp: 1705316511, conversationId: 'conv-audit-warn' },
+    ])
+
+    const importResult = await importExport({
+      content,
+      filename: 'audit-warn.json',
+      fileSizeBytes: content.length,
+    })
+    createdBatchIds.push(importResult.importBatch.id)
+
+    let callCount = 0
+    vi.spyOn(llmModule, 'callLlm').mockImplementation(async () => {
+      callCount += 1
+      if (callCount === 1) {
+        return {
+          text: '{"category":"GALACTIC","confidence":0.61}',
+          tokensIn: 10,
+          tokensOut: 10,
+          costUsd: 0.001,
+          dryRun: false,
+        }
+      }
+      return {
+        text: '{"category":"ETHICAL","confidence":0.75}',
+        tokensIn: 10,
+        tokensOut: 10,
+        costUsd: 0.001,
+        dryRun: false,
+      }
+    })
+
+    const result = await classifyBatch({
+      importBatchId: importResult.importBatch.id,
+      model: 'gpt-4o',
+      promptVersionId: realPromptVersionId,
+      mode: 'real',
+    })
+
+    expect(result.totals.newlyLabeled).toBe(1)
+
+    const last = await fetchLastClassify(importResult.importBatch.id, 'gpt-4o', realPromptVersionId)
+
+    expect(last.hasStats).toBe(true)
+    expect(last.stats?.skippedBadOutput).toBe(1)
+    expect(last.stats?.aliasedCount).toBe(1)
+    expect(last.stats?.warningDetails).toEqual({
+      badOutputReasons: {
+        invalid_json: 0,
+        non_object: 0,
+        bad_category_field: 0,
+        invalid_category_value: 1,
+        bad_confidence_field: 0,
+        confidence_out_of_range: 0,
+      },
+      badCategorySamples: ['GALACTIC'],
+      aliasedCategorySamples: ['ETHICAL'],
+    })
+    expect(JSON.stringify(last.stats?.warningDetails)).not.toContain('rawOutput')
+    expect(JSON.stringify(last.stats?.warningDetails)).not.toContain('invalid category path')
   })
 
   it('preflight invalid input returns 400 and does not create ClassifyRun', async () => {

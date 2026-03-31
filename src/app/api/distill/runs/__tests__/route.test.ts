@@ -158,6 +158,28 @@ describe('POST /api/distill/runs — importBatchId XOR importBatchIds validation
     expect(json.error.code).toBe('INVALID_INPUT')
     expect(json.error.message).toContain('startDate')
   })
+
+  it('rejects invalid budgetPolicy values', async () => {
+    const res = await POST(
+      postRequest({
+        importBatchId: 'batch-a',
+        startDate: '2024-01-01',
+        endDate: '2024-01-02',
+        sources: ['chatgpt'],
+        filterProfileId: 'fp-1',
+        model: 'stub_v1',
+        budgetPolicy: {
+          maxUsdPerRun: 0,
+          maxUsdPerDay: 20,
+        },
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.code).toBe('INVALID_INPUT')
+    expect(json.error.message).toContain('budgetPolicy.maxUsdPerRun')
+  })
 })
 
 describe('POST /api/distill/runs — multi-batch integration', () => {
@@ -333,6 +355,43 @@ describe('POST /api/distill/runs — multi-batch integration', () => {
     const json = await res.json()
     expect(json.importBatchId).toBe(batch1Id)
     expect(json.importBatchIds).toEqual([batch1Id])
+  })
+
+  it('POST accepts budgetPolicy and freezes it into the run response + DB config', async () => {
+    const res = await POST(
+      postRequest({
+        importBatchId: batch1Id,
+        startDate: '2024-01-01',
+        endDate: '2024-01-01',
+        sources: ['chatgpt'],
+        filterProfileId,
+        model: 'gpt-4o',
+        labelSpec: { model: 'stub_v1', promptVersionId: classifyPvId },
+        budgetPolicy: {
+          maxUsdPerRun: 5,
+          maxUsdPerDay: 20,
+        },
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.config.budgetPolicy).toEqual({
+      maxUsdPerRun: 5,
+      maxUsdPerDay: 20,
+    })
+
+    const run = await prisma.run.findUnique({
+      where: { id: json.id },
+      select: { configJson: true },
+    })
+    const config = run!.configJson as {
+      budgetPolicy?: { maxUsdPerRun: number; maxUsdPerDay: number }
+    }
+    expect(config.budgetPolicy).toEqual({
+      maxUsdPerRun: 5,
+      maxUsdPerDay: 20,
+    })
   })
 
   it('POST with mixed timezones → 400 TIMEZONE_MISMATCH', async () => {

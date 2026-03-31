@@ -310,16 +310,30 @@ Seeded profiles (required):
 Determinism:
 - The default profile used by the UI MUST be `professional-only`.
 
-### 6.7 Prompt / PromptVersion
-Prompts exist per stage (classify/summarize/redact). One version may be active per stage.
+### 6.7 Prompt / PromptVersion / PromptDefault
+Prompts exist per stage (classify/summarize/redact). `Prompt.name` defines the prompt family within a stage.
 
 Minimum fields (required):
 - Prompt: `id`, `stage (classify|summarize|redact)`, `name`, `createdAt`
 - PromptVersion: `id`, `promptId`, `versionLabel` (e.g. `v3`), `templateText`, `createdAt`, `isActive`
+- PromptDefault: `slot`, `promptId`, `promptVersionId`, `createdAt`, `updatedAt`
 
 Rules:
-- At most one active PromptVersion per stage at a time (used only as the server/UI default). Stages not yet implemented (e.g. redact in v0.3) may have zero active versions.
-- `isActive` is a default selector only. It MUST NOT be used to choose prompt behavior by "mode" (e.g., stub vs real).
+- At most one active PromptVersion per Prompt family at a time.
+- `isActive` tracks the active version within a Prompt family only. It MUST NOT be used as a stage-wide default selector.
+- Implicit defaults are resolved through `PromptDefault.slot`, not through stage-wide `isActive`.
+- PromptDefault slots are:
+  - `CLASSIFY_STUB`
+  - `CLASSIFY_REAL`
+  - `SUMMARIZE`
+  - `REDACT`
+- Only canonical prompt families may own implicit default slots:
+  - `CLASSIFY` → `default-classifier`
+  - `SUMMARIZE` → `default-summarizer`
+  - `REDACT` → `default-redactor`
+- Custom prompt families may exist and may be selected explicitly by the user, but they MUST NOT become implicit defaults.
+- PromptVersions are immutable. Editing a prompt MUST create a new PromptVersion.
+- Seeded canonical PromptVersions are repo-owned integrity baselines. If an implicit default slot points at a seeded canonical version label, that version’s `templateText` MUST exactly match the repo seed text; otherwise the version is incompatible until the operator runs `npm run db:seed` or assigns a different compatible version.
 - Any endpoint that executes an LLM call MUST use an explicit PromptVersionId appropriate to that stage.
 - Runs MUST record the exact PromptVersion IDs used.
 
@@ -432,9 +446,17 @@ POST `/api/distill/classify`
 - Output: classifyRunId + counts (and optional progress when available; see 7.2.1).
 
 **PromptVersion selection (normative):**
-- `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText constrains the model to output strict JSON matching the classify output contract.
+- `mode="real"` MUST use a PromptVersion whose Prompt.stage is `classify` and whose templateText:
+  - instructs the model to return JSON-only output,
+  - explicitly constrains the output object to include `category` and `confidence`,
+  - includes the full allowed classify category taxonomy from §6.4.
 - `mode="real"` MUST NOT use the seeded stub prompt version (`classify_stub_v1`). If the request provides a stub promptVersionId in real mode, the server MUST reject the request with HTTP 400 `INVALID_INPUT`.
 - `mode="stub"` MUST be deterministic and MUST NOT make any external LLM/provider call. The server records the caller-provided `promptVersionId` unchanged in labels; it need not be `classify_stub_v1`. No guardrails are applied to `promptVersionId` in stub mode.
+- When the UI or server resolves a **default** classify PromptVersion implicitly (rather than from a caller-supplied `promptVersionId`), it MUST resolve the `PromptDefault` slot owned by the canonical classify family `Prompt.name="default-classifier"`:
+  - `mode="real"` → `CLASSIFY_REAL`
+  - `mode="stub"` → `CLASSIFY_STUB`
+- Seeded initial defaults are `classify_real_v1` and `classify_stub_v1`, but later canonical defaults may point to newer versions within the same prompt family.
+- Default selection MUST NOT fall back to an arbitrary active CLASSIFY PromptVersion from another `Prompt.name`.
 
 Stub mode must be deterministic for tests.
 
@@ -449,21 +471,61 @@ Normative behavior:
 Endpoints:
 - `POST /api/distill/classify` returns `classifyRunId`.
 - `GET /api/distill/classify-runs/:id` returns progress/status for that classify run.
+- `POST /api/distill/classify-runs/:id/stop` requests that a running classify stop after the current atom.
 
 `ClassifyRun.status` is: `running|succeeded|failed`. **Terminal states:** `succeeded`, `failed`.
+
+### 7.2.2 Prompt management
+Prompt management is advanced/user-initiated only.
+
+Endpoints:
+- `GET /api/distill/prompts?stage=CLASSIFY|SUMMARIZE|REDACT` returns prompt-family summaries plus version metadata.
+- `GET /api/distill/prompts/:promptId` returns full version detail, including template text.
+- `GET /api/distill/prompt-versions` may return either a list of prompt versions or a single `promptVersion` object; single-object responses used by selection UIs MUST include `templateText`.
+- `POST /api/distill/prompts/:promptId/versions` creates a new immutable PromptVersion within an existing prompt family.
+- `POST /api/distill/prompts/:promptId/activate` sets the active version within that prompt family.
+- `POST /api/distill/prompt-defaults/:slot` reassigns an implicit default slot to a compatible version within the canonical family for that slot.
+
+Rules:
+- No endpoint may edit PromptVersion text in place.
+- A `CLASSIFY_REAL` default assignment MUST fail closed if the selected version is not compatible with the real-classify JSON contract.
+- Any default assignment targeting a drifted seeded canonical PromptVersion MUST fail closed with a repair/configuration reason instead of silently accepting the drifted text.
+- `REDACT` may legitimately have no default slot assignment until redact execution exists.
 
 Status endpoint response (normative):
 ```json
 {
   "id": "string",
   "importBatchId": "string",
-  "labelSpec": {"model": "string", "promptVersionId": "string"},
+  "labelSpec": {
+    "model": "string",
+    "promptVersionId": "string",
+    "promptVersionLabel": "string",
+    "promptName": "string"
+  },
   "mode": "real|stub",
   "status": "running|succeeded|failed",
   "totals": {"messageAtoms": 0, "labeled": 0, "newlyLabeled": 0, "skippedAlreadyLabeled": 0},
   "progress": {"processedAtoms": 0, "totalAtoms": 0},
   "usage": {"tokensIn": 0, "tokensOut": 0, "costUsd": 0},
-  "warnings": {"skippedBadOutput": 0, "aliasedCount": 0},
+  "warnings": {
+    "skippedBadOutput": 0,
+    "aliasedCount": 0,
+    "details": {
+      "badOutputReasons": {
+        "invalid_json": 0,
+        "non_object": 0,
+        "bad_category_field": 0,
+        "invalid_category_value": 0,
+        "bad_confidence_field": 0,
+        "confidence_out_of_range": 0
+      },
+      "badCategorySamples": ["string"],
+      "aliasedCategorySamples": ["string"]
+    }
+  },
+  "checkpoint": {"lastAtomStableIdProcessed": "string | null"},
+  "control": {"canStop": true, "stopRequested": false},
   "lastError": null,
   "createdAt": "RFC3339",
   "updatedAt": "RFC3339",
@@ -474,6 +536,10 @@ Status endpoint response (normative):
 Notes:
 - `progress`, `usage`, and `warnings` MAY be partial while `status="running"`.
 - `warnings` contains classification-quality counters separate from progress tracking.
+- `warnings.details` is optional and, when present, MUST contain only safe aggregates/samples; raw model output and raw message text MUST NOT be persisted there.
+- `checkpoint.lastAtomStableIdProcessed` is optional progress detail for foreground diagnostics and SHOULD NOT include raw message text.
+- `control.stopRequested` is only meaningful while `status="running"`.
+- If the user stops classify, the terminal record remains `status="failed"` with `lastError.code="USER_STOPPED"`. Partial labels already written remain durable; a later rerun may skip them.
 - The status endpoint MUST be read-only and MUST NOT trigger classification work.
 
 **Deterministic stub algorithm (stub_v1):**
@@ -495,9 +561,9 @@ UI: `/distill` dashboard
   1) Resolve `importBatchIds` (see Input rules above). All referenced ImportBatches MUST exist; else HTTP 404 `NOT_FOUND`.
   2) Timezone uniformity: all selected batches must share the same timezone. If not → HTTP 400 `TIMEZONE_MISMATCH` `{ message, timezones: string[], batchIds: string[] }`.
   3) Freeze `promptVersionIds` for summarize (and redact/classify when those stages are added).
-  4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
+4) Freeze `labelSpec` for filtering (classifier model + promptVersionId):
      - If `labelSpec` is provided in the request, it MUST be used as-is (and the referenced PromptVersion MUST exist).
-     - If `labelSpec` is omitted, the server MUST select a default labelSpec using the active `classify` PromptVersion and the default classifier model for the chosen mode (v0.3 default: `stub_v1`).
+     - If `labelSpec` is omitted, the server MUST select the canonical default classify labelSpec using the `CLASSIFY_STUB` prompt-default slot and the default classifier model for the chosen mode (v0.3 default: `stub_v1`, initially pointing to `classify_stub_v1`).
      - If the selected batches have no labels matching the chosen labelSpec, run creation MUST fail with HTTP 400 `NO_ELIGIBLE_DAYS` (no silent fallback to other label versions).
   5) Freeze `filterProfileSnapshot`
   6) Determine eligible days: days where at least one **role = user** MessageAtom matches
@@ -1377,6 +1443,19 @@ Git Export v1 is intentionally minimal (§14.1–§14.9). Export v2 adds a **top
 - **EPIC-083e+** — Future: embedding-based sub-topics (`topic_v2`), requires separate spec-first design
 
 **Stop rule:** If topic tracking requires weakening determinism or introducing background jobs, STOP and design a separate architecture (§14.18).
+
+### EPIC-104 — Demo Wizard: Import -> Classify -> Summarize -> Use (invite-only readiness)
+
+- **Origin**: UX-first demo flow request (single-page, point-and-click) for later invite-only multi-tenant demos.
+- **Status**: Spec-only proposal (non-binding); implementation not started.
+- **Design doc**: `UX_DEMO_SPEC.md` (flow, IA, safety copy rules, multi-tenant readiness, AUD-102..AUD-111 slicing).
+
+This epic does not change current normative backend behavior. It proposes a guided `/demo` route that sits on top of existing `/distill/*` contracts while keeping determinism, foreground-only execution, and spend safeguards intact.
+
+**Invariants (must hold for any EPIC-104 implementation):**
+- No background jobs, cron, or hidden scheduling loops.
+- No weakening of determinism/frozen config guarantees.
+- Dry-run-safe defaults with explicit spend controls before real-mode calls.
 
 ---
 

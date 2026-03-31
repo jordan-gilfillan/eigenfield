@@ -9,15 +9,20 @@
 import { prisma } from '../db'
 import type { FilterMode, Source, Category } from '@prisma/client'
 import { buildPricingSnapshot, inferProvider } from '../llm'
-import type { PricingSnapshot } from '../llm'
+import type { PricingSnapshot, BudgetPolicy } from '../llm'
 import { parseRunConfig } from '../types/run-config'
 import { formatDate } from '../date-utils'
 import {
+  ConfigurationError,
   InvalidInputError,
   NotFoundError,
   NoEligibleDaysError,
   ConflictError,
 } from '../errors'
+import {
+  resolveDefaultClassifyPromptVersion,
+  resolveDefaultSummarizePromptVersion,
+} from './prompt-version-defaults'
 
 /** Default max input tokens per spec 9.2 */
 const DEFAULT_MAX_INPUT_TOKENS = 12000
@@ -60,6 +65,8 @@ export interface CreateRunOptions {
   }
   /** Optional max input tokens (defaults to 12000) */
   maxInputTokens?: number
+  /** Optional frozen budget policy for summarize/tick runtime. */
+  budgetPolicy?: BudgetPolicy
 }
 
 export interface CreateRunResult {
@@ -81,6 +88,7 @@ export interface CreateRunResult {
     maxInputTokens: number
     pricingSnapshot?: PricingSnapshot
     importBatchIds?: string[]
+    budgetPolicy?: BudgetPolicy
   }
   jobCount: number
   eligibleDays: string[]
@@ -165,14 +173,9 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
   }
 
   // 3. Get active summarize prompt version
-  const summarizePromptVersion = await prisma.promptVersion.findFirst({
-    where: {
-      isActive: true,
-      prompt: { stage: 'SUMMARIZE' },
-    },
-  })
+  const summarizePromptVersion = await resolveDefaultSummarizePromptVersion()
   if (!summarizePromptVersion) {
-    throw new InvalidInputError('No active summarize prompt version configured')
+    throw new ConfigurationError('No active summarize prompt version configured')
   }
 
   // 4. Resolve labelSpec: use provided or select default per SPEC §7.3
@@ -187,17 +190,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     }
     labelSpec = options.labelSpec
   } else {
-    // Default: active classify PromptVersion + default classifier model (stub_v1)
-    const activeClassifyVersion = await prisma.promptVersion.findFirst({
-      where: {
-        isActive: true,
-        prompt: { stage: 'CLASSIFY' },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    if (!activeClassifyVersion) {
-      throw new InvalidInputError('No active classify prompt version configured')
-    }
+    const activeClassifyVersion = await resolveDefaultClassifyPromptVersion('stub')
     labelSpec = {
       model: DEFAULT_CLASSIFY_MODEL,
       promptVersionId: activeClassifyVersion.id,
@@ -245,6 +238,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
     maxInputTokens,
     pricingSnapshot: { ...pricingSnapshot },
     importBatchIds,
+    ...(options.budgetPolicy ? { budgetPolicy: { ...options.budgetPolicy } } : {}),
   }
 
   // Convert sources to uppercase for DB
@@ -301,6 +295,7 @@ export async function createRun(options: CreateRunOptions): Promise<CreateRunRes
       maxInputTokens: configJson.maxInputTokens,
       pricingSnapshot: configJson.pricingSnapshot,
       importBatchIds: configJson.importBatchIds,
+      budgetPolicy: configJson.budgetPolicy,
     },
     jobCount: eligibleDays.length,
     eligibleDays,
