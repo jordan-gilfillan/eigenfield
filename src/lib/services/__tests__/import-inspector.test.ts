@@ -271,20 +271,21 @@ describe('Import Inspector - getImportBatchDayAtoms', () => {
     expect(atoms).toHaveLength(0)
   })
 
-  it('includes category and confidence from labels', async () => {
+  it('shows labels for user atoms and suppresses assistant labels', async () => {
     const atoms = await getImportBatchDayAtoms({
       importBatchId,
       dayDate: '2024-03-10',
     })
 
-    // Atoms 1 and 2 have labels
+    // Atom 1 is a labeled user atom
     const atom1 = atoms.find((a) => a.atomStableId === 'inspect-stable-aaa')!
     expect(atom1.category).toBe('learning')
     expect(atom1.confidence).toBe(0.8)
 
+    // Atom 2 has a legacy assistant label but should surface as unlabeled
     const atom2 = atoms.find((a) => a.atomStableId === 'inspect-stable-bbb')!
-    expect(atom2.category).toBe('learning')
-    expect(atom2.confidence).toBe(0.75)
+    expect(atom2.category).toBeNull()
+    expect(atom2.confidence).toBeNull()
 
     // Atom 3 has no label
     const atom3 = atoms.find((a) => a.atomStableId === 'inspect-stable-ccc')!

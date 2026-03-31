@@ -162,7 +162,7 @@ describe('Classification Service', () => {
   })
 
   describe('classifyBatch', () => {
-    it('classifies all atoms in an import batch', async () => {
+    it('classifies only user atoms in an import batch', async () => {
       const content = createTestExport([
         { id: 'msg-class-1', role: 'user', text: 'Classify test', timestamp: 1705316400, conversationId: 'conv-classify-all' },
         { id: 'msg-class-2', role: 'assistant', text: 'Classify reply', timestamp: 1705316401, conversationId: 'conv-classify-all' },
@@ -186,9 +186,96 @@ describe('Classification Service', () => {
       expect(result.labelSpec.model).toBe('stub_v1')
       expect(result.labelSpec.promptVersionId).toBe(defaultPromptVersionId)
       expect(result.mode).toBe('stub')
-      expect(result.totals.messageAtoms).toBe(2)
-      expect(result.totals.labeled).toBe(2)
-      expect(result.totals.newlyLabeled).toBe(2)
+      expect(result.totals.messageAtoms).toBe(1)
+      expect(result.totals.labeled).toBe(1)
+      expect(result.totals.newlyLabeled).toBe(1)
+      expect(result.totals.skippedAlreadyLabeled).toBe(0)
+
+      const labels = await prisma.messageLabel.findMany({
+        where: {
+          messageAtom: { importBatchId: importResult.importBatch.id },
+          model: 'stub_v1',
+          promptVersionId: defaultPromptVersionId,
+        },
+      })
+      expect(labels).toHaveLength(1)
+    })
+
+    it('ignores legacy assistant labels in totals and skip math', async () => {
+      const content = createTestExport([
+        { id: 'msg-legacy-1', role: 'user', text: 'Legacy user atom', timestamp: 1705316400, conversationId: 'conv-legacy' },
+        { id: 'msg-legacy-2', role: 'assistant', text: 'Legacy assistant atom', timestamp: 1705316401, conversationId: 'conv-legacy' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'legacy.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const assistantAtom = await prisma.messageAtom.findFirstOrThrow({
+        where: {
+          importBatchId: importResult.importBatch.id,
+          role: 'ASSISTANT',
+        },
+      })
+
+      await prisma.messageLabel.create({
+        data: {
+          messageAtomId: assistantAtom.id,
+          category: 'LEARNING',
+          confidence: 0.5,
+          model: 'stub_v1',
+          promptVersionId: defaultPromptVersionId,
+        },
+      })
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'stub_v1',
+        promptVersionId: defaultPromptVersionId,
+        mode: 'stub',
+      })
+
+      expect(result.totals.messageAtoms).toBe(1)
+      expect(result.totals.labeled).toBe(1)
+      expect(result.totals.newlyLabeled).toBe(1)
+      expect(result.totals.skippedAlreadyLabeled).toBe(0)
+
+      const assistantLabelCount = await prisma.messageLabel.count({
+        where: {
+          messageAtomId: assistantAtom.id,
+          model: 'stub_v1',
+          promptVersionId: defaultPromptVersionId,
+        },
+      })
+      expect(assistantLabelCount).toBe(1)
+    })
+
+    it('succeeds with zero totals for an assistant-only batch', async () => {
+      const content = createTestExport([
+        { id: 'msg-assistant-only-1', role: 'assistant', text: 'Assistant only 1', timestamp: 1705316400, conversationId: 'conv-assistant-only' },
+        { id: 'msg-assistant-only-2', role: 'assistant', text: 'Assistant only 2', timestamp: 1705316401, conversationId: 'conv-assistant-only' },
+      ])
+
+      const importResult = await importExport({
+        content,
+        filename: 'assistant-only.json',
+        fileSizeBytes: content.length,
+      })
+      createdBatchIds.push(importResult.importBatch.id)
+
+      const result = await classifyBatch({
+        importBatchId: importResult.importBatch.id,
+        model: 'stub_v1',
+        promptVersionId: defaultPromptVersionId,
+        mode: 'stub',
+      })
+
+      expect(result.totals.messageAtoms).toBe(0)
+      expect(result.totals.labeled).toBe(0)
+      expect(result.totals.newlyLabeled).toBe(0)
       expect(result.totals.skippedAlreadyLabeled).toBe(0)
     })
 
@@ -273,7 +360,7 @@ describe('Classification Service', () => {
         mode: 'stub',
       })
 
-      expect(result1.totals.newlyLabeled).toBe(2)
+      expect(result1.totals.newlyLabeled).toBe(1)
       expect(result1.totals.skippedAlreadyLabeled).toBe(0)
 
       // Second classification with same labelSpec
@@ -284,10 +371,10 @@ describe('Classification Service', () => {
         mode: 'stub',
       })
 
-      expect(result2.totals.messageAtoms).toBe(2)
-      expect(result2.totals.labeled).toBe(2)
+      expect(result2.totals.messageAtoms).toBe(1)
+      expect(result2.totals.labeled).toBe(1)
       expect(result2.totals.newlyLabeled).toBe(0)
-      expect(result2.totals.skippedAlreadyLabeled).toBe(2)
+      expect(result2.totals.skippedAlreadyLabeled).toBe(1)
     })
 
     it('version isolation: different promptVersionIds create separate labels', async () => {

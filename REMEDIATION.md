@@ -24,7 +24,7 @@ Each entry has:
 > **Rule:** This section must list only non-`Done` entries. If there are none, state that explicitly.
 
 - **P0 (Red build / integrity):** _none listed_
-- **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency); AUD-112 — Run detail export default path duplicates export root (`Not started`); AUD-113 — Search output deep link ignores requested day context (`Not started`); AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
+- **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency); AUD-112 — Run detail export default path duplicates export root (`Not started`); AUD-113 — Search output deep link ignores requested day context (`Not started`); AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`); AUD-125 — Classification must operate on USER atoms only (`In progress`)
 - **P2 (Blocked follow-ons):** AUD-110 → AUD-111 (`Blocked` until a fresh auth/tenant planning checkpoint after AUD-109)
 
 _Last refreshed: 2026-03-30_
@@ -47,6 +47,7 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 - AUD-112 — Run detail export default path duplicates export root (`Not started`)
 - AUD-113 — Search output deep link ignores requested day context (`Not started`)
 - AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
+- AUD-125 — Classification must operate on USER atoms only (`In progress`)
 - AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`)
 
 ### Blocked follow-ons
@@ -70,6 +71,7 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 - AUD-112
 - AUD-113
 - AUD-114
+- AUD-125
 
 ### Bucket E — Git Export pipeline (P1)
 - _none_
@@ -264,6 +266,20 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - The current search CTA is no longer misleading.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Notes**: Do not widen scope into general run-detail layout refactors.
+
+### AUD-125 — Classification must operate on USER atoms only
+- **Type**: Contract alignment
+- **Decision**: Fix code
+- **Status**: In progress
+- **Goal**: Make classification and classify-facing label surfaces operate on `role=USER` atoms only while keeping assistant text visible for audit/search.
+- **Touch set**: `src/lib/services/classify.ts`, search/import-inspector read services and routes, dashboard/run detail/demo classify-status copy, `SPEC.md`, `UX_SPEC.md`, targeted tests; no schema changes or API shape changes.
+- **Acceptance**:
+  - Classification counts, fetches, skip math, and persisted totals operate only on `role=USER` atoms in scope.
+  - Assistant-only batches/classify runs succeed with zero totals and zero new labels, and legacy assistant labels do not affect rerun math.
+  - Import inspector and raw search still show assistant text, but assistant atoms always surface `category: null` and `confidence: null`; category-filtered raw search excludes assistant hits.
+  - Dashboard, run detail, and `/demo` classify status copy explicitly refers to user atoms.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: No migrations or backfills. Keep summarization, bundle construction, and export behavior unchanged.
 
 ### AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify”
 - **Type**: Contract break

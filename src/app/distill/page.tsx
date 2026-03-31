@@ -756,7 +756,7 @@ function DashboardContent() {
                     Classification complete ({classifyResult.mode} mode)
                   </p>
                   <ul className="text-green-600 text-sm mt-1 space-y-1">
-                    <li>Total atoms: {classifyResult.totals.messageAtoms}</li>
+                    <li>Total user atoms: {classifyResult.totals.messageAtoms}</li>
                     <li>Newly labeled: {classifyResult.totals.newlyLabeled}</li>
                     <li>Already labeled: {classifyResult.totals.skippedAlreadyLabeled}</li>
                     <li>
@@ -829,7 +829,7 @@ function DashboardContent() {
                   <div className="mb-2">
                     <div className="flex justify-between text-indigo-700 text-xs mb-1">
                       <span>
-                        Processed {lastClassifyStats.stats.processedAtoms} / {lastClassifyStats.stats.totalAtoms}
+                        Processed user atoms {lastClassifyStats.stats.processedAtoms} / {lastClassifyStats.stats.totalAtoms}
                       </span>
                       <span>
                         {formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%
@@ -897,16 +897,16 @@ function DashboardContent() {
                     <div className="col-span-2">
                       Prompt: {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
                     </div>
-                    <div>Total atoms: {lastClassifyStats.stats.totalAtoms}</div>
-                    <div>Processed atoms: {lastClassifyStats.stats.processedAtoms}</div>
-                    <div>Labeled total: {lastClassifyStats.stats.labeledTotal}</div>
+                    <div>Total user atoms: {lastClassifyStats.stats.totalAtoms}</div>
+                    <div>Processed user atoms: {lastClassifyStats.stats.processedAtoms}</div>
+                    <div>Labeled user atoms: {lastClassifyStats.stats.labeledTotal}</div>
                     <div>Newly labeled: {lastClassifyStats.stats.newlyLabeled}</div>
                     <div>Skipped (already): {lastClassifyStats.stats.skippedAlreadyLabeled}</div>
                     <div>Skipped (bad output): {lastClassifyStats.stats.skippedBadOutput}</div>
                     <div>Aliased category count: {lastClassifyStats.stats.aliasedCount}</div>
                     {lastClassifyStats.stats.status === 'running' && (
                       <div className="col-span-2 font-medium">
-                        Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
+                        Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms} user atoms{' '}
                         ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
                       </div>
                     )}

@@ -254,6 +254,18 @@ beforeAll(async () => {
     },
   })
   labelIds.push(label2.id)
+
+  const label3 = await prisma.messageLabel.create({
+    data: {
+      id: 'search-test-label-3',
+      messageAtomId: 'search-atom-2',
+      category: 'LEARNING',
+      confidence: 0.4,
+      model: 'stub_v1',
+      promptVersionId: classifyPromptVersionId,
+    },
+  })
+  labelIds.push(label3.id)
 })
 
 afterAll(async () => {
@@ -575,13 +587,30 @@ describe('Search Service', () => {
       expect(atom1!.atom.category).toBe('learning')
       expect(atom1!.atom.confidence).toBeCloseTo(0.85)
 
-      // atom-2 has no label — should be null
+      // atom-2 has an assistant label in the DB but should still surface as null
       const atom2 = result.items.find(
         (item) => (item as { atom: { atomStableId: string } }).atom.atomStableId === 'search-stable-2'
       ) as { atom: { category: string | null; confidence: number | null } } | undefined
       expect(atom2).toBeDefined()
       expect(atom2!.atom.category).toBeNull()
       expect(atom2!.atom.confidence).toBeNull()
+    })
+
+    it('keeps assistant hits searchable while suppressing assistant label metadata', async () => {
+      const result = await search({
+        q: 'memoization',
+        scope: 'raw',
+        limit: 50,
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      expect(result.items).toHaveLength(1)
+      const atom = (result.items[0] as { atom: { atomStableId: string; role: string; category: string | null; confidence: number | null } }).atom
+      expect(atom.atomStableId).toBe('search-stable-2')
+      expect(atom.role).toBe('assistant')
+      expect(atom.category).toBeNull()
+      expect(atom.confidence).toBeNull()
     })
 
     it('returns null category/confidence without label context', async () => {
@@ -780,6 +809,19 @@ describe('Search Service', () => {
         scope: 'raw',
         limit: 50,
         categories: ['personal'],
+        labelModel: 'stub_v1',
+        labelPromptVersionId: classifyPromptVersionId,
+      })
+
+      expect(result.items).toHaveLength(0)
+    })
+
+    it('categories filter excludes assistant hits even when assistant atoms have matching labels', async () => {
+      const result = await search({
+        q: 'memoization',
+        scope: 'raw',
+        limit: 50,
+        categories: ['learning'],
         labelModel: 'stub_v1',
         labelPromptVersionId: classifyPromptVersionId,
       })

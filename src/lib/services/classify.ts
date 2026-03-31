@@ -1,7 +1,7 @@
 /**
  * Classification Service
  *
- * Handles classification of MessageAtoms.
+ * Handles classification of user MessageAtoms.
  * Supports stub mode (deterministic) and real mode (LLM-based via callLlm).
  *
  * Spec references: 7.2 (Classify), 6.3 (MessageLabel), 6.4 (Category)
@@ -71,6 +71,7 @@ const CATEGORY_ALIASES: Readonly<Record<string, Category>> = {
 const BATCH_SIZE = 10000
 const CHECKPOINT_ATOM_INTERVAL = 100
 const CHECKPOINT_MS_INTERVAL = 5000
+const CLASSIFIABLE_ROLE = 'USER' as const
 
 export const CLASSIFY_STOP_REQUESTED_CODE = 'USER_STOP_REQUESTED'
 export const CLASSIFY_STOPPED_CODE = 'USER_STOPPED'
@@ -463,7 +464,7 @@ async function countLabelsForSpec(
 ): Promise<number> {
   return prisma.messageLabel.count({
     where: {
-      messageAtom: { importBatchId },
+      messageAtom: { importBatchId, role: CLASSIFIABLE_ROLE },
       promptVersionId,
       model,
     },
@@ -594,7 +595,7 @@ async function maybeCheckpointClassifyRun(
 }
 
 /**
- * Classifies all MessageAtoms in an ImportBatch.
+ * Classifies user MessageAtoms in an ImportBatch.
  *
  * Label versioning rules (spec 6.3):
  * - MessageLabel uniqueness is (messageAtomId, promptVersionId, model)
@@ -669,7 +670,9 @@ export async function classifyBatch(options: ClassifyOptions): Promise<ClassifyR
   }
 
   // Count totals for this batch + labelSpec and create an auditable running row.
-  const totalAtoms = await prisma.messageAtom.count({ where: { importBatchId } })
+  const totalAtoms = await prisma.messageAtom.count({
+    where: { importBatchId, role: CLASSIFIABLE_ROLE },
+  })
   const existingLabelCount = await countLabelsForSpec(importBatchId, promptVersionId, model)
 
   const progress: ClassifyProgress = {
@@ -913,6 +916,7 @@ async function classifyBatchStub(
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
+        role: CLASSIFIABLE_ROLE,
         messageLabels: {
           none: { promptVersionId, model },
         },
@@ -1017,6 +1021,7 @@ async function classifyBatchReal(
     const atomsBatch = await prisma.messageAtom.findMany({
       where: {
         importBatchId,
+        role: CLASSIFIABLE_ROLE,
         messageLabels: {
           none: { promptVersionId, model },
         },
@@ -1056,7 +1061,7 @@ async function classifyBatchReal(
           messages: [
             {
               role: 'user',
-              content: `Source: ${atom.source}\nRole: ${atom.role}\n\n${atom.text}`,
+              content: `Source: ${atom.source}\nRole: ${CLASSIFIABLE_ROLE}\n\n${atom.text}`,
             },
           ],
           temperature: 0,

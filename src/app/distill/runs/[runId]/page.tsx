@@ -597,13 +597,13 @@ export default function RunDetailPage() {
               <span className="font-medium">Prompt:</span> {lastClassifyStats.stats.promptName} / {lastClassifyStats.stats.promptVersionLabel}
             </div>
             <div>
-              <span className="font-medium">Total Atoms:</span> {lastClassifyStats.stats.totalAtoms}
+              <span className="font-medium">Total User Atoms:</span> {lastClassifyStats.stats.totalAtoms}
             </div>
             <div>
-              <span className="font-medium">Processed Atoms:</span> {lastClassifyStats.stats.processedAtoms}
+              <span className="font-medium">Processed User Atoms:</span> {lastClassifyStats.stats.processedAtoms}
             </div>
             <div>
-              <span className="font-medium">Labeled Total:</span> {lastClassifyStats.stats.labeledTotal}
+              <span className="font-medium">Labeled User Atoms:</span> {lastClassifyStats.stats.labeledTotal}
             </div>
             <div>
               <span className="font-medium">Newly Labeled:</span> {lastClassifyStats.stats.newlyLabeled}
@@ -619,7 +619,7 @@ export default function RunDetailPage() {
             </div>
             {lastClassifyStats.stats.status === 'running' && (
               <div className="col-span-3 font-medium">
-                Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms}{' '}
+                Progress: {lastClassifyStats.stats.processedAtoms}/{lastClassifyStats.stats.totalAtoms} user atoms{' '}
                 ({formatProgressPercent(lastClassifyStats.stats.processedAtoms, lastClassifyStats.stats.totalAtoms)}%)
               </div>
             )}

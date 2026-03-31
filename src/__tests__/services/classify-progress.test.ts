@@ -258,8 +258,8 @@ describe('Classify progress + classify-runs endpoint', () => {
 
       // Totals
       expect(body.totals).toBeDefined()
-      expect(body.totals.messageAtoms).toBe(2)
-      expect(body.totals.newlyLabeled).toBe(2)
+      expect(body.totals.messageAtoms).toBe(1)
+      expect(body.totals.newlyLabeled).toBe(1)
 
       // Progress
       expect(body.progress).toBeDefined()
@@ -398,7 +398,7 @@ describe('Classify progress + classify-runs endpoint', () => {
     })
 
     it('returns persisted warning details while running and after completion', async () => {
-      const messages = Array.from({ length: 105 }, (_, i) => ({
+      const messages = Array.from({ length: 209 }, (_, i) => ({
         id: `msg-cr-warn-${i + 1}`,
         role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
         text: `warning message ${i + 1}`,
@@ -676,7 +676,7 @@ describe('Classify progress + classify-runs endpoint', () => {
       expect(cr).not.toBeNull()
       expect(cr!.status).toBe('succeeded')
       expect(cr!.processedAtoms).toBe(cr!.totalAtoms)
-      expect(cr!.processedAtoms).toBe(3)
+      expect(cr!.processedAtoms).toBe(2)
       expect(cr!.finishedAt).toBeTruthy()
     })
 
@@ -711,9 +711,9 @@ describe('Classify progress + classify-runs endpoint', () => {
       const res = await callGetClassifyRun(result.classifyRunId)
       const body = await res.json()
 
-      expect(body.usage.tokensIn).toBe(100) // 2 atoms x 50
-      expect(body.usage.tokensOut).toBe(40) // 2 atoms x 20
-      expect(body.usage.costUsd).toBeCloseTo(0.01) // 2 atoms x 0.005
+      expect(body.usage.tokensIn).toBe(50) // 1 user atom x 50
+      expect(body.usage.tokensOut).toBe(20) // 1 user atom x 20
+      expect(body.usage.costUsd).toBeCloseTo(0.005) // 1 user atom x 0.005
     })
 
     it('empty batch classifyRunId references a completed run with 0 atoms', async () => {

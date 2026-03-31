@@ -173,7 +173,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [x] Day list + atom panel support clear active state and count visibility.
 - [x] Top context bar includes: batch filename, source, coverage, selected day, source filter.
 - [x] Source filter has clear/reset affordance.
-- [x] Atom cards maintain compact metadata row (time, role, source, category/confidence).
+- [x] Atom cards maintain compact metadata row (time, role, source, category/confidence for USER atoms).
+- [x] Assistant atoms remain visible in the inspector but appear unlabeled even if legacy assistant labels exist in storage.
 - [x] Empty day/empty filter states include a recoverable next step.
 - [x] Keep manual navigation links to Dashboard and Search visible.
 
@@ -185,7 +186,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ### Requirements
 - [x] Top status rail includes run status badge, progress counters, and primary controls.
 - [x] Tick, reset, resume/cancel style controls are grouped and clearly state side effects.
-- [x] Last classify stats card includes status, processed/total, percent, error summary, refresh.
+- [x] Last classify stats card includes status, processed USER atoms/total USER atoms, percent, error summary, refresh.
 - [x] Frozen config remains visible but collapsible after first view.
   - Multi-batch runs: Run Info section shows list of batch IDs/filenames instead of single "Import Batch" line.
 - [x] Jobs table defaults to compact rows; heavy inspectors are progressive disclosure.
@@ -236,8 +237,8 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 ## 6) Long-Running Operations UX
 
 ### Classification progress
-- [x] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error).
-- [x] Show processed/total and percent whenever `status=running`.
+- [x] Source of truth: `ClassifyRun` (`status`, `processedAtoms`, `totalAtoms`, counters, error), where progress/counters refer to USER atoms only.
+- [x] Show processed USER atoms/total USER atoms and percent whenever `status=running`.
 - [x] Show latest checkpoint timestamp (`updatedAt` or equivalent) when available.
 - [x] Show the prompt name/version used by the current classify run wherever classify status is displayed.
 - [x] Explain that skipped bad outputs are invalid model responses (JSON/category/confidence validation failures), not silent data loss.
@@ -271,7 +272,7 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 
 ## 7.1 Dashboard
 - [ ] Select a batch and verify batch summary updates immediately.
-- [ ] Trigger classify and verify running progress is visible with processed/total + %.
+- [ ] Trigger classify and verify running progress is visible with processed USER atoms/total USER atoms + %.
 - [ ] Click Refresh and confirm stats update without page reload.
 - [ ] Validate create-run disabled reasons are explicit and actionable.
 - [ ] Create run and confirm direct navigation to run detail.
@@ -286,12 +287,13 @@ Derived from current `src/app/distill/**` code plus provided old-UI screenshots.
 - [ ] Open without batch param; select batch; confirm URL is updated.
 - [ ] Select day and source filter; confirm context bar and atom counts stay accurate.
 - [ ] Clear source filter; confirm recovery path and atom list refresh.
+- [ ] Confirm assistant atoms remain visible but show no category/confidence, even if legacy assistant labels exist.
 - [ ] Verify empty states are actionable (not dead ends).
 
 ## 7.4 Run Detail
 - [ ] Verify top status rail reflects live run state and available controls.
 - [ ] Use Tick; verify 1:1 action and result feedback.
-- [ ] Verify last classify card shows status + progress + refresh.
+- [ ] Verify last classify card shows status + USER-atom progress + refresh.
 - [ ] Expand a job inspector and confirm table remains readable.
 - [ ] Verify failed states show code, message, and a next step.
 - [ ] Start auto-run; verify sequential tick calls with visible progress updates.
