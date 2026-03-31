@@ -2068,3 +2068,17 @@ Append-only rule: keep moved blocks verbatim and add newer moves at the end.
   - Weak placeholder real-classify prompts are rejected by prompt-default assignment and classify runtime validation with clear reasons.
   - `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Resolution**: Hardened `getPromptSlotCompatibility()` to enforce seeded-template integrity for canonical seeded versions across `CLASSIFY_STUB`, `CLASSIFY_REAL`, `SUMMARIZE`, and `REDACT`, and updated `validateClassifyRealTemplate()` plus `classifyBatch()` to share the stricter real-classify contract: JSON-only output instructions, explicit `category`/`confidence` constraints, and the full allowed taxonomy. Prompt manager/read surfaces now expose seeded-drift and structural compatibility reasons consistently, `POST /api/distill/prompt-defaults/:slot` rejects weak or drifted defaults, and the repaired seed path plus full repo validation are green. Verified with `npm run db:seed`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1035` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).
+
+### AUD-125 — Classification must operate on USER atoms only
+- **Type**: Contract alignment
+- **Decision**: Fix code
+- **Status**: Done
+- **Goal**: Make classification and classify-facing label surfaces operate on `role=USER` atoms only while keeping assistant text visible for audit/search.
+- **Touch set**: `src/lib/services/classify.ts`, search/import-inspector read services and routes, dashboard/run detail/demo classify-status copy, `SPEC.md`, `UX_SPEC.md`, targeted tests; no schema changes or API shape changes.
+- **Acceptance**:
+  - Classification counts, fetches, skip math, and persisted totals operate only on `role=USER` atoms in scope.
+  - Assistant-only batches/classify runs succeed with zero totals and zero new labels, and legacy assistant labels do not affect rerun math.
+  - Import inspector and raw search still show assistant text, but assistant atoms always surface `category: null` and `confidence: null`; category-filtered raw search excludes assistant hits.
+  - Dashboard, run detail, and `/demo` classify status copy explicitly refers to user atoms.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Resolution**: [PR #13](https://github.com/jordan-gilfillan/eigenfield/pull/13) restricted classification to USER atoms for counts, fetches, skip math, progress, and real-model payloads while preserving assistant atoms in storage for audit/debug. Import inspector and raw search now keep assistant text visible but suppress assistant `category`/`confidence`, and category-filtered raw search excludes assistant hits. Dashboard, run detail, and `/demo` classify copy now refers explicitly to user atoms, and `SPEC.md` plus `UX_SPEC.md` were updated to match the new contract. Verified with `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` (`80` files, `1040` tests; lint passes with 18 existing warnings, and build still includes the known `AUD-100` SWC warning).
