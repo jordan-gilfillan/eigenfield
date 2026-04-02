@@ -25,6 +25,7 @@ Each entry has:
 
 - **P0 (Red build / integrity):** _none listed_
 - **P1 (Contract alignment):** AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`, upstream dependency); AUD-112 — Run detail export default path duplicates export root (`Not started`); AUD-113 — Search output deep link ignores requested day context (`Not started`); AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
+- **P2 (Fresh-start implementation):** AUD-125 — Journal Mirror v1 minimal implementation slice (`Not started`)
 - **P2 (Blocked follow-ons):** AUD-110 → AUD-111 (`Blocked` until a fresh auth/tenant planning checkpoint after AUD-109)
 
 _Last refreshed: 2026-03-30_
@@ -47,6 +48,7 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 - AUD-112 — Run detail export default path duplicates export root (`Not started`)
 - AUD-113 — Search output deep link ignores requested day context (`Not started`)
 - AUD-114 — Classify progress surfaces must use `classifyRunId` instead of “last classify” (`Not started`)
+- AUD-125 — Journal Mirror v1 minimal implementation slice (`Not started`)
 - AUD-100 — Track upstream Next/SWC mismatch warning (`Blocked`)
 
 ### Blocked follow-ons
@@ -83,6 +85,7 @@ This ledger is the canonical remediation record. Size is not a problem; **day-to
 ### Bucket D — UX roadmap gaps (P2 unless explicitly promoted)
 - AUD-110
 - AUD-111
+- AUD-125
 
 ---
 
@@ -276,6 +279,20 @@ These are not necessarily code bugs, but they create recurring audit noise.
   - Multi-batch runs do not collapse to the first batch when showing classify status.
   - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
 - **Notes**: Prefer the existing `GET /api/distill/classify-runs/:id` contract over adding new polling semantics.
+
+### AUD-125 — Journal Mirror v1 minimal implementation slice
+- **Type**: UX roadmap
+- **Decision**: Fix code
+- **Status**: Not started
+- **Goal**: Ship the smallest end-to-end Journal Mirror v1 loop: ask one question against a curated corpus and return a grounded answer with inspectable citations.
+- **Touch set**: parser/normalize/stable-id modules only as needed, one minimal retrieval path, one answer route, one single-page ask/evidence UI, targeted tests. No run/job orchestration, no prompt manager, no admin/studio surfaces.
+- **Acceptance**:
+  - Curator can ingest curated archive input via foreground command/script with deterministic normalized records.
+  - User can ask a question in one UI surface and receive an answer that includes 2-5 inspectable excerpts with source metadata.
+  - Retrieval and citation behavior is deterministic enough for tests (stable ordering/selection under fixed fixtures).
+  - No new background jobs, schedulers, or generalized workflow abstractions are introduced.
+  - `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npx vitest run` pass.
+- **Notes**: Prefer hardcoded defaults for v1 (single corpus, single retrieval strategy, single answer prompt). If scope expands beyond the listed loop, stop and create a follow-on AUD.
 
 - AUD-117 — Canonical default classify prompt selection → moved to REMEDIATION_ARCHIVE.md
 - AUD-118 — Durable classify bad-output diagnostics → moved to REMEDIATION_ARCHIVE.md
